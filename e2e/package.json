@@ -1,0 +1,21 @@
+{
+  "name": "windshift-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "bun --bun playwright test",
+    "test:headed": "bun --bun playwright test --headed",
+    "test:debug": "bun --bun playwright test --debug",
+    "test:ui": "bun --bun playwright test --ui",
+    "test:report": "bun --bun playwright show-report",
+    "test:suite-boundaries": "bun scripts/check-suite-boundaries.mjs",
+    "test:result-policy": "bun test helpers/result-policy-reporter.test.mjs",
+    "test:selector-policy": "bun test helpers/selector-policy.test.mjs && bun scripts/check-stable-selectors.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.49.0",
+    "typescript": "^5.7.0"
+  }
+}

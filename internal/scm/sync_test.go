@@ -1,0 +1,329 @@
+package scm
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"windshift/internal/models"
+)
+
+// fakeProvider is a minimal Provider implementation used to drive
+// pagination tests without any database or network dependency. Only the
+// methods exercised by tests are populated; the rest panic to surface
+// accidental calls. fakeProvider also satisfies RefProvider so the
+// tag/release-branch sync paths can be exercised in isolation.
+type fakeProvider struct {
+	pages          [][]PullRequest
+	pageRequests   []int // recorded Page values from each ListPullRequests call
+	branches       []Branch
+	pullRequest    *PullRequest
+	pullRequestErr error
+
+	// RefProvider state.
+	tags          []Tag                  // returned by ListTags, filtered by since
+	compareByPair map[[2]string][]Commit // key = [base, head]
+	tagSinceCalls []time.Time            // recorded `since` values from ListTags
+	compareCalls  [][2]string            // recorded [base, head] pairs
+}
+
+func (f *fakeProvider) GetType() models.SCMProviderType        { return models.SCMProviderTypeGitHub }
+func (f *fakeProvider) TestConnection(_ context.Context) error { return nil }
+func (f *fakeProvider) ListRepositories(_ context.Context, _ ListRepositoriesOptions) ([]Repository, error) {
+	panic("ListRepositories not implemented for fakeProvider")
+}
+func (f *fakeProvider) GetRepository(_ context.Context, _, _ string) (*Repository, error) {
+	panic("GetRepository not implemented for fakeProvider")
+}
+func (f *fakeProvider) ListPullRequests(_ context.Context, _, _ string, opts ListPROptions) ([]PullRequest, error) {
+	f.pageRequests = append(f.pageRequests, opts.Page)
+	idx := opts.Page - 1
+	if idx < 0 || idx >= len(f.pages) {
+		return nil, nil
+	}
+	return f.pages[idx], nil
+}
+func (f *fakeProvider) GetPullRequest(_ context.Context, _, _ string, _ int) (*PullRequest, error) {
+	if f.pullRequestErr != nil {
+		return nil, f.pullRequestErr
+	}
+	if f.pullRequest == nil {
+		panic("GetPullRequest not implemented for fakeProvider")
+	}
+	return f.pullRequest, nil
+}
+func (f *fakeProvider) ListPullRequestCommits(_ context.Context, _, _ string, _ int) ([]Commit, error) {
+	panic("ListPullRequestCommits not implemented for fakeProvider")
+}
+func (f *fakeProvider) CreateBranch(_ context.Context, _, _, _, _ string) error {
+	panic("CreateBranch not implemented for fakeProvider")
+}
+func (f *fakeProvider) CreatePullRequest(_ context.Context, _, _ string, _ CreatePROptions) (*PullRequest, error) {
+	panic("CreatePullRequest not implemented for fakeProvider")
+}
+func (f *fakeProvider) GetCommit(_ context.Context, _, _, _ string) (*Commit, error) {
+	panic("GetCommit not implemented for fakeProvider")
+}
+func (f *fakeProvider) ListBranches(_ context.Context, _, _ string) ([]Branch, error) {
+	return f.branches, nil
+}
+func (f *fakeProvider) RegisterWebhook(_ context.Context, _, _ string, _ WebhookOptions) (*WebhookRegistration, error) {
+	panic("RegisterWebhook not implemented for fakeProvider")
+}
+func (f *fakeProvider) DeleteWebhook(_ context.Context, _, _, _ string) error {
+	panic("DeleteWebhook not implemented for fakeProvider")
+}
+
+// ListTags + CompareCommits implement RefProvider for tests of the
+// tag/release-branch sync path. Both honor the recorded-input fields so
+// tests can assert on what arguments the sync layer passed through.
+func (f *fakeProvider) ListTags(_ context.Context, _, _ string, since time.Time) ([]Tag, error) {
+	f.tagSinceCalls = append(f.tagSinceCalls, since)
+	if since.IsZero() {
+		out := make([]Tag, len(f.tags))
+		copy(out, f.tags)
+		return out, nil
+	}
+	var out []Tag
+	for _, t := range f.tags {
+		if t.CreatedAt.IsZero() || !t.CreatedAt.Before(since) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+func (f *fakeProvider) CompareCommits(_ context.Context, _, _, base, head string) ([]Commit, error) {
+	f.compareCalls = append(f.compareCalls, [2]string{base, head})
+	if f.compareByPair == nil {
+		return nil, nil
+	}
+	commits := f.compareByPair[[2]string{base, head}]
+	out := make([]Commit, len(commits))
+	copy(out, commits)
+	return out, nil
+}
+
+// Compile-time check that fakeProvider implements RefProvider.
+var _ RefProvider = (*fakeProvider)(nil)
+
+// makePRs builds n PullRequests with UpdatedAt walking back one hour per
+// step from start. Useful for exercising the cutoff branch.
+func makePRs(n int, startNumber int, start time.Time) []PullRequest {
+	out := make([]PullRequest, n)
+	for i := 0; i < n; i++ {
+		out[i] = PullRequest{
+			Number:    startNumber + i,
+			State:     "open",
+			UpdatedAt: start.Add(-time.Duration(i) * time.Hour),
+		}
+	}
+	return out
+}
+
+func TestIteratePullRequests_PaginatesUntilLastPage(t *testing.T) {
+	now := time.Now()
+	p := &fakeProvider{
+		pages: [][]PullRequest{
+			makePRs(syncPRsPerPage, 1, now),
+			makePRs(syncPRsPerPage, syncPRsPerPage+1, now.Add(-100*time.Hour)),
+			makePRs(50, 2*syncPRsPerPage+1, now.Add(-200*time.Hour)),
+		},
+	}
+
+	var seen []int
+	err := iteratePullRequests(context.Background(), p, "o", "r", time.Time{}, syncMaxPRs, func(pr PullRequest) error {
+		seen = append(seen, pr.Number)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got, want := len(seen), 2*syncPRsPerPage+50; got != want {
+		t.Fatalf("processed %d PRs, want %d", got, want)
+	}
+	if got, want := len(p.pageRequests), 3; got != want {
+		t.Fatalf("requested %d pages, want %d", got, want)
+	}
+}
+
+func TestIteratePullRequests_StopsAtMax(t *testing.T) {
+	now := time.Now()
+	// Three full pages available, but max should cap us mid-page-2.
+	p := &fakeProvider{
+		pages: [][]PullRequest{
+			makePRs(syncPRsPerPage, 1, now),
+			makePRs(syncPRsPerPage, syncPRsPerPage+1, now.Add(-100*time.Hour)),
+			makePRs(syncPRsPerPage, 2*syncPRsPerPage+1, now.Add(-200*time.Hour)),
+		},
+	}
+
+	max := syncPRsPerPage + 50
+	var seen []int
+	err := iteratePullRequests(context.Background(), p, "o", "r", time.Time{}, max, func(pr PullRequest) error {
+		seen = append(seen, pr.Number)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := len(seen); got != max {
+		t.Fatalf("processed %d PRs, want %d", got, max)
+	}
+	// We should have requested exactly 2 pages (page 1 fills, page 2 partial then stop).
+	if got, want := len(p.pageRequests), 2; got != want {
+		t.Fatalf("requested %d pages, want %d", got, want)
+	}
+}
+
+func TestIteratePullRequests_StopsAtLookbackCutoff(t *testing.T) {
+	now := time.Now()
+	lastSync := now.Add(-1 * time.Hour) // cutoff = lastSync - 7d
+
+	// Page 1: PRs from now back to now-99h (all newer than cutoff).
+	// Page 2: PRs from now-100h back to now-199h. Cutoff is at -169h
+	// (lastSync minus 7*24h = -1h - 168h = -169h), so PRs at index 70+
+	// on page 2 fall before cutoff.
+	p := &fakeProvider{
+		pages: [][]PullRequest{
+			makePRs(syncPRsPerPage, 1, now),
+			makePRs(syncPRsPerPage, syncPRsPerPage+1, now.Add(-100*time.Hour)),
+			makePRs(syncPRsPerPage, 2*syncPRsPerPage+1, now.Add(-200*time.Hour)),
+		},
+	}
+
+	var seen []int
+	err := iteratePullRequests(context.Background(), p, "o", "r", lastSync, syncMaxPRs, func(pr PullRequest) error {
+		seen = append(seen, pr.Number)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	// Cutoff = -169h. Page 1 entries span 0..-99h (all kept). Page 2
+	// entries span -100h..-199h; the first PR at -169h or later passes,
+	// the rest don't. Specifically: page2[0] = -100h, page2[68] = -168h,
+	// page2[69] = -169h, page2[70] = -170h (first to fail). So 100 + 70
+	// PRs survive; iteration stops before page 3 is requested.
+	if got, want := len(seen), syncPRsPerPage+70; got != want {
+		t.Fatalf("processed %d PRs, want %d (cutoff stop)", got, want)
+	}
+	if got, want := len(p.pageRequests), 2; got != want {
+		t.Fatalf("requested %d pages, want %d", got, want)
+	}
+}
+
+func TestIteratePullRequests_NoCutoffOnFirstSync(t *testing.T) {
+	// lastSyncedAt zero (never synced) — no cutoff applies even for
+	// PRs years old. Cap stops the walk.
+	now := time.Now()
+	old := now.Add(-365 * 24 * time.Hour)
+
+	p := &fakeProvider{
+		pages: [][]PullRequest{
+			makePRs(syncPRsPerPage, 1, old),
+			makePRs(syncPRsPerPage, syncPRsPerPage+1, old.Add(-100*time.Hour)),
+		},
+	}
+
+	var seen []int
+	err := iteratePullRequests(context.Background(), p, "o", "r", time.Time{}, syncMaxPRs, func(pr PullRequest) error {
+		seen = append(seen, pr.Number)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got, want := len(seen), 2*syncPRsPerPage; got != want {
+		t.Fatalf("processed %d PRs, want %d (no cutoff)", got, want)
+	}
+}
+
+func TestIteratePullRequests_PropagatesProviderError(t *testing.T) {
+	pe := &errorProvider{err: errors.New("boom")}
+	err := iteratePullRequests(context.Background(), pe, "o", "r", time.Time{}, syncMaxPRs, func(_ PullRequest) error { return nil })
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+// errorProvider always errors from ListPullRequests.
+type errorProvider struct {
+	fakeProvider
+	err error
+}
+
+func (e *errorProvider) ListPullRequests(_ context.Context, _, _ string, _ ListPROptions) ([]PullRequest, error) {
+	return nil, e.err
+}
+
+// TestSyncPerConnectionConcurrency_BoundsParallelism is a sanity check
+// that the package-level constant matches the bound used in the per-
+// connection worker pools. If the constant is renamed or its value
+// drifts the failure here will point a future maintainer at the right
+// place to look.
+func TestSyncPerConnectionConcurrency_BoundsParallelism(t *testing.T) {
+	if syncPerConnectionConcurrency < 1 || syncPerConnectionConcurrency > 16 {
+		t.Fatalf("syncPerConnectionConcurrency = %d is outside the sensible 1..16 range", syncPerConnectionConcurrency)
+	}
+}
+
+// TestSyncAllRepositories_SkipsWhenAlreadyRunning verifies the syncMu
+// TryLock guard: a second call while a first is in flight returns
+// immediately without touching the DB or provider state.
+func TestSyncAllRepositories_SkipsWhenAlreadyRunning(t *testing.T) {
+	s := &SyncService{}
+	s.syncMu.Lock() // simulate an in-flight run
+	defer s.syncMu.Unlock()
+
+	// Pass a nil context value tag-only — SyncAllRepositories must
+	// short-circuit on the lock guard before it touches s.db.
+	if err := s.SyncAllRepositories(context.Background()); err != nil {
+		t.Fatalf("expected nil err on skipped run, got %v", err)
+	}
+}
+
+func TestRefreshAllPRLinkStates_SkipsWhenAlreadyRunning(t *testing.T) {
+	s := &SyncService{}
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+
+	if err := s.RefreshAllPRLinkStates(context.Background()); err != nil {
+		t.Fatalf("expected nil err on skipped run, got %v", err)
+	}
+}
+
+func TestShouldRunSmartCommits(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	mergedNow := now.Add(-30 * time.Minute)
+	mergedLongAgo := now.Add(-90 * 24 * time.Hour)
+	mergedJustOutsideWindow := now.Add(-(smartCommitFirstSyncWindow + time.Hour))
+	mergedInsideWindow := now.Add(-(smartCommitFirstSyncWindow / 2))
+
+	cases := []struct {
+		name         string
+		mergedAt     *time.Time
+		lastSyncedAt time.Time
+		want         bool
+	}{
+		{"unmerged PR never qualifies", nil, time.Time{}, false},
+		{"unmerged PR even with lastSync", nil, now.Add(-time.Hour), false},
+
+		// First-sync (lastSyncedAt zero): only merges within window qualify.
+		{"first sync, merge inside window", &mergedInsideWindow, time.Time{}, true},
+		{"first sync, merge just outside window", &mergedJustOutsideWindow, time.Time{}, false},
+		{"first sync, very old merge", &mergedLongAgo, time.Time{}, false},
+
+		// Steady state: any merge after lastSyncedAt qualifies, regardless of age.
+		{"steady state, merge after lastSync", &mergedNow, now.Add(-time.Hour), true},
+		{"steady state, merge before lastSync", &mergedJustOutsideWindow, now.Add(-time.Hour), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pr := PullRequest{IsMerged: c.mergedAt != nil, MergedAt: c.mergedAt}
+			if got := shouldRunSmartCommits(pr, c.lastSyncedAt, now); got != c.want {
+				t.Fatalf("shouldRunSmartCommits = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

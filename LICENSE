@@ -1,0 +1,106 @@
+Windshift Test Suite License 1.0
+
+Copyright (c) 2026 the Windshift test suite copyright holders
+
+This license applies to the tests, fixtures, assertions, expected outputs,
+test-support code, and documentation in this repository (the "Test
+Materials"). Windshift Core itself is licensed separately under the GNU
+Affero General Public License, version 3.
+
+1. Definitions
+
+"Core Implementation" means software that implements all or a substantial
+part of the externally observable APIs, data model, user workflows, or
+behavior of Windshift Core, including a fork, rewrite, substitute, or
+competing implementation.
+
+"AGPL Implementation" means a Core Implementation for which the complete
+Corresponding Source, as that term is used in the GNU Affero General Public
+License version 3, is licensed under AGPL-3.0-only or AGPL-3.0-or-later and is
+made available as required by that license.
+
+"AI System" means a machine-learning model, generative model, automated coding
+system, or agentic system, whether operated locally or by a third party.
+
+2. Permission grant
+
+Subject to this license, each copyright holder grants you a worldwide,
+royalty-free, non-exclusive license to use, reproduce, inspect, modify, and
+distribute the Test Materials for these purposes:
+
+  a. testing, securing, evaluating, or contributing to Windshift Core;
+
+  b. testing, securing, evaluating, or developing an AGPL Implementation;
+
+  c. developing integrations, extensions, or interoperability with Windshift
+     Core that do not constitute a Core Implementation; and
+
+  d. research, education, and commentary that do not produce or improve a
+     non-AGPL Core Implementation.
+
+These permissions include using AI Systems to maintain the Test Materials,
+contribute to Windshift Core, or perform the permitted activities above.
+
+3. AI-assisted reimplementation restriction
+
+You may not provide, expose, upload, embed, index, retrieve, prompt with, train
+on, fine-tune on, benchmark against, evaluate with, or otherwise make the Test
+Materials available to an AI System for the purpose of creating, completing,
+improving, translating, validating, or evaluating a Core Implementation unless
+that implementation is an AGPL Implementation.
+
+You may not use the Test Materials, directly or through an AI System, to evade
+the license obligations of Windshift Core or to create a Core Implementation
+that is proprietary, source-available under different terms, or licensed under
+terms other than AGPL-3.0-only or AGPL-3.0-or-later.
+
+4. Redistribution and modifications
+
+You may distribute the Test Materials or modified Test Materials only if you:
+
+  a. provide the complete preferred form for modification;
+
+  b. license the Test Materials under this exact license, without additional
+     restrictions;
+
+  c. preserve copyright, attribution, and license notices; and
+
+  d. state significant modifications and their dates.
+
+You may not relicense the Test Materials. This section does not change the
+license of Windshift Core or require an independent integration to use this
+license.
+
+5. No trademark license
+
+This license does not grant permission to use the Windshift names, logos, or
+trademarks except as needed for accurate attribution or description.
+
+6. Termination
+
+Your rights under this license terminate automatically when you violate it.
+They are reinstated provisionally when you stop the violation, and permanently
+if the copyright holder does not notify you of the violation within 60 days
+after you stopped it. A copyright holder may permanently reinstate rights by
+written notice. Termination does not limit other remedies.
+
+7. Disclaimer of warranty and limitation of liability
+
+THE TEST MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT
+PERMITTED BY LAW, NO COPYRIGHT HOLDER OR CONTRIBUTOR IS LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY ARISING FROM THE TEST MATERIALS OR THEIR USE.
+
+8. Interpretation
+
+This license does not restrict rights that do not require permission under
+applicable law. If a provision is unenforceable, it shall be reformed only as
+much as necessary, and the remaining provisions continue in effect. Section 3
+is an express condition of the permission grant.
+
+This is a custom source-available license. It is not the GNU Affero General
+Public License and is not represented as an Open Source Initiative-approved
+license.
+
+SPDX-License-Identifier: LicenseRef-Windshift-Test-Suite-1.0

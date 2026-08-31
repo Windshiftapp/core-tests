@@ -1,0 +1,40 @@
+{
+  "go": {
+    "fast_packages": [
+      "internal/cql",
+      "internal/fileserve",
+      "internal/markdown",
+      "internal/testsummary",
+      "internal/utils"
+    ],
+    "complete": "all tracked internal/**/*_test.go and tests/**/*_test.go files"
+  },
+  "frontend": {
+    "fast": [
+      "frontend/src/lib/utils/actionUrl.test.js",
+      "frontend/src/lib/utils/authenticatedDateFormatter.test.js",
+      "frontend/src/lib/utils/backgroundSync.test.js",
+      "frontend/src/lib/utils/crossTabSync.test.js",
+      "frontend/src/lib/utils/customFieldLinks.test.js",
+      "frontend/src/lib/utils/dataTransformers.test.js",
+      "frontend/src/lib/utils/hierarchy.test.js",
+      "frontend/src/lib/utils/loginReturnPath.test.js",
+      "frontend/src/lib/utils/planningScope.test.js",
+      "frontend/src/lib/utils/progressChart.test.js",
+      "frontend/src/lib/utils/sanitize.test.ts",
+      "frontend/src/lib/utils/screenFields.test.js",
+      "frontend/src/lib/utils/serverClock.test.js",
+      "frontend/src/lib/utils/timeUtils.test.js"
+    ],
+    "complete": "all tracked frontend/src/**/*.{test,spec}.{js,ts} files"
+  },
+  "playwright": {
+    "fast": [
+      "e2e/tests/auth-lifecycles.spec.ts",
+      "e2e/tests/item-delete-feedback.spec.ts",
+      "e2e/tests/item-move-cross-workspace.spec.ts",
+      "e2e/tests/linked-test-case-permissions.spec.ts"
+    ],
+    "complete": "all tracked e2e/tests/*.spec.ts files"
+  }
+}

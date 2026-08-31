@@ -1,0 +1,24 @@
+# Test artifacts
+*.db
+*.db-shm
+*.db-wal
+*.out
+*.test
+*_server.log
+
+# Frontend
+frontend/coverage/
+frontend/node_modules/
+
+# Playwright
+e2e/.auth/
+e2e/.auth-*/
+e2e/e2e-summary*.json
+e2e/node_modules/
+e2e/playwright-report/
+e2e/playwright-report-*/
+e2e/test-results/
+e2e/test-results-*/
+
+# Local files
+.DS_Store

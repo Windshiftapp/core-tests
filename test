@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+core_dir="${CORE_DIR:-$repo_root/../core}"
+
+usage() {
+  cat <<'EOF'
+Run the Windshift Core test suite.
+
+Usage:
+  ./test [--core PATH] [command] [arguments]
+
+Commands:
+  quick                 Run policy checks and the fast Go and frontend suites (default)
+  policy                Check suite structure, boundaries, and selector rules
+  go [GO TEST ARGS]     Run all Go tests, or a focused package/test
+  frontend [VITEST ARGS]
+                        Run all frontend tests, or a focused test file
+  browser               Run the fast browser suite
+  browser --all         Run every browser spec
+  browser SPEC [ARGS]   Run one or more Playwright specs
+  all                   Run policy checks and every Go, frontend, and browser test
+  help                  Show this help
+
+Examples:
+  ./test
+  ./test go -run TestResolveWebAuthnRPID ./internal/config
+  ./test frontend src/lib/utils/dateFormatter.test.js
+  ./test browser tests/items.spec.ts
+  ./test --core ../core-worktree quick
+EOF
+}
+
+if [[ "${1:-}" == "--core" ]]; then
+  if [[ -z "${2:-}" ]]; then
+    echo "Error: --core requires a path" >&2
+    exit 2
+  fi
+  core_dir="$2"
+  shift 2
+fi
+
+command="${1:-quick}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "$command" in
+  policy|help|-h|--help) ;;
+  *)
+    if [[ ! -f "$core_dir/go.mod" ]]; then
+      echo "Error: Core checkout not found at $core_dir" >&2
+      echo "Place this repository beside Core, or pass --core /path/to/core." >&2
+      exit 2
+    fi
+    core_dir="$(cd "$core_dir" && pwd)"
+    ;;
+esac
+
+run_policy() {
+  "$repo_root/scripts/check-public-suite.mjs"
+  (
+    cd "$repo_root/e2e"
+    npm ci --ignore-scripts
+    bun --bun run test:result-policy
+    bun --bun run test:suite-boundaries
+    bun --bun run test:selector-policy
+  )
+}
+
+manifest_list() {
+  bun -e '
+    const manifest = await Bun.file(process.argv[1]).json();
+    for (const value of manifest[process.argv[2]][process.argv[3]]) console.log(value);
+  ' "$repo_root/suite-manifest.json" "$1" "$2"
+}
+
+run_quick_go() {
+  local packages=()
+  while IFS= read -r package; do
+    packages+=("./$package")
+  done < <(manifest_list go fast_packages)
+  "$repo_root/overlay.sh" "$core_dir" -- -tags=test -count=1 "${packages[@]}"
+}
+
+run_go() {
+  if [[ $# -eq 0 ]]; then
+    "$repo_root/overlay.sh" "$core_dir"
+  else
+    "$repo_root/overlay.sh" "$core_dir" -- -tags=test -count=1 "$@"
+  fi
+}
+
+run_frontend() {
+  "$repo_root/run-overlay-script.sh" "$core_dir" scripts/run-frontend.sh all "$@"
+}
+
+run_browser() {
+  if [[ "${1:-}" == "--all" ]]; then
+    shift
+    CORE_DIR="$core_dir" "$repo_root/run-e2e.sh" "$@"
+    return
+  fi
+  if [[ $# -gt 0 ]]; then
+    CORE_DIR="$core_dir" "$repo_root/run-e2e.sh" "$@"
+    return
+  fi
+  local specs=()
+  while IFS= read -r spec; do
+    specs+=("${spec#e2e/}")
+  done < <(manifest_list playwright fast)
+  CORE_DIR="$core_dir" "$repo_root/run-e2e.sh" "${specs[@]}"
+}
+
+case "$command" in
+  quick)
+    if [[ $# -ne 0 ]]; then
+      echo "Error: quick does not accept arguments" >&2
+      exit 2
+    fi
+    run_policy
+    run_quick_go
+    "$repo_root/run-overlay-script.sh" "$core_dir" scripts/run-frontend.sh quick
+    ;;
+  policy)
+    if [[ $# -ne 0 ]]; then
+      echo "Error: policy does not accept arguments" >&2
+      exit 2
+    fi
+    run_policy
+    ;;
+  go)
+    run_go "$@"
+    ;;
+  frontend)
+    run_frontend "$@"
+    ;;
+  browser)
+    run_browser "$@"
+    ;;
+  all)
+    if [[ $# -ne 0 ]]; then
+      echo "Error: all does not accept arguments" >&2
+      exit 2
+    fi
+    run_policy
+    run_go
+    run_frontend
+    run_browser --all
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Error: unknown command '$command'" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
+esac

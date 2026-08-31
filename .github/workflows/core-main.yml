@@ -1,0 +1,93 @@
+name: Core main compatibility
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-main-compatibility
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CI: "true"
+      E2E_FAIL_ON_UNEXPECTED_SKIP: "1"
+      E2E_FAIL_ON_RETRY: "1"
+      E2E_KEEP_ARTIFACTS: "1"
+    steps:
+      - name: Check out tests
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: core-tests
+
+      - name: Check out Core main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: Windshiftapp/core
+          ref: main
+          path: core
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: core/.nvmrc
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install Chromium
+        working-directory: core-tests/e2e
+        run: |
+          npm ci
+          bun --bun playwright install --with-deps chromium
+
+      - name: Install pinned Mailpit
+        run: ./core-tests/scripts/install-mailpit.sh ./core-tests/.bin/mailpit
+
+      - name: Run complete public suite
+        working-directory: core-tests
+        run: |
+          ./test --core ../core policy
+          ./test --core ../core go
+          ./test --core ../core frontend
+
+      - name: Run extended browser compatibility lane
+        working-directory: core-tests
+        env:
+          MAILPIT_BIN: ./.bin/mailpit
+          E2E_REQUIRE_MAILPIT: "1"
+        run: ./test --core ../core browser --all
+
+      - name: Run fresh-install persistence tests
+        working-directory: core-tests
+        env:
+          MAILPIT_BIN: ./.bin/mailpit
+          E2E_REQUIRE_MAILPIT: "1"
+        run: ./test --core ../core browser --all --fresh-setup
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: core-main-compatibility-failure
+          if-no-files-found: ignore
+          path: |
+            core/.e2e-server-*.log
+            core-tests/e2e/e2e-summary*.json
+            core-tests/e2e/playwright-report-*/
+            core-tests/e2e/test-results-*/

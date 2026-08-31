@@ -1,0 +1,35 @@
+//go:build test
+
+package logbookapi
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"windshift/internal/restapi"
+)
+
+func TestDecodeJSONOrRespondRejectsOversizedBody(t *testing.T) {
+	body := `{"value":"` + strings.Repeat("a", int(restapi.DefaultJSONRequestBodyLimit)) + `"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/logbook/example", strings.NewReader(body))
+	req.ContentLength = -1
+
+	var dst map[string]string
+	if decodeJSONOrRespond(rec, req, &dst) {
+		t.Fatal("decodeJSONOrRespond accepted an oversized request body")
+	}
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413 (body %q)", rec.Code, rec.Body.String())
+	}
+	var response restapi.ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Code != restapi.ErrCodeRequestTooLarge {
+		t.Fatalf("code = %q, want %q", response.Code, restapi.ErrCodeRequestTooLarge)
+	}
+}
