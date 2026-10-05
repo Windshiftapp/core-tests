@@ -2,6 +2,7 @@ package email
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -105,7 +106,11 @@ func TestTrackingPreclaimRecoversOnlyStaleIncompleteClaims(t *testing.T) {
 	}
 }
 
-func TestSenderThreadParticipationIsScopedToEmailChannel(t *testing.T) {
+// TestSenderThreadParticipationIsItemScoped pins the WI-1546 contract: the
+// thread belongs to the item, not to a channel, so a prior participant on the
+// item's thread authorizes regardless of which channel their messages used,
+// while a participant on some other item's thread does not.
+func TestSenderThreadParticipationIsItemScoped(t *testing.T) {
 	db := newProcessorRegressionTestDB(t)
 	insertChannel := func(name string) int {
 		t.Helper()
@@ -121,7 +126,7 @@ func TestSenderThreadParticipationIsScopedToEmailChannel(t *testing.T) {
 	firstChannelID := insertChannel("First mailbox")
 	secondChannelID := insertChannel("Second mailbox")
 
-	var workspaceID, itemID int
+	var workspaceID, itemID, otherItemID int
 	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Thread', 'THR') RETURNING id`).Scan(&workspaceID); err != nil {
 		t.Fatalf("insert workspace: %v", err)
 	}
@@ -131,27 +136,146 @@ func TestSenderThreadParticipationIsScopedToEmailChannel(t *testing.T) {
 	`, workspaceID, firstChannelID, testutils.NextTestFracIndex()).Scan(&itemID); err != nil {
 		t.Fatalf("insert item: %v", err)
 	}
+	if err := db.QueryRow(`
+		INSERT INTO items (workspace_id, workspace_item_number, title, channel_id, frac_index)
+		VALUES (?, 2, 'Other item', ?, ?) RETURNING id
+	`, workspaceID, secondChannelID, testutils.NextTestFracIndex()).Scan(&otherItemID); err != nil {
+		t.Fatalf("insert other item: %v", err)
+	}
+	// Sender last participated on a different email channel than the item's.
 	if _, err := db.ExecWrite(`
 		INSERT INTO email_message_tracking
 			(channel_id, message_id, dedup_key, from_email, item_id)
 		VALUES (?, '<other-channel@example.com>', '<other-channel@example.com>', 'sender@example.com', ?)
 	`, secondChannelID, itemID); err != nil {
-		t.Fatalf("insert other-channel participant: %v", err)
+		t.Fatalf("insert cross-channel participant: %v", err)
 	}
 
 	processor := NewProcessor(db, "")
-	if processor.senderIsThreadParticipant(context.Background(), itemID, firstChannelID, "sender@example.com") {
-		t.Fatal("participation in a different email channel authorized this thread")
+	if !processor.senderIsThreadParticipant(context.Background(), itemID, "sender@example.com") {
+		t.Fatal("participant on the item's thread (other channel) was not authorized")
 	}
+	// Participation on a different item authorizes nothing on this one.
+	if processor.senderIsThreadParticipant(context.Background(), otherItemID, "sender@example.com") {
+		t.Fatal("participation on another item's thread authorized this item")
+	}
+	// Unknown senders stay rejected.
+	if processor.senderIsThreadParticipant(context.Background(), itemID, "stranger@example.com") {
+		t.Fatal("unknown sender was authorized")
+	}
+}
+
+// TestSenderThreadParticipationAcceptsExternalParticipant proves WI-1136: an
+// explicitly added external participant can reply by email to the item's
+// thread, and only to that item.
+func TestSenderThreadParticipationAcceptsExternalParticipant(t *testing.T) {
+	db := newProcessorRegressionTestDB(t)
+	var workspaceID, itemID, otherItemID int
+	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Participants', 'PRT') RETURNING id`).Scan(&workspaceID); err != nil {
+		t.Fatalf("insert workspace: %v", err)
+	}
+	if err := db.QueryRow(`
+		INSERT INTO items (workspace_id, workspace_item_number, title, frac_index)
+		VALUES (?, 1, 'Participant item', ?) RETURNING id
+	`, workspaceID, testutils.NextTestFracIndex()).Scan(&itemID); err != nil {
+		t.Fatalf("insert item: %v", err)
+	}
+	if err := db.QueryRow(`
+		INSERT INTO items (workspace_id, workspace_item_number, title, frac_index)
+		VALUES (?, 2, 'Other item', ?) RETURNING id
+	`, workspaceID, testutils.NextTestFracIndex()).Scan(&otherItemID); err != nil {
+		t.Fatalf("insert other item: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`
+		INSERT INTO portal_customers (name, email, created_via)
+		VALUES ('Participant', 'participant@example.com', 'agent') RETURNING id
+	`).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if _, err := db.ExecWrite(`INSERT INTO item_participants (item_id, portal_customer_id) VALUES (?, ?)`, itemID, customerID); err != nil {
+		t.Fatalf("insert participant: %v", err)
+	}
+
+	processor := NewProcessor(db, "")
+	if !processor.senderIsThreadParticipant(context.Background(), itemID, "PARTICIPANT@example.com") {
+		t.Fatal("external participant was not authorized to reply")
+	}
+	if processor.senderIsThreadParticipant(context.Background(), otherItemID, "participant@example.com") {
+		t.Fatal("participant on another item authorized this item")
+	}
+	if processor.senderIsThreadParticipant(context.Background(), itemID, "stranger@example.com") {
+		t.Fatal("unknown sender was authorized")
+	}
+}
+
+// TestFindParentItemRoutesPortalReplyAcrossChannels is the WI-1546 loop: a
+// portal ticket's synthetic anchor was minted on the portal channel; the
+// customer replies by email to the notification, so the message arrives on the
+// email intake channel quoting the anchor. Matching must find the portal item,
+// and the creator must be recognized without any prior tracked message.
+func TestFindParentItemRoutesPortalReplyAcrossChannels(t *testing.T) {
+	db := newProcessorRegressionTestDB(t)
+	var workspaceID int
+	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Portal loop', 'PLP') RETURNING id`).Scan(&workspaceID); err != nil {
+		t.Fatalf("insert workspace: %v", err)
+	}
+	var portalChannelID, emailChannelID int
+	if err := db.QueryRow(`INSERT INTO channels (name, type, direction) VALUES ('Portal', 'portal', 'inbound') RETURNING id`).Scan(&portalChannelID); err != nil {
+		t.Fatalf("insert portal channel: %v", err)
+	}
+	if err := db.QueryRow(`INSERT INTO channels (name, type, direction) VALUES ('Mailbox', 'email', 'inbound') RETURNING id`).Scan(&emailChannelID); err != nil {
+		t.Fatalf("insert email channel: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`INSERT INTO portal_customers (name, email) VALUES ('Customer', 'customer@example.com') RETURNING id`).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var itemID int
+	if err := db.QueryRow(`
+		INSERT INTO items (workspace_id, workspace_item_number, title, channel_id, creator_portal_customer_id, frac_index)
+		VALUES (?, 1, 'Portal request', ?, ?, ?) RETURNING id
+	`, workspaceID, portalChannelID, customerID, testutils.NextTestFracIndex()).Scan(&itemID); err != nil {
+		t.Fatalf("insert portal item: %v", err)
+	}
+	// The synthetic thread anchor minted at submission (slice 1).
+	anchorID := fmt.Sprintf("<ws-item-%d@windshift.local>", itemID)
 	if _, err := db.ExecWrite(`
 		INSERT INTO email_message_tracking
-			(channel_id, message_id, dedup_key, from_email, item_id)
-		VALUES (?, '<same-channel@example.com>', '<same-channel@example.com>', 'sender@example.com', ?)
-	`, firstChannelID, itemID); err != nil {
-		t.Fatalf("insert same-channel participant: %v", err)
+			(channel_id, message_id, dedup_key, from_email, item_id, direction)
+		VALUES (?, ?, ?, '', ?, 'outbound')
+	`, portalChannelID, anchorID, anchorID, itemID); err != nil {
+		t.Fatalf("insert anchor: %v", err)
 	}
-	if !processor.senderIsThreadParticipant(context.Background(), itemID, firstChannelID, "sender@example.com") {
-		t.Fatal("same-channel participant was not authorized")
+
+	processor := NewProcessor(db, "")
+	parent := processor.findParentItem(context.Background(), &ParsedEmail{
+		InReplyTo: anchorID,
+		From:      EmailAddress{Address: "customer@example.com"},
+	})
+	if parent == nil || *parent != itemID {
+		t.Fatalf("portal reply parent = %v, want %d", parent, itemID)
+	}
+
+	// A stranger quoting the leaked anchor must not land on the ticket.
+	if strangerParent := processor.findParentItem(context.Background(), &ParsedEmail{
+		InReplyTo: anchorID,
+		From:      EmailAddress{Address: "stranger@example.com"},
+	}); strangerParent != nil {
+		t.Fatalf("stranger reply matched item %d; hijack guard failed", *strangerParent)
+	}
+
+	// A participant of the email conversation (an outbound notice recipient is
+	// recorded under their from_email) may also append.
+	if _, err := db.ExecWrite(`
+		INSERT INTO email_message_tracking
+			(channel_id, message_id, dedup_key, from_email, item_id, direction)
+		VALUES (?, '<notice@example.com>', '<notice@example.com>', 'customer@example.com', ?, 'outbound')
+	`, emailChannelID, itemID); err != nil {
+		t.Fatalf("insert participant row: %v", err)
+	}
+	if !processor.senderIsThreadParticipant(context.Background(), itemID, "customer@example.com") {
+		t.Fatal("thread participant lost authorization after channel change")
 	}
 }
 
@@ -178,7 +302,7 @@ func TestFindParentItemAcceptsLegacyBareMessageID(t *testing.T) {
 		t.Fatalf("insert legacy tracking: %v", err)
 	}
 
-	parent := NewProcessor(db, "").findParentItem(context.Background(), channelID, &ParsedEmail{
+	parent := NewProcessor(db, "").findParentItem(context.Background(), &ParsedEmail{
 		InReplyTo: "<legacy@example.com>",
 		From:      EmailAddress{Address: "sender@example.com"},
 	})

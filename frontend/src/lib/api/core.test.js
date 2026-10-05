@@ -137,7 +137,11 @@ describe('fetchAPI — error mapping', () => {
           status: 400,
           statusText: 'Bad Request',
           body: JSON.stringify({
-            error: { code: 'invalid_request', message: 'page is out of range', details: { field: 'page' } },
+            error: {
+              code: 'invalid_request',
+              message: 'page is out of range',
+              details: { field: 'page' },
+            },
             request_id: 'req-v2',
           }),
         })
@@ -467,7 +471,7 @@ describe('fetchAPI — network and timeout errors', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  test('treats a hidden-document TypeError as navigation cancellation', async () => {
+  test('preserves network errors in a hidden live document', async () => {
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -476,7 +480,10 @@ describe('fetchAPI — network and timeout errors', () => {
     global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
 
     try {
-      await expect(fetchAPI('/items')).rejects.toMatchObject({ name: 'AbortError' });
+      await expect(fetchAPI('/items')).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        status: 0,
+      });
     } finally {
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
@@ -555,9 +562,7 @@ describe('fetchAPI — administration UI refresh signaling', () => {
       window.history.replaceState({}, '', '/');
     }
 
-    expect(events).toEqual([
-      { endpoint: '/admin/llm-connections', method: 'POST' },
-    ]);
+    expect(events).toEqual([{ endpoint: '/admin/llm-connections', method: 'POST' }]);
   });
 
   test('supports admin routes below a configured context path', async () => {

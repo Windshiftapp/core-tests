@@ -17,10 +17,10 @@ describe('normalizeItemEventStreamID', () => {
 });
 
 describe('createConnectionReconcileTracker', () => {
-  it('does not reconcile the initial healthy connection', () => {
+  it('reconciles the initial connection to cover changes before subscription', () => {
     const tracker = createConnectionReconcileTracker();
 
-    expect(tracker.markConnected()).toBe(false);
+    expect(tracker.markConnected()).toBe(true);
   });
 
   it('reconciles after a connected stream disconnects', () => {

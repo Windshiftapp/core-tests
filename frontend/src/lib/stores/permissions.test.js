@@ -40,6 +40,7 @@ beforeEach(() => {
   authStore.set({ currentUser: null });
   permissionStore.clear();
   permissionStore.setHasAssetSets(false);
+  permissionStore.setHasPortals(false);
   permissionStore.setHasActivePortals(false);
   permissionStore.setManagesChannels(false);
   permissionStore.setLogbookAvailable(false);
@@ -90,32 +91,39 @@ describe('canAccessAdmin', () => {
 
 describe('canAccessCustomers', () => {
   test('false when no user', () => {
-    permissionStore.setHasActivePortals(true);
+    permissionStore.setHasPortals(true);
     expect(get(permissionStore).canAccessCustomers).toBe(false);
   });
 
-  test('false when no active portals (even for system admin)', () => {
+  test('false when no portal exists at all (even for system admin)', () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: true } });
-    permissionStore.setHasActivePortals(false);
+    permissionStore.setHasPortals(false);
     expect(get(permissionStore).canAccessCustomers).toBe(false);
   });
 
-  test('true for system admin when portals are active', () => {
+  test('true for system admin when a portal exists', () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: true } });
-    permissionStore.setHasActivePortals(true);
+    permissionStore.setHasPortals(true);
     expect(get(permissionStore).canAccessCustomers).toBe(true);
   });
 
-  test('false for non-admin without customers.manage even with portals active', async () => {
+  test('true for system admin when every portal is disabled but one exists', () => {
+    authStore.set({ currentUser: { id: 1, is_system_admin: true } });
+    permissionStore.setHasPortals(true);
+    permissionStore.setHasActivePortals(false);
+    expect(get(permissionStore).canAccessCustomers).toBe(true);
+  });
+
+  test('false for non-admin without customers.manage even when a portal exists', async () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
-    permissionStore.setHasActivePortals(true);
+    permissionStore.setHasPortals(true);
     // No permission keys loaded.
     expect(get(permissionStore).canAccessCustomers).toBe(false);
   });
 
-  test('true for non-admin with customers.manage when portals are active', async () => {
+  test('true for non-admin with customers.manage when a portal exists', async () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
-    permissionStore.setHasActivePortals(true);
+    permissionStore.setHasPortals(true);
     api.permissions.getUserPermissions.mockResolvedValueOnce({
       global_permissions: ['customers.manage'],
     });

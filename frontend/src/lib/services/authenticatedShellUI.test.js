@@ -14,7 +14,7 @@ vi.mock('../stores/aiStore.svelte.js', () => ({
   aiStore: { hydrate: vi.fn() },
 }));
 vi.mock('../stores/capabilities.svelte.js', () => ({
-  capabilitiesStore: { hydrate: vi.fn() },
+  capabilitiesStore: { hydrate: vi.fn(), failHydration: vi.fn() },
 }));
 vi.mock('../stores/logbook.svelte.js', () => ({
   logbookStore: { hydrateAvailability: vi.fn() },
@@ -30,6 +30,7 @@ vi.mock('../stores/permissions.svelte.js', () => ({
     setLogbookAvailable: vi.fn(),
     setHasAssetSets: vi.fn(),
     setHasActivePortals: vi.fn(),
+    setHasPortals: vi.fn(),
     setManagesChannels: vi.fn(),
   },
 }));
@@ -56,7 +57,9 @@ import { workspaceDataStore } from '../stores/workspaceDataStore.svelte.js';
 import { workspacesStore } from '../stores/workspaces.svelte.js';
 import {
   hydrateAuthenticatedShellUI,
+  loadAuthenticatedShellUI,
   refreshAuthenticatedShellUI,
+  resetAuthenticatedShellUILoad,
 } from './authenticatedShellUI.js';
 
 const snapshot = {
@@ -68,6 +71,7 @@ const snapshot = {
     logbook_available: true,
   },
   has_asset_sets: true,
+  has_portals: true,
   has_active_portals: false,
   manages_channels: true,
   work_item_staleness: { stale_after_days: 30 },
@@ -93,6 +97,7 @@ describe('authenticated shell UI refresh', () => {
     expect(workItemStalenessSettings.hydrate).toHaveBeenCalledWith(snapshot.work_item_staleness);
     expect(permissionStore.setLogbookAvailable).toHaveBeenCalledWith(true);
     expect(permissionStore.setHasAssetSets).toHaveBeenCalledWith(true);
+    expect(permissionStore.setHasPortals).toHaveBeenCalledWith(true);
     expect(permissionStore.setHasActivePortals).toHaveBeenCalledWith(false);
     expect(permissionStore.setManagesChannels).toHaveBeenCalledWith(true);
   });
@@ -106,5 +111,83 @@ describe('authenticated shell UI refresh', () => {
     expect(workspaceDataStore.refresh).toHaveBeenCalledTimes(1);
     expect(aiStore.hydrate).toHaveBeenCalledWith(snapshot.ai);
     expect(themeStore.setActiveTheme).toHaveBeenCalledWith({ id: 9, name: 'Night' });
+  });
+});
+
+describe('authenticated shell UI loading deadline (WI-1611)', () => {
+  beforeEach(() => {
+    resetAuthenticatedShellUILoad();
+  });
+
+  test('threads the caller deadline into the shell bootstrap request', async () => {
+    await loadAuthenticatedShellUI(7, { timeout: 1234 });
+
+    expect(api.shellBootstrap.get).toHaveBeenCalledWith({ timeout: 1234 });
+  });
+
+  test('hydrates when the bootstrap resolves before the deadline', async () => {
+    let resolveBootstrap;
+    api.shellBootstrap.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBootstrap = resolve;
+        })
+    );
+
+    const request = loadAuthenticatedShellUI(7, { timeout: 50 });
+    resolveBootstrap(snapshot);
+
+    await expect(request).resolves.toBe(true);
+    expect(capabilitiesStore.hydrate).toHaveBeenCalledWith(snapshot.features);
+  });
+
+  test('reports failure and marks capabilities failed when the request rejects', async () => {
+    api.shellBootstrap.get.mockRejectedValue(
+      Object.assign(new Error('The server took too long to respond.'), {
+        code: 'REQUEST_TIMEOUT',
+      })
+    );
+
+    await expect(loadAuthenticatedShellUI(7, { timeout: 50 })).resolves.toBe(false);
+    expect(capabilitiesStore.failHydration).toHaveBeenCalledTimes(1);
+  });
+
+  test('a forced retry after a failure re-requests and can hydrate', async () => {
+    api.shellBootstrap.get.mockRejectedValueOnce(new Error('offline'));
+    await expect(loadAuthenticatedShellUI(7, { timeout: 50 })).resolves.toBe(false);
+
+    api.shellBootstrap.get.mockResolvedValueOnce(snapshot);
+    await expect(loadAuthenticatedShellUI(7, { force: true, timeout: 50 })).resolves.toBe(true);
+
+    expect(api.shellBootstrap.get).toHaveBeenCalledTimes(2);
+    expect(capabilitiesStore.hydrate).toHaveBeenCalledWith(snapshot.features);
+  });
+
+  test('a non-forced call after a settled failure does not re-request', async () => {
+    api.shellBootstrap.get.mockRejectedValueOnce(new Error('offline'));
+    await loadAuthenticatedShellUI(7, { timeout: 50 });
+
+    await expect(loadAuthenticatedShellUI(7, { timeout: 50 })).resolves.toBe(false);
+    expect(api.shellBootstrap.get).toHaveBeenCalledTimes(1);
+  });
+
+  test('an account switch discards the previous audience result', async () => {
+    let resolveFirst;
+    api.shellBootstrap.get
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockResolvedValueOnce(snapshot);
+
+    const first = loadAuthenticatedShellUI(1, { timeout: 50 });
+    const second = loadAuthenticatedShellUI(2, { timeout: 50 });
+    await expect(second).resolves.toBe(true);
+
+    resolveFirst(snapshot);
+    await expect(first).resolves.toBe(false);
+    expect(capabilitiesStore.hydrate).toHaveBeenCalledTimes(1);
   });
 });

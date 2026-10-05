@@ -357,3 +357,9 @@ func TestWorkspaceHandler_UpdateHomepageLayout_AcceptsStoryPointsByAssigneeType(
 		t.Fatalf("saved widgets = %+v, want one story-points-by-assignee", saved.Widgets)
 	}
 }
+
+func TestValidWorkspaceWidgetTypesIncludesZammadSupportOverview(t *testing.T) {
+	if !validWorkspaceWidgetTypes["zammad-support-overview"] {
+		t.Fatal("zammad support overview must be accepted by homepage layout validation")
+	}
+}

@@ -418,7 +418,13 @@ func TestItemListPagePlanKeepsCollectionAndFilteredListsOnSharedPlan(t *testing.
 	if plan.workspaceCountID != workspaceID {
 		t.Fatalf("plain workspace count ID = %d, want %d", plan.workspaceCountID, workspaceID)
 	}
-	if plan.pageFromClause != "FROM items i " || plan.pageWhereClause != "WHERE i.workspace_id = ?" {
+	// WI-1528: merged duplicates are redirects, so the direct workspace count
+	// and page plan must both exclude them. A page that still listed a merged
+	// row would disagree with the total.
+	if plan.countQuery != "SELECT COUNT(*) FROM items WHERE workspace_id = ? AND merged_into_item_id IS NULL" {
+		t.Fatalf("plain workspace count query = %q, want merged-filtered count", plan.countQuery)
+	}
+	if plan.pageFromClause != "FROM items i " || plan.pageWhereClause != "WHERE i.workspace_id = ? AND i.merged_into_item_id IS NULL" {
 		t.Fatalf("plain workspace page plan = %#v, want direct items filter", plan)
 	}
 

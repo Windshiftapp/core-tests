@@ -277,13 +277,16 @@ func TestEmailReplyService_SkipsItemWithoutPortalCustomer(t *testing.T) {
 	}
 }
 
-func TestEmailReplyService_SkipsNonEmailChannel(t *testing.T) {
+// TestEmailReplyService_SendsForPortalChannelTicket is the WI-1546 core
+// behavior: an agent comment on a portal-originated ticket emails the
+// customer, threading from the anchor (lazily ensured for tickets created
+// before anchors existed), with the outbox row on the ticket's origin channel.
+func TestEmailReplyService_SendsForPortalChannelTicket(t *testing.T) {
 	db := createCommentTestDB(t)
 	env := setupCommentTestEnv(t, db)
 	mock := &mockSMTPSender{configured: true}
 	svc := services.NewEmailReplyService(db, mock)
 
-	// Create a portal channel (not email type)
 	chID := testutils.InsertID(t, db, `
 		INSERT INTO channels (name, type, direction, status)
 		VALUES ('Portal', 'portal', 'inbound', 'enabled')
@@ -304,22 +307,68 @@ func TestEmailReplyService_SkipsNonEmailChannel(t *testing.T) {
 		t.Fatalf("Failed to load portal customer id: %v", err)
 	}
 
-	_, err = db.Exec("UPDATE items SET channel_id = ?, creator_portal_customer_id = ? WHERE id = ?", chID, pcID, env.ItemID)
+	_, err = db.Exec("UPDATE items SET channel_id = ?, creator_portal_customer_id = ?, title = 'Printer on fire' WHERE id = ?", chID, pcID, env.ItemID)
 	if err != nil {
 		t.Fatalf("Failed to update item: %v", err)
 	}
+	insertTestComment(t, db, 1, env.ItemID, env.UserID)
 
 	err = svc.HandleCommentCreated(services.HandleCommentParams{
 		CommentID: 1,
 		ItemID:    env.ItemID,
 		AuthorID:  env.UserID,
-		Content:   "test",
+		Content:   "On it — checking the fuser.",
 	})
 	if err != nil {
 		t.Fatalf("Expected nil error, got: %v", err)
 	}
-	if len(mock.sent) != 0 {
-		t.Error("Expected no email sent for non-email channel")
+	if len(mock.sent) != 1 {
+		t.Fatalf("Expected 1 email sent for portal-channel ticket, got %d", len(mock.sent))
+	}
+
+	// Threading: In-Reply-To is the lazily ensured anchor; the subject comes
+	// from the ticket title (the portal ticket has no inbound email subject).
+	anchorID := fmt.Sprintf("<ws-item-%d@windshift.local>", env.ItemID)
+	if mock.sent[0].InReplyTo != anchorID {
+		t.Errorf("InReplyTo = %q, want anchor %q", mock.sent[0].InReplyTo, anchorID)
+	}
+	if mock.sent[0].Subject != "Re: Printer on fire" {
+		t.Errorf("Subject = %q, want %q", mock.sent[0].Subject, "Re: Printer on fire")
+	}
+
+	// Exactly two tracking rows for the item now: the anchor and the recorded
+	// outbound reply, both on the origin (portal) channel.
+	var rows int
+	var channels int
+	if err := db.QueryRow(`
+		SELECT COUNT(*), COUNT(DISTINCT channel_id) FROM email_message_tracking WHERE item_id = ?
+	`, env.ItemID).Scan(&rows, &channels); err != nil {
+		t.Fatalf("count tracking rows: %v", err)
+	}
+	if rows != 2 || channels != 1 {
+		t.Fatalf("tracking rows = %d across %d channel(s), want 2 rows on 1 (portal) channel", rows, channels)
+	}
+	var outboundChannel int
+	if err := db.QueryRow(`
+		SELECT channel_id FROM email_message_tracking
+		WHERE item_id = ? AND comment_id IS NOT NULL
+	`, env.ItemID).Scan(&outboundChannel); err != nil {
+		t.Fatalf("load outbound tracking: %v", err)
+	}
+	if outboundChannel != chID {
+		t.Fatalf("outbound tracking channel = %d, want origin portal channel %d", outboundChannel, chID)
+	}
+
+	// The anchor must not grant thread participation to anyone.
+	var anchoredFrom string
+	if err := db.QueryRow(`
+		SELECT from_email FROM email_message_tracking
+		WHERE item_id = ? AND comment_id IS NULL
+	`, env.ItemID).Scan(&anchoredFrom); err != nil {
+		t.Fatalf("load anchor: %v", err)
+	}
+	if anchoredFrom != "" {
+		t.Fatalf("anchor from_email = %q, want empty", anchoredFrom)
 	}
 }
 
@@ -392,9 +441,9 @@ func TestEmailReplyService_SendsEmailForInternalUserComment(t *testing.T) {
 		t.Errorf("Expected References to contain original message ID, got %v", sent.References)
 	}
 
-	// Verify Message-ID format
-	if !strings.HasPrefix(sent.MessageID, "<ws-comment-100@") {
-		t.Errorf("Expected MessageID to start with '<ws-comment-100@', got '%s'", sent.MessageID)
+	// Verify Message-ID format (per-recipient since WI-1136).
+	if !strings.HasPrefix(sent.MessageID, "<ws-comment-100-") {
+		t.Errorf("Expected MessageID to start with '<ws-comment-100-', got '%s'", sent.MessageID)
 	}
 	if !strings.HasSuffix(sent.MessageID, ">") {
 		t.Errorf("Expected MessageID to end with '>', got '%s'", sent.MessageID)
@@ -450,8 +499,8 @@ func TestEmailReplyService_RecordsOutboundTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to query outbound message_id: %v", err)
 	}
-	if !strings.HasPrefix(msgID, "<ws-comment-200@") {
-		t.Errorf("Expected outbound message_id to start with '<ws-comment-200@', got '%s'", msgID)
+	if !strings.HasPrefix(msgID, "<ws-comment-200-") {
+		t.Errorf("Expected outbound message_id to start with '<ws-comment-200-', got '%s'", msgID)
 	}
 }
 

@@ -78,11 +78,37 @@ describe("CannedResponsePicker", () => {
 		});
 	});
 
-	it("loads nothing and shows no options without a workspace", async () => {
+	it("loads nothing and renders no picker without a workspace", async () => {
 		render(CannedResponsePicker, { props: { workspaceId: null, isOpen: true, onSelect: vi.fn() } });
 		await waitFor(() => {
 			expect(mocks.getAll).not.toHaveBeenCalled();
 		});
-		expect(screen.getByText("common.loading")).toBeTruthy();
+		expect(screen.queryByTestId("canned-response-picker")).toBeNull();
+	});
+
+	it("renders no picker when the workspace has no canned responses", async () => {
+		mocks.getAll.mockResolvedValue([]);
+		render(CannedResponsePicker, { props: { workspaceId: 5, isOpen: true, onSelect: vi.fn() } });
+
+		await waitFor(() => {
+			expect(mocks.getAll).toHaveBeenCalledWith(5);
+		});
+		expect(screen.queryByTestId("canned-response-picker")).toBeNull();
+		expect(screen.queryByTestId("canned-response-search")).toBeNull();
+	});
+
+	it("does not render the picker until responses load", async () => {
+		let resolveLoad;
+		mocks.getAll.mockReturnValue(
+			new Promise((resolve) => {
+				resolveLoad = resolve;
+			})
+		);
+		render(CannedResponsePicker, { props: { workspaceId: 5, isOpen: true, onSelect: vi.fn() } });
+
+		expect(screen.queryByTestId("canned-response-picker")).toBeNull();
+
+		resolveLoad(responses);
+		expect(await screen.findByTestId("canned-response-picker")).toBeTruthy();
 	});
 });
