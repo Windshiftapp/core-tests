@@ -56,6 +56,14 @@ func (r fixedChatResolver) ResolveForFeatureWithOverride(string, int) (llm.Clien
 	return r.client, nil
 }
 
+func (r fixedChatResolver) ResolveWithIdentity(int) (llm.Client, llm.ConnectionDescriptor, error) {
+	return r.client, llm.ConnectionDescriptor{}, nil
+}
+
+func (r fixedChatResolver) ResolveForFeatureWithIdentity(string, int) (llm.Client, llm.ConnectionDescriptor, error) {
+	return r.client, llm.ConnectionDescriptor{}, nil
+}
+
 func newConversationHandler(t *testing.T) (*AIHandler, *models.User, database.Database, *capturedChatClient) {
 	t.Helper()
 	tdb := testutils.CreateTestDB(t, true)

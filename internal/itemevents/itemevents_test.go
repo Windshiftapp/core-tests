@@ -36,3 +36,48 @@ func TestChangesReturnsStableTypedCanonicalFields(t *testing.T) {
 		t.Fatalf("Changes() = %#v, want %#v", got, want)
 	}
 }
+
+func TestNewEventSurfacesAgentRunAsSourceRef(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata Metadata
+		wantRef  string
+	}{
+		{
+			name: "agent run with no other source",
+			metadata: func() Metadata {
+				m := Agent("user:7", "ai_chat")
+				m.AgentRunID = 55
+				return m
+			}(),
+			wantRef: "agent_run:55",
+		},
+		{
+			name: "automation source ref wins over the run link",
+			metadata: func() Metadata {
+				m := Agent("user:7", "ai_chat")
+				m.AgentRunID = 55
+				m.SourceRef = "app:jira"
+				return m
+			}(),
+			wantRef: "app:jira",
+		},
+		{
+			name:     "no run leaves the source ref empty",
+			metadata: Agent("user:7", "mcp"),
+			wantRef:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event, err := newEvent("item.updated", 3, 9, tt.metadata, map[string]any{"field": "title"})
+			if err != nil {
+				t.Fatalf("newEvent() error = %v", err)
+			}
+			if event.SourceRef != tt.wantRef {
+				t.Fatalf("source ref = %q, want %q", event.SourceRef, tt.wantRef)
+			}
+		})
+	}
+}
