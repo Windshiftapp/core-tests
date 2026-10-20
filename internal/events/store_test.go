@@ -251,7 +251,7 @@ func TestEngineRenewsOwnershipWhileHandlerIsStillRunning(t *testing.T) {
 		LeaseDuration: 300 * time.Millisecond, HandlerTimeout: 200 * time.Millisecond,
 		ReconcileBatch: 10, MaxAttempts: 2,
 		BaseRetryDelay: time.Millisecond, MaxRetryDelay: time.Second,
-		FullReconcileInterval: time.Hour,
+		SafetyReconcileInterval: time.Hour, ReconcileLookback: time.Hour,
 	}
 	engine := NewEngine(tdb.DB, config)
 	configureConsumer(t, engine.Store(), "actions.items", "item.changed")
@@ -275,6 +275,11 @@ func TestEngineRenewsOwnershipWhileHandlerIsStillRunning(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
+	// processOne claims only for consumers the gate named, so the gate must run
+	// before a worker can claim the delivery this test created.
+	if _, err := engine.tick(ctx); err != nil {
+		t.Fatalf("tick() error = %v", err)
+	}
 	go func() {
 		_, err := engine.processOne(ctx)
 		done <- err
@@ -470,6 +475,11 @@ func TestEngineProcessesRegisteredConsumerAndReportsStats(t *testing.T) {
 		t.Fatalf("RegisterHandler() error = %v", err)
 	}
 	engine.now = func() time.Time { return time.Now().UTC().Add(time.Second) }
+	// The gate names the consumers that have work before a worker claims, so a
+	// tick must run first. This is the order the engine actually runs in.
+	if _, err := engine.tick(ctx); err != nil {
+		t.Fatalf("tick() error = %v", err)
+	}
 	worked, err := engine.processOne(ctx)
 	if err != nil {
 		t.Fatalf("processOne() error = %v", err)
@@ -509,6 +519,11 @@ func TestEngineRotatesConsumerClaimPriority(t *testing.T) {
 		}
 	}
 	engine.now = func() time.Time { return time.Now().UTC().Add(time.Second) }
+	// Workers claim only for consumers the gate named, so the gate must run
+	// before the rotation is observed.
+	if _, err := engine.tick(ctx); err != nil {
+		t.Fatalf("tick() error = %v", err)
+	}
 
 	for range 2 {
 		worked, err := engine.processOne(ctx)
@@ -543,7 +558,7 @@ func TestEngineShutdownCanBeAwaitedAgainAfterTimeout(t *testing.T) {
 		LeaseDuration: time.Second, HandlerTimeout: 500 * time.Millisecond,
 		ReconcileBatch: 10, MaxAttempts: 2,
 		BaseRetryDelay: time.Millisecond, MaxRetryDelay: time.Second,
-		FullReconcileInterval: time.Hour,
+		SafetyReconcileInterval: time.Hour, ReconcileLookback: time.Hour,
 	}
 	engine := NewEngine(tdb.DB, config)
 	configureConsumer(t, engine.Store(), "blocking", "item.changed")
