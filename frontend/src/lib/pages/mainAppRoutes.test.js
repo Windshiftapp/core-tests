@@ -44,6 +44,14 @@ describe('app footer views', () => {
     expect(isMainAppFooterView('workspace-board')).toBe(false);
     expect(isMainAppFooterView('workflow-designer')).toBe(false);
   });
+
+  test('excludes two-panel pages whose sidebar fills the viewport', () => {
+    // These render an `h-full` navigation pane next to an internally-scrolled
+    // list, so they must not sit in the auto-height footer wrapper.
+    expect(isMainAppFooterView('organizations')).toBe(false);
+    expect(isMainAppFooterView('logbook')).toBe(false);
+    expect(isMainAppFooterView('configuration-set-detail')).toBe(false);
+  });
 });
 
 describe('top-level page route splitting', () => {

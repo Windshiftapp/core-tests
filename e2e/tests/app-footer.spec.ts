@@ -90,4 +90,30 @@ test.describe("authenticated app footer", () => {
 
 		await expect(page.getByTestId("app-footer")).toHaveCount(0);
 	});
+
+	test("a two-panel list page keeps a viewport-tall navigation sidebar", async ({
+		page,
+	}) => {
+		// Regression: /organizations was listed as a footer view, so the page sat
+		// in the auto-height footer wrapper. The `h-full` organisation sidebar
+		// then collapsed to its content height and the list looked clipped.
+		await page.goto("/organizations");
+		await expect(page.getByTestId("portal-customers-page")).toBeVisible({
+			timeout: 10000,
+		});
+
+		await expect(page.getByTestId("app-footer")).toHaveCount(0);
+
+		const main = page.getByTestId("main-content-scroll");
+		const sidebar = page.getByTestId("navigation-sidebar");
+		const [mainBox, sidebarBox] = await Promise.all([
+			main.boundingBox(),
+			sidebar.boundingBox(),
+		]);
+		if (!mainBox || !sidebarBox) throw new Error("missing layout boxes");
+		expect(
+			Math.abs(sidebarBox.height - mainBox.height),
+			"the navigation sidebar must fill the page height",
+		).toBeLessThanOrEqual(1);
+	});
 });
