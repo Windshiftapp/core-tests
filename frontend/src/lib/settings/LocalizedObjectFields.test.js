@@ -2,15 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { writable } from "svelte/store";
 
-vi.mock("../api.js", () => ({
-	api: {
-		objectTranslations: {
-			list: vi.fn(),
-			resolve: vi.fn(),
-			upsert: vi.fn(),
-			delete: vi.fn(),
-		},
-	},
+vi.mock('../api/objectTranslations.js', () => ({
+  objectTranslations: {
+  			list: vi.fn(),
+  			resolve: vi.fn(),
+  			upsert: vi.fn(),
+  			delete: vi.fn(),
+  		},
 }));
 
 vi.mock("../stores/i18n.svelte.js", () => ({
@@ -28,7 +26,7 @@ vi.mock("../stores/permissions.svelte.js", () => ({
 	isSystemAdmin: writable(true),
 }));
 
-import { api } from "../api.js";
+import { objectTranslations } from '../api/objectTranslations.js';
 import LocalizedObjectFields from "./LocalizedObjectFields.svelte";
 
 const priorityProps = {
@@ -43,12 +41,12 @@ const priorityProps = {
 describe("LocalizedObjectFields", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		api.objectTranslations.upsert.mockResolvedValue({});
-		api.objectTranslations.delete.mockResolvedValue(undefined);
+		objectTranslations.upsert.mockResolvedValue({});
+		objectTranslations.delete.mockResolvedValue(undefined);
 	});
 
 	it("removes an active-locale override and immediately reveals its resolved fallback", async () => {
-		api.objectTranslations.list.mockResolvedValue([
+		objectTranslations.list.mockResolvedValue([
 			{
 				object_type: "priority",
 				object_id: 3,
@@ -66,7 +64,7 @@ describe("LocalizedObjectFields", () => {
 				value: "Mittel",
 			},
 		]);
-		api.objectTranslations.resolve.mockResolvedValue([
+		objectTranslations.resolve.mockResolvedValue([
 			{ value: "Mittel", source: "system", locale: "de" },
 		]);
 
@@ -78,13 +76,13 @@ describe("LocalizedObjectFields", () => {
 		await fireEvent.click(screen.getByTestId("localized-object-remove-name-de"));
 
 		await waitFor(() => expect(primaryName).toHaveValue("Mittel"));
-		expect(api.objectTranslations.delete).toHaveBeenCalledWith(
+		expect(objectTranslations.delete).toHaveBeenCalledWith(
 			"priority",
 			3,
 			"name",
 			"de",
 		);
-		expect(api.objectTranslations.resolve).toHaveBeenCalledWith("de", [
+		expect(objectTranslations.resolve).toHaveBeenCalledWith("de", [
 			{
 				object_type: "priority",
 				object_id: 3,
@@ -95,7 +93,7 @@ describe("LocalizedObjectFields", () => {
 	});
 
 	it("requires an explicit override decision before changing the canonical fallback", async () => {
-		api.objectTranslations.list.mockResolvedValue([
+		objectTranslations.list.mockResolvedValue([
 			{
 				object_type: "priority",
 				object_id: 3,
@@ -126,7 +124,7 @@ describe("LocalizedObjectFields", () => {
 		expect(() => component.validate()).not.toThrow();
 		await component.save();
 
-		expect(api.objectTranslations.delete).toHaveBeenCalledWith(
+		expect(objectTranslations.delete).toHaveBeenCalledWith(
 			"priority",
 			3,
 			"name",
@@ -135,7 +133,7 @@ describe("LocalizedObjectFields", () => {
 	});
 
 	it("does not load or expose translation controls without write permission", () => {
-		api.objectTranslations.list.mockResolvedValue([]);
+		objectTranslations.list.mockResolvedValue([]);
 
 		render(LocalizedObjectFields, {
 			props: { ...priorityProps, canWrite: false },
@@ -145,6 +143,6 @@ describe("LocalizedObjectFields", () => {
 			screen.getByText("settings.localizedObjects.permissionRequired"),
 	).toBeInTheDocument();
 		expect(screen.queryByTestId("localized-object-editor")).not.toBeInTheDocument();
-		expect(api.objectTranslations.list).not.toHaveBeenCalled();
+		expect(objectTranslations.list).not.toHaveBeenCalled();
 	});
 });

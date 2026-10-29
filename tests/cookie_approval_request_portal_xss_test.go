@@ -68,6 +68,7 @@ func TestCookieAuth_RequestTypeXSS(t *testing.T) {
 			"name":           "<script>alert(1)</script>BugReport",
 			"description":    "Use this<img src=x onerror=evil()>form",
 			"item_type_id":   itemTypeID,
+			"workspace_id":   workspaceID,
 			"icon":           "<script>icon()</script>Bug",
 			"color":          "#ef4444<script>bad()</script>",
 			"title_template": "<script>tpl()</script>Bug: {{title}}",

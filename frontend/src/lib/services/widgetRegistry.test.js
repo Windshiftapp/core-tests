@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  clampWidgetWidth,
-  getDefaultWidth,
-  getWidgetMaxWidth,
-  getWidgetMinWidth,
-  WORKSPACE_WIDGET_GRID_COLUMNS,
-  widgetRegistry,
-} from './widgetRegistry.js';
+import { clampWidgetWidth, getDefaultWidth, getWidgetMaxWidth, getWidgetMinWidth, WORKSPACE_WIDGET_GRID_COLUMNS, widgetRegistry } from './widgetRegistry.js';
 
 describe('workspace widget registry widths', () => {
   it('keeps every width constraint within the workspace grid', () => {

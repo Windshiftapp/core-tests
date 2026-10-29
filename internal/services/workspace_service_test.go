@@ -4,6 +4,7 @@ package services_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -360,6 +361,204 @@ func TestWorkspaceService_CreateFromTemplateHandlesNullableCanonicalBooleans(t *
 	})
 }
 
+func TestWorkspaceService_CreateFromTemplateRecordsSeedItemCreationHistory(t *testing.T) {
+	db := createWorkspaceTestDB(t)
+	env := setupWorkspaceTestEnv(t, db)
+	sourceItemID, err := factory.NewTestFactory(db).CreateItem(factory.CreateItemOpts{
+		WorkspaceID: env.WorkspaceID,
+		Title:       "Seed with history",
+		CreatorID:   &env.UserID,
+	})
+	if err != nil {
+		t.Fatalf("Create source item: %v", err)
+	}
+	if _, err := db.Exec("UPDATE workspaces SET is_template = true WHERE id = ?", env.WorkspaceID); err != nil {
+		t.Fatalf("Mark source as template: %v", err)
+	}
+
+	service := services.NewWorkspaceServiceWithAccess(db, allowTemplateSourceAccess{})
+	result, err := service.Create(t.Context(), services.CreateWorkspaceParams{
+		Name:                "Clone with history",
+		Key:                 "CWH",
+		CreatorID:           env.UserID,
+		TemplateWorkspaceID: &env.WorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("Create from template: %v", err)
+	}
+
+	var clonedItemID int
+	if err := db.QueryRow("SELECT id FROM items WHERE workspace_id = ?", result.Workspace.ID).Scan(&clonedItemID); err != nil {
+		t.Fatalf("Load cloned item: %v", err)
+	}
+	if clonedItemID == sourceItemID {
+		t.Fatalf("cloned item id = source id %d, want a fresh item", sourceItemID)
+	}
+
+	var actorKind string
+	var userID sql.NullInt64
+	if err := db.QueryRow(`
+		SELECT actor_kind, user_id FROM item_history
+		WHERE item_id = ? AND field_name = 'title'
+	`, clonedItemID).Scan(&actorKind, &userID); err != nil {
+		t.Fatalf("load cloned item creation history: %v", err)
+	}
+	if actorKind != "user" || !userID.Valid || int(userID.Int64) != env.UserID {
+		t.Fatalf("cloned creation history actor = %q/%v, want user/%d", actorKind, userID, env.UserID)
+	}
+}
+
+// Workspace-scoped references in the source (iterations, milestones) and
+// operational assignments (assignee) must not be carried into a clone: their
+// IDs are only meaningful in the source workspace. The clone drops them rather
+// than writing a dangling or cross-workspace reference.
+func TestWorkspaceService_CreateFromTemplateDropsWorkspaceScopedReferences(t *testing.T) {
+	db := createWorkspaceTestDB(t)
+	env := setupWorkspaceTestEnv(t, db)
+
+	iterationID := testutils.InsertID(t, db, `
+		INSERT INTO iterations (name, start_date, end_date, status, is_global, workspace_id)
+		VALUES ('Source iteration', '2026-01-01', '2026-01-14', 'active', FALSE, ?)
+	`, env.WorkspaceID)
+	milestoneID := testutils.InsertID(t, db, `
+		INSERT INTO milestones (name, is_global, workspace_id)
+		VALUES ('Source milestone', FALSE, ?)
+	`, env.WorkspaceID)
+
+	sourceItemID, err := factory.NewTestFactory(db).CreateItem(factory.CreateItemOpts{
+		WorkspaceID:  env.WorkspaceID,
+		Title:        "Seed with scoped refs",
+		CreatorID:    &env.UserID,
+		IterationID:  &iterationID,
+		AssigneeID:   &env.UserID,
+		MilestoneIDs: []int{milestoneID},
+	})
+	if err != nil {
+		t.Fatalf("Create source item: %v", err)
+	}
+	if _, err := db.Exec("UPDATE workspaces SET is_template = true WHERE id = ?", env.WorkspaceID); err != nil {
+		t.Fatalf("Mark source as template: %v", err)
+	}
+
+	service := services.NewWorkspaceServiceWithAccess(db, allowTemplateSourceAccess{})
+	result, err := service.Create(t.Context(), services.CreateWorkspaceParams{
+		Name:                "Clone drops scoped refs",
+		Key:                 "CDSR",
+		CreatorID:           env.UserID,
+		TemplateWorkspaceID: &env.WorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("Create from template: %v", err)
+	}
+
+	var clonedItemID int
+	if err := db.QueryRow("SELECT id FROM items WHERE workspace_id = ?", result.Workspace.ID).Scan(&clonedItemID); err != nil {
+		t.Fatalf("Load cloned item: %v", err)
+	}
+	if clonedItemID == sourceItemID {
+		t.Fatalf("cloned item id = source id %d, want a fresh item", sourceItemID)
+	}
+
+	var clonedIterationID, clonedAssigneeID sql.NullInt64
+	if err := db.QueryRow(`SELECT iteration_id, assignee_id FROM items WHERE id = ?`, clonedItemID).Scan(&clonedIterationID, &clonedAssigneeID); err != nil {
+		t.Fatalf("Load cloned item scoped refs: %v", err)
+	}
+	if clonedIterationID.Valid || clonedAssigneeID.Valid {
+		t.Fatalf("cloned item kept scoped refs: iteration=%v assignee=%v, want both NULL", clonedIterationID, clonedAssigneeID)
+	}
+
+	var clonedMilestones int
+	if err := db.QueryRow("SELECT COUNT(*) FROM item_milestones WHERE item_id = ?", clonedItemID).Scan(&clonedMilestones); err != nil {
+		t.Fatalf("Count cloned milestones: %v", err)
+	}
+	if clonedMilestones != 0 {
+		t.Fatalf("cloned item milestone count = %d, want 0", clonedMilestones)
+	}
+}
+
+// Item-to-item references are workspace-scoped too. A parent inside the copied
+// set must be remapped to the cloned parent; a related work item that lives
+// outside the copied set must be cleared rather than left pointing at an item
+// in another workspace.
+func TestWorkspaceService_CreateFromTemplateRemapsItemReferences(t *testing.T) {
+	db := createWorkspaceTestDB(t)
+	env := setupWorkspaceTestEnv(t, db)
+	f := factory.NewTestFactory(db)
+
+	parentID, err := f.CreateItem(factory.CreateItemOpts{
+		WorkspaceID: env.WorkspaceID, Title: "Template parent", CreatorID: &env.UserID,
+	})
+	if err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	if _, err := f.CreateItem(factory.CreateItemOpts{
+		WorkspaceID: env.WorkspaceID, Title: "Template child", ParentID: &parentID, CreatorID: &env.UserID,
+	}); err != nil {
+		t.Fatalf("Create child: %v", err)
+	}
+
+	externalWorkspaceID, err := f.CreateWorkspace(factory.CreateWorkspaceOpts{
+		Name: "External workspace", Key: "EXT", Description: "", CreatorID: env.UserID,
+	})
+	if err != nil {
+		t.Fatalf("Create external workspace: %v", err)
+	}
+	externalItemID, err := f.CreateItem(factory.CreateItemOpts{
+		WorkspaceID: externalWorkspaceID, Title: "External work item", CreatorID: &env.UserID,
+	})
+	if err != nil {
+		t.Fatalf("Create external item: %v", err)
+	}
+	relatedID, err := f.CreateItem(factory.CreateItemOpts{
+		WorkspaceID: env.WorkspaceID, Title: "Template related", CreatorID: &env.UserID,
+	})
+	if err != nil {
+		t.Fatalf("Create related item: %v", err)
+	}
+	if _, err := db.Exec("UPDATE items SET related_work_item_id = ? WHERE id = ?", externalItemID, relatedID); err != nil {
+		t.Fatalf("Link external related item: %v", err)
+	}
+	if _, err := db.Exec("UPDATE workspaces SET is_template = true WHERE id = ?", env.WorkspaceID); err != nil {
+		t.Fatalf("Mark source as template: %v", err)
+	}
+
+	service := services.NewWorkspaceServiceWithAccess(db, allowTemplateSourceAccess{})
+	result, err := service.Create(t.Context(), services.CreateWorkspaceParams{
+		Name:                "Clone remaps refs",
+		Key:                 "CRM",
+		CreatorID:           env.UserID,
+		TemplateWorkspaceID: &env.WorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("Create from template: %v", err)
+	}
+
+	clonedIDByTitle := func(title string) int {
+		t.Helper()
+		var id int
+		if err := db.QueryRow("SELECT id FROM items WHERE workspace_id = ? AND title = ?", result.Workspace.ID, title).Scan(&id); err != nil {
+			t.Fatalf("Load cloned %q: %v", title, err)
+		}
+		return id
+	}
+
+	var clonedParentID sql.NullInt64
+	if err := db.QueryRow("SELECT parent_id FROM items WHERE id = ?", clonedIDByTitle("Template child")).Scan(&clonedParentID); err != nil {
+		t.Fatalf("Load cloned child parent: %v", err)
+	}
+	if !clonedParentID.Valid || int(clonedParentID.Int64) != clonedIDByTitle("Template parent") {
+		t.Fatalf("cloned child parent = %v, want cloned parent %d", clonedParentID, clonedIDByTitle("Template parent"))
+	}
+
+	var clonedRelatedID sql.NullInt64
+	if err := db.QueryRow("SELECT related_work_item_id FROM items WHERE id = ?", clonedIDByTitle("Template related")).Scan(&clonedRelatedID); err != nil {
+		t.Fatalf("Load cloned related: %v", err)
+	}
+	if clonedRelatedID.Valid {
+		t.Fatalf("cloned related_work_item_id = %d, want NULL for an item outside the copied set", clonedRelatedID.Int64)
+	}
+}
+
 func TestWorkspaceService_Update(t *testing.T) {
 	db := createWorkspaceTestDB(t)
 
@@ -426,6 +625,41 @@ func TestWorkspaceService_Delete(t *testing.T) {
 		_, err = service.GetByID(result.Workspace.ID)
 		if err == nil {
 			t.Error("Expected error for deleted workspace")
+		}
+	})
+
+	t.Run("RemovesIntakesTargetingWorkspace", func(t *testing.T) {
+		result, _ := service.Create(t.Context(), services.CreateWorkspaceParams{
+			Name:        "Intake Target",
+			Key:         "ITG",
+			Description: "Workspace a mailbox intake feeds",
+			CreatorID:   env.UserID,
+		})
+
+		mailboxID := testutils.InsertID(t, db, `
+			INSERT INTO channels (name, type, direction, status)
+			VALUES ('Intake mailbox', 'email', 'inbound', 'enabled')
+		`)
+		if _, err := db.Exec(`
+			INSERT INTO intakes (mailbox_id, folder, workspace_id, status)
+			VALUES (?, 'INBOX', ?, 'enabled')
+		`, mailboxID, result.Workspace.ID); err != nil {
+			t.Fatalf("seed intake: %v", err)
+		}
+
+		if err := service.Delete(result.Workspace.ID); err != nil {
+			t.Fatalf("Delete workspace: %v", err)
+		}
+
+		var count int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM intakes WHERE workspace_id = ?`,
+			result.Workspace.ID,
+		).Scan(&count); err != nil {
+			t.Fatalf("count intakes: %v", err)
+		}
+		if count != 0 {
+			t.Fatalf("intakes after workspace delete = %d, want 0", count)
 		}
 	})
 

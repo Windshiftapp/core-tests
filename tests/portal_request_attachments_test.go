@@ -242,8 +242,6 @@ func TestPortalCustomerReplyNotifiesAssignee(t *testing.T) {
 	// The notification pipeline is asynchronous; poll until the assignee's
 	// comment notification shows up.
 	deadline := time.Now().Add(10 * time.Second)
-	poll := time.NewTicker(200 * time.Millisecond)
-	defer poll.Stop()
 	for {
 		notificationsResp := MakeAuthRequest(t, server, http.MethodGet, "/notifications", nil)
 		var notifications []map[string]any
@@ -274,7 +272,7 @@ func TestPortalCustomerReplyNotifiesAssignee(t *testing.T) {
 			}
 			t.Fatalf("no comment notification mentioning %q arrived for the assignee within 10s; got %d notifications: %v", customerName, len(notifications), summary)
 		}
-		<-poll.C
+		<-time.After(200 * time.Millisecond)
 	}
 }
 
@@ -388,5 +386,81 @@ func TestPortalCustomerUploadWritesAttributableHistory(t *testing.T) {
 	}
 	if uploadEntries != 1 {
 		t.Fatalf("attachment_uploaded history entries = %d, want 1", uploadEntries)
+	}
+}
+
+// TestPortalHidesInternalAttachments verifies WI-1700: a file attached to an
+// agent-only (internal) source must not be listable or downloadable through
+// the customer portal, while workspace members still see it.
+func TestPortalHidesInternalAttachments(t *testing.T) {
+	server, _ := StartTestServer(t, GetDBType())
+	CreateBearerToken(t, server)
+
+	workspaceID, _ := CreateTestWorkspace(t, server, "Portal Internal Attachments Workspace", shortKey("PIA"))
+	portalSlug, channelID := SetupPortalChannel(t, server, workspaceID)
+	_, ownerCookie := CreatePortalCustomerWithSession(t, server, channelID, "Internal File Owner", fmt.Sprintf("internal-file-owner-%d@example.com", time.Now().UnixNano()))
+
+	itemID := SubmitPortalRequest(t, server, portalSlug, ownerCookie, "Request with a public and an internal file")
+
+	uploadPath := fmt.Sprintf("/portal/%s/requests/%d/attachments", portalSlug, itemID)
+	publicUpload := makePortalMultipartRequest(t, server, ownerCookie, uploadPath, "customer-evidence.png", validTestPNG(t))
+	defer publicUpload.Body.Close()
+	AssertStatusCode(t, publicUpload, http.StatusCreated)
+
+	var publicUploaded struct {
+		Attachment struct {
+			ID int `json:"id"`
+		} `json:"attachment"`
+	}
+	DecodeJSON(t, publicUpload, &publicUploaded)
+
+	// Direct DB fixture: the Jira importer is the only production path that
+	// creates internal attachments, and it is not reachable from this HTTP
+	// test, so insert the internal row exactly as that importer would.
+	var internalID int
+	if err := server.DB().QueryRow(`
+		INSERT INTO attachments (item_id, entity_type, filename, original_filename, file_path, mime_type, file_size, is_internal)
+		VALUES (?, 'item', 'internal.png', 'agent-note.png', '/tmp/internal.png', 'image/png', 1, true)
+		RETURNING id
+	`, itemID).Scan(&internalID); err != nil {
+		t.Fatalf("insert internal attachment fixture: %v", err)
+	}
+
+	list := MakePortalRequest(t, server, ownerCookie, http.MethodGet, uploadPath, nil)
+	defer list.Body.Close()
+	AssertStatusCode(t, list, http.StatusOK)
+	var listed []map[string]any
+	DecodeJSON(t, list, &listed)
+	if len(listed) != 1 {
+		t.Fatalf("portal attachment count = %d, want 1 (internal file must be hidden)", len(listed))
+	}
+	if got := int(listed[0]["id"].(float64)); got != publicUploaded.Attachment.ID {
+		t.Fatalf("portal listed attachment id = %d, want public %d", got, publicUploaded.Attachment.ID)
+	}
+
+	denied := MakePortalRequest(t, server, ownerCookie, http.MethodGet,
+		fmt.Sprintf("/portal/%s/requests/%d/attachments/%d/download", portalSlug, itemID, internalID), nil)
+	defer denied.Body.Close()
+	AssertStatusCode(t, denied, http.StatusNotFound)
+
+	memberList := MakeBearerRequest(t, server, http.MethodGet, fmt.Sprintf("/rest/api/v2/items/%d/attachments", itemID), nil)
+	defer memberList.Body.Close()
+	AssertStatusCode(t, memberList, http.StatusOK)
+	var memberPage struct {
+		Data []struct {
+			ID int `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(memberList.Body).Decode(&memberPage); err != nil {
+		t.Fatalf("decode member attachment list: %v", err)
+	}
+	found := false
+	for _, attachment := range memberPage.Data {
+		if attachment.ID == internalID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("internal attachment %d missing from the workspace list %v", internalID, memberPage.Data)
 	}
 }

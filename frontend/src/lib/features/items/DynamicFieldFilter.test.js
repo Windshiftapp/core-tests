@@ -1,5 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { customFields } from '../../api/configuration.js';
+import { queryLanguage } from '../../api/queryLanguage.js';
+
 
 beforeAll(() => {
   if (!Element.prototype.scrollIntoView) {
@@ -7,9 +10,31 @@ beforeAll(() => {
   }
 });
 
-const customFieldsGetAll = vi.fn(async () => []);
-const getCatalog = vi.fn(async () => ({
+const { customFieldsGetAll, getCatalog, getValues } = vi.hoisted(() => {
+  const customFieldsGetAll = vi.fn(async () => []);
+  const getCatalog = vi.fn(async () => ({
   fields: [
+    {
+      name: 'key',
+      label: 'key',
+      aliases: [],
+      value_type: 'string',
+      operators: ['=', '!=', '~', 'IN', 'NOT IN', 'IS NULL', 'IS NOT NULL'],
+    },
+    {
+      name: 'id',
+      label: 'id',
+      aliases: [],
+      value_type: 'number',
+      operators: ['=', '!=', '<', '<=', '>', '>=', 'IS NULL', 'IS NOT NULL'],
+    },
+    {
+      name: 'parent',
+      label: 'parent',
+      aliases: ['parentId', 'parent_id'],
+      value_type: 'number',
+      operators: ['=', '!=', 'IN', 'NOT IN', 'IS NULL', 'IS NOT NULL'],
+    },
     {
       name: 'label',
       label: 'label',
@@ -17,6 +42,14 @@ const getCatalog = vi.fn(async () => ({
       value_type: 'string',
       operators: ['=', '!=', 'IN', 'NOT IN'],
       value_help: { source: 'labels', value_field: 'name' },
+    },
+    {
+      name: 'assignee',
+      label: 'assignee',
+      aliases: ['assignee'],
+      value_type: 'number',
+      operators: ['=', '!=', 'IN', 'NOT IN', 'IS NULL', 'IS NOT NULL'],
+      value_help: { source: 'users', value_field: 'id' },
     },
     {
       name: 'cfid_44',
@@ -44,15 +77,25 @@ const getCatalog = vi.fn(async () => ({
     },
   ],
 }));
-const getValues = vi.fn(async (_valueHelp, query) =>
-  query === 'front' ? [{ value: 'Frontend', label: 'Frontend' }] : []
-);
+  const getValues = vi.fn(async (valueHelp, query) => {
+  if (valueHelp?.source === 'users') {
+    return [
+      { value: 7, label: 'John Doe', description: 'jdoe' },
+      { value: 8, label: 'John Doe', description: 'john.doe' },
+    ];
+  }
+  return query === 'front' ? [{ value: 'Frontend', label: 'Frontend' }] : [];
+});
 
-vi.mock('../../api.js', () => ({
-  api: {
-    customFields: { getAll: customFieldsGetAll },
-    queryLanguage: { getCatalog, getValues },
-  },
+  return { customFieldsGetAll, getCatalog, getValues };
+});
+
+vi.mock('../../api/configuration.js', () => ({
+  customFields: { getAll: customFieldsGetAll },
+}))
+
+vi.mock('../../api/queryLanguage.js', () => ({
+  queryLanguage: { getCatalog, getValues },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -156,6 +199,46 @@ describe('DynamicFieldFilter value help', () => {
     await waitFor(() =>
       expect(onchange).toHaveBeenLastCalledWith(expect.objectContaining({ value: '', values: [1] }))
     );
+  });
+
+  test('offers catalog-only item fields such as Key in the filter picker', async () => {
+    render(DynamicFieldFilter, {
+      props: {
+        filter: { field: null, operator: '=', value: '', values: [] },
+        testIdPrefix: 'catalog-filter',
+      },
+    });
+
+    await fireEvent.click(await screen.findByTestId('field-selector-trigger'));
+
+    // These fields exist only in the backend QL catalog, not the curated
+    // FieldSelector list (GH #328).
+    expect(await screen.findByTestId('field-option-key')).toBeInTheDocument();
+    expect(screen.getByTestId('field-option-id')).toBeInTheDocument();
+    expect(screen.getByTestId('field-option-parent')).toBeInTheDocument();
+  });
+
+  test('shows the username on duplicate user value options', async () => {
+    render(DynamicFieldFilter, {
+      props: {
+        filter: {
+          field: { id: 'assignee', name: 'Assignee', type: 'user' },
+          operator: '=',
+          value: '',
+          values: [],
+        },
+        testIdPrefix: 'assignee-filter',
+        onchange: vi.fn(),
+      },
+    });
+
+    const search = await screen.findByTestId('assignee-filter-value-search');
+    await fireEvent.click(search);
+
+    const first = await screen.findByTestId('assignee-filter-value-option-7');
+    expect(first).toHaveTextContent('John Doe');
+    expect(first).toHaveTextContent('jdoe');
+    expect(screen.getByTestId('assignee-filter-value-option-8')).toHaveTextContent('john.doe');
   });
 
   test('searches and selects a custom single-select option', async () => {

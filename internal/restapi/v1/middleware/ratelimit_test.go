@@ -18,7 +18,7 @@ func mapLen(rl *RateLimiter) int {
 }
 
 func TestRateLimiterEvictIdleDropsStaleBuckets(t *testing.T) {
-	rl := NewRateLimiter(100)
+	rl := NewRateLimiter(100, nil)
 	defer rl.Stop()
 
 	for i := 0; i < 200; i++ {
@@ -37,7 +37,7 @@ func TestRateLimiterEvictIdleDropsStaleBuckets(t *testing.T) {
 }
 
 func TestRateLimiterEvictIdleKeepsActiveBuckets(t *testing.T) {
-	rl := NewRateLimiter(100)
+	rl := NewRateLimiter(100, nil)
 	defer rl.Stop()
 
 	for i := 0; i < 50; i++ {
@@ -52,7 +52,7 @@ func TestRateLimiterEvictIdleKeepsActiveBuckets(t *testing.T) {
 }
 
 func TestRateLimiterStopIsIdempotent(t *testing.T) {
-	rl := NewRateLimiter(10)
+	rl := NewRateLimiter(10, nil)
 	rl.Stop()
 	rl.Stop()
 }
@@ -62,7 +62,7 @@ func TestRateLimiterStopIsIdempotent(t *testing.T) {
 // intervals). We adjust the bucket's lastSeen and call evictIdle directly,
 // then verify a subsequent getBucket sees a fresh entry.
 func TestRateLimiterSweepRecreatesAfterEviction(t *testing.T) {
-	rl := NewRateLimiter(10)
+	rl := NewRateLimiter(10, nil)
 	defer rl.Stop()
 
 	bucket := rl.getBucket("tok-A")
@@ -87,7 +87,7 @@ func TestRateLimiterSweepRecreatesAfterEviction(t *testing.T) {
 // not race after eviction. Just checks the eviction path is safe to run while
 // new buckets are being created.
 func TestRateLimiterEvictIdleConcurrentSafe(t *testing.T) {
-	rl := NewRateLimiter(100)
+	rl := NewRateLimiter(100, nil)
 	defer rl.Stop()
 
 	var stop atomic.Bool

@@ -76,7 +76,7 @@ test.describe('Portal draft + magic link + schema change', () => {
       slug,
       name: `Schema-Change ${stamp}`,
     });
-    const rt = await createTwoStepRequestType(request, channel.channelId, {
+    const rt = await createTwoStepRequestType(request, channel, {
       name: 'Two-step request',
     });
     await attachRequestTypesToSection(request, channel, [rt.id]);

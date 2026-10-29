@@ -60,6 +60,85 @@ export async function listItemTypesViaAPI(request: APIRequestContext) {
 }
 
 /**
+ * List the item types bound to a workspace's configuration set. New
+ * workspaces bind a subset of the global catalog, so UI assertions must use
+ * this instead of the global list.
+ */
+export async function listWorkspaceItemTypesViaAPI(
+	request: APIRequestContext,
+	workspaceId: number,
+) {
+	const response = await request.get(
+		`${BASE_URL}/api/v2/workspaces/${workspaceId}/item-types`,
+		{ headers: defaultHeaders },
+	);
+	expect(response.ok()).toBeTruthy();
+	const body = await response.json();
+	return body.data ?? [];
+}
+
+// Mirrors models.DefaultWorkspaceNavItemIDs: the workspace nav set a scope gets
+// without an explicit override (the support queue is opt-in).
+const DEFAULT_WORKSPACE_NAV_IDS = [
+	"backlog",
+	"board",
+	"list",
+	"tree",
+	"map",
+	"roadmap",
+	"agents",
+	"iterations",
+	"milestones",
+	"analytics",
+	"actions",
+	"pages",
+];
+
+/**
+ * Enable the support queue for a workspace. The queue is opt-in since the
+ * helpdesk nav preset, so a direct /queue navigation redirects to the default
+ * view unless the workspace's view settings include it.
+ */
+export async function enableWorkspaceQueueViaAPI(
+	request: APIRequestContext,
+	workspaceId: number,
+): Promise<void> {
+	const path = `${BASE_URL}/api/v2/workspaces/${workspaceId}/board-configuration`;
+	const existing = await request.get(path, { headers: defaultHeaders });
+	let config: Record<string, any> = {};
+	if (existing.ok()) {
+		const body = await existing.json();
+		config = body.data ?? body ?? {};
+	}
+	const existingViews = config.view_settings?.enabled_views as
+		| string[]
+		| undefined;
+	const enabledViews = [
+		...new Set([...(existingViews ?? DEFAULT_WORKSPACE_NAV_IDS), "queue"]),
+	];
+	const payload = {
+		columns: config.columns ?? [],
+		backlog_status_ids: config.backlog_status_ids ?? [],
+		list_columns: config.list_columns ?? [],
+		card_fields: config.card_fields ?? [],
+		roadmap_config: config.roadmap_config ?? null,
+		show_rightmost_column_last_50:
+			config.show_rightmost_column_last_50 ?? false,
+		completed_item_retention_days:
+			config.completed_item_retention_days ?? null,
+		view_settings: { enabled_views: enabledViews },
+	};
+	const response = await request.put(path, {
+		headers: defaultHeaders,
+		data: payload,
+	});
+	expect(
+		response.ok(),
+		`enable workspace queue failed (${response.status()}): ${await response.text()}`,
+	).toBeTruthy();
+}
+
+/**
  * Create a work item template via the cookie-auth admin API (WI-438).
  */
 export async function createTemplateViaAPI(
@@ -181,6 +260,25 @@ export async function createTeamViaAPI(
 	});
 	expect(response.ok()).toBeTruthy();
 	return response.json();
+}
+
+/**
+ * Add existing users to a team. On-call layer members and overrides must be
+ * team members, so callers add the users before assigning them.
+ */
+export async function addTeamMembersViaAPI(
+	request: APIRequestContext,
+	teamId: number,
+	userIds: number[],
+) {
+	const response = await request.post(`${BASE_URL}/api/teams/${teamId}/members`, {
+		headers: defaultHeaders,
+		data: { user_ids: userIds, role: "member" },
+	});
+	expect(
+		response.ok(),
+		`add team members failed (${response.status()}): ${await response.text()}`,
+	).toBeTruthy();
 }
 
 /**
@@ -574,4 +672,51 @@ export async function createCollectionViaAPI(
 	expect(response.ok()).toBeTruthy();
 	const body = await response.json();
 	return body.data;
+}
+
+/** Minimal theme shape needed to restore global active-theme state. */
+export interface ThemeSummary {
+	id: number;
+	is_active: boolean;
+	is_default: boolean;
+}
+
+/** List themes through the admin API. */
+export async function listThemesViaAPI(
+	request: APIRequestContext,
+): Promise<ThemeSummary[]> {
+	const response = await request.get("/api/themes", {
+		headers: defaultHeaders,
+	});
+	expect(response.ok(), `list themes: ${response.status()}`).toBeTruthy();
+	return (await response.json()) as ThemeSummary[];
+}
+
+/**
+ * Restore the theme that was active before a test changed global theme state.
+ * The active theme is global, so a parallel worker may have deleted the
+ * captured theme by the time this runs. Fall back to the immutable default
+ * theme so the shared environment always ends on a known theme.
+ */
+export async function restoreActiveTheme(
+	request: APIRequestContext,
+	original: { id: number } | undefined,
+): Promise<void> {
+	if (original) {
+		const restore = await request.post(`/api/themes/${original.id}/activate`, {
+			headers: defaultHeaders,
+		});
+		if (restore.ok()) return;
+	}
+	const fallback = (await listThemesViaAPI(request)).find(
+		(theme) => theme.is_default,
+	);
+	expect(fallback, "a default theme exists to restore").toBeDefined();
+	const restore = await request.post(`/api/themes/${fallback?.id}/activate`, {
+		headers: defaultHeaders,
+	});
+	expect(
+		restore.ok(),
+		`restore default theme: ${restore.status()}`,
+	).toBeTruthy();
 }

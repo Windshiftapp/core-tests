@@ -5,14 +5,16 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // The component subscribes to permissionStore (from the stores barrel).
 // We replace it with a controllable writable so each test can pick the
 // (isSystemAdmin × userPermissionKeys × userPermissions) tuple it wants.
-vi.mock('../stores', async () => {
+vi.mock('../stores/permissions.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   const inner = writable({
     isSystemAdmin: false,
     userPermissionKeys: new Set(),
     userPermissions: new Set(),
   });
-  return { permissionStore: inner };
+  return {
+    permissionStore: inner,
+  };
 });
 
 // The default fallback path renders an UnauthorizedAccess page; stub it to
@@ -29,7 +31,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
   t: vi.fn((key) => key),
 }));
 
-import { permissionStore } from '../stores';
+import { permissionStore } from '../stores/permissions.svelte.js';
 import PermissionGuard from './PermissionGuard.svelte';
 
 // Build a child snippet that renders a unique sentinel so screen.getByText

@@ -63,13 +63,11 @@ func (w *syncResponseWriter) String() string {
 func waitForCond(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
 		}
-		<-tick.C
+		<-time.After(5 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for: %s", what)
 }
@@ -131,10 +129,11 @@ func TestItemEvents_StreamsConnectedEventAndCleansUp(t *testing.T) {
 		t.Errorf("expected text/event-stream, got %q", ct)
 	}
 
-	// A publish (as any mutation chokepoint would emit) reaches the stream.
-	hub.PublishItemChange(itemID, services.ItemChangeComment)
-	waitForCond(t, "comment event frame", func() bool {
-		return strings.Contains(w.String(), "event: comment")
+	// A publish (as any mutation chokepoint would emit) reaches the stream as a
+	// coarse change frame.
+	hub.PublishItemChange(itemID)
+	waitForCond(t, "change event frame", func() bool {
+		return strings.Contains(w.String(), "event: changed")
 	})
 
 	// Disconnect: the handler returns and unsubscribes (no leak).
@@ -217,7 +216,7 @@ func TestItemEvents_ReauthorizesBeforePublishingAfterWorkspaceRevocation(t *test
 				}
 				hub.PublishItemDeletion(itemID, workspaceID)
 			} else {
-				hub.PublishItemChange(itemID, services.ItemChangeComment)
+				hub.PublishItemChange(itemID)
 			}
 
 			select {
@@ -391,15 +390,17 @@ func TestItemEvents_ReauthorizesAgainstWorkspaceAfterItemMove(t *testing.T) {
 			if err := h.permissionService.InvalidateUserCache(1); err != nil {
 				t.Fatalf("invalidate permission cache: %v", err)
 			}
-			kind := services.ItemChangeComment
+			// Every non-deletion publish is delivered as the coarse `changed`
+			// event; a deletion is delivered as `deleted`.
+			wantEvent := "changed"
 			if test.deleteAfterMove {
 				if err := services.NewItemCRUDService(db).DeleteSingle(itemID); err != nil {
 					t.Fatalf("delete moved item: %v", err)
 				}
 				hub.PublishItemDeletion(itemID, destinationID)
-				kind = services.ItemChangeDeleted
+				wantEvent = "deleted"
 			} else {
-				hub.PublishItemChange(itemID, kind)
+				hub.PublishItemChange(itemID)
 			}
 
 			if test.wantEvent {
@@ -408,7 +409,7 @@ func TestItemEvents_ReauthorizesAgainstWorkspaceAfterItemMove(t *testing.T) {
 				case <-time.After(2 * time.Second):
 					t.Fatal("stream did not flush the permitted post-move event")
 				}
-				if !strings.Contains(w.String(), "event: "+string(kind)) {
+				if !strings.Contains(w.String(), "event: "+wantEvent) {
 					t.Fatalf("stream omitted permitted post-move event: %q", w.String())
 				}
 				cancel()
@@ -425,7 +426,7 @@ func TestItemEvents_ReauthorizesAgainstWorkspaceAfterItemMove(t *testing.T) {
 			case <-time.After(2 * time.Second):
 				t.Fatal("stream did not close before disclosing the inaccessible post-move event")
 			}
-			if strings.Contains(w.String(), "event: "+string(kind)) {
+			if strings.Contains(w.String(), "event: "+wantEvent) {
 				t.Fatalf("stream leaked inaccessible post-move event: %q", w.String())
 			}
 		})

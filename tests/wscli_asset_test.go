@@ -1,7 +1,8 @@
 // wscli_asset_test exercises the ws asset / asset-set / asset-type
 // subcommands by driving wscli.Run in-process against an isolated test
 // server. Asserts the CLI wiring (cobra subcommand registration, client
-// REST helpers, JSON output) is intact end-to-end through bearer v2.
+// REST helpers, JSON output) is intact end-to-end. Functional v1
+// coverage lives in v1_assets_test.go — this file is the CLI canary.
 package tests
 
 import (
@@ -17,8 +18,8 @@ import (
 func TestWSCLI_Asset_SetListAndCreateGetEdit(t *testing.T) {
 	ts, _ := StartTestServer(t, GetDBType())
 	_ = CreateBearerToken(t, ts)
-	// The setup bearer explicitly includes the granular asset scopes,
-	// so ts.BearerToken works for everything the CLI exposes
+	// Default admin bearer carries assets:read+write via legacy 'admin'
+	// expansion, so ts.BearerToken works for everything the CLI exposes
 	// (delete is no longer a CLI verb — see internal/wscli/asset.go).
 	token := ts.BearerToken
 	setID, assetTypeID := seedAssetSetAndType(t, ts, "wscli")

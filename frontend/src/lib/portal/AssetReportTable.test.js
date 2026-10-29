@@ -6,17 +6,18 @@ const mocks = vi.hoisted(() => ({
   getCustomFields: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    assetReports: {
-      execute: mocks.execute,
-      submit: vi.fn(),
-      getPortalFields: vi.fn(),
-    },
-    portal: {
-      getCustomFields: mocks.getCustomFields,
-    },
-  },
+vi.mock('../api/channels.js', () => ({
+  assetReports: {
+        execute: mocks.execute,
+        submit: vi.fn(),
+        getPortalFields: vi.fn(),
+      },
+}))
+
+vi.mock('../api/portal.js', () => ({
+  portal: {
+        getCustomFields: mocks.getCustomFields,
+      },
 }));
 
 vi.mock('../stores/portal.svelte.js', () => ({
@@ -34,6 +35,9 @@ vi.mock('../utils/dateFormatter.js', () => ({
 }));
 
 import AssetReportTable from './AssetReportTable.svelte';
+import { assetReports } from '../api/channels.js';
+import { portal } from '../api/portal.js';
+
 
 describe('AssetReportTable custom fields', () => {
   beforeEach(() => {

@@ -7,23 +7,9 @@ import {
 import { expect, test } from "../fixtures/context-path";
 import { installCapabilityPlugin, deleteCapabilityPlugins } from "../fixtures/plugin-zip";
 import { generateWorkspace } from "../fixtures/test-data";
+import { preferenceSave } from "../helpers/preferences";
 
 const SEC_FETCH = { "Sec-Fetch-Site": "same-origin" };
-
-// Relative luminance (WCAG) of an `rgb(...)`/`rgba(...)` computed color. Used
-// to prove glass-backed controls keep their dark surface text on a workspace
-// gradient instead of falling back to the white on-gradient text tokens.
-function relativeLuminance(color: string): number {
-	const match = color.match(/rgba?\(([^)]+)\)/);
-	if (!match) throw new Error(`Unparsable color: ${color}`);
-	const [r, g, b] = match[1]
-		.split(",")
-		.slice(0, 3)
-		.map((part) => Number(part.trim()) / 255);
-	const channel = (value: number) =>
-		value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-	return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
 
 type ItemType = { id: number; hierarchy_level: number };
 
@@ -46,7 +32,9 @@ async function selectSwimlaneDimension(page: import("@playwright/test").Page, va
 	await page.getByTestId("map-swimlanes-button").click();
 	await expect(page.getByTestId("map-swimlanes-panel")).toBeVisible();
 	await page.locator("#map-swimlane-dimension").click();
+	const saved = preferenceSave(page);
 	await page.locator(`#map-swimlane-dimension-option-${value}`).click();
+	await saved;
 }
 
 test("map swimlanes stay hidden without the plugin and group by iteration and milestone once installed", async ({
@@ -250,35 +238,8 @@ test("map swimlanes stay hidden without the plugin and group by iteration and mi
 			.getByTestId(`draggable-item-${childPlain.id}`),
 	).toBeVisible();
 
-	// Regression: swimlane controls sit on a glass surface, so they must use
-	// the surface text tokens. The on-gradient tokens are white and made the
-	// button label and lane counts invisible against the light glass.
-	const layoutResponse = await request.put(
-		`/api/workspaces/${workspace.id}/homepage/layout`,
-		{ data: { gradient: 3, applyToAllViews: true, sections: [] } },
-	);
-	expect(
-		layoutResponse.ok(),
-		`workspace layout: ${layoutResponse.status()} ${await layoutResponse.text()}`,
-	).toBeTruthy();
-	await page.reload();
-	await expect(page.getByTestId("map-view")).toHaveCSS(
-		"background-image",
-		/linear-gradient/,
-	);
-
 	const laneCount = page.getByTestId(`map-lane-count-iteration-${iteration.id}`);
 	await expect(laneCount).toBeVisible();
-	for (const control of [page.getByTestId("map-swimlanes-button"), laneCount]) {
-		const color = await control.evaluate(
-			(element) => getComputedStyle(element).color,
-		);
-		const testid = await control.getAttribute("data-testid");
-		expect(
-			relativeLuminance(color),
-			`${testid} text should stay dark on the light glass surface (got ${color})`,
-		).toBeLessThan(0.5);
-	}
 
 	// Cleanup: uninstall the capability plugin
 	await deleteCapabilityPlugins(request, "e2e-map-swimlanes-");

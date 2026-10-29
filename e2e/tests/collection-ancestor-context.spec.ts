@@ -112,7 +112,7 @@ test('keeps a completed parent visible as context when hide completed filters it
     // The context epic carries its real Done status, not "No status".
     await expect(epicRow).toContainText(`Released ${stamp}`);
     await expect(epicRow).not.toContainText('No status');
-    await expect(page.getByTestId(`tree-item-${open.id}`)).toContainText(`Follow-up bug ${stamp}`);
+    await expect(page.getByTestId(`tree-row-${open.id}`)).toContainText(`Follow-up bug ${stamp}`);
 
     await page.goto(`${base}/roadmap`);
     await expect(page.getByTestId('roadmap-view')).toBeVisible();

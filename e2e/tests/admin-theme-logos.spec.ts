@@ -1,3 +1,4 @@
+import { restoreActiveTheme } from "../fixtures/api-helpers";
 import { expect, type APIRequestContext, test } from "../fixtures/context-path";
 
 /**
@@ -100,12 +101,7 @@ test.describe("Theme logo selection", () => {
 			if (created) {
 				await request.delete(`/api/themes/${created.id}`, { headers: SEC_FETCH });
 			}
-			if (originalActive) {
-				const restore = await request.post(`/api/themes/${originalActive.id}/activate`, {
-					headers: SEC_FETCH,
-				});
-				expect(restore.ok()).toBeTruthy();
-			}
+			await restoreActiveTheme(request, originalActive);
 		}
 	});
 });

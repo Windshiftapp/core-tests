@@ -23,7 +23,7 @@ async function createPolicy(request: APIRequestContext, teamId: number, name: st
 }
 
 test.describe("Item incident lifecycle", () => {
-	test("declares, acknowledges, resolves, and persists an incident on a work item", async ({
+	test("declares, acknowledges, and resolves an incident on a work item", async ({
 		page,
 		request,
 	}) => {
@@ -40,11 +40,20 @@ test.describe("Item incident lifecycle", () => {
 			team_id: team.id,
 		});
 
+		// An item without an incident must not probe the incident endpoint.
+		const incidentGets: string[] = [];
+		page.on("request", (req) => {
+			if (req.method() === "GET" && /\/api\/items\/\d+\/incident$/.test(req.url())) {
+				incidentGets.push(req.url());
+			}
+		});
+
 		await page.goto(`/workspaces/${workspace.id}/items/${item.id}`);
 
 		const panel = page.getByTestId("item-incident-panel");
 		const trigger = page.getByTestId("item-incident-trigger");
 		await expect(trigger).toBeVisible();
+		expect(incidentGets).toEqual([]);
 
 		const triggerResponse = page.waitForResponse(
 			(res) =>
@@ -81,10 +90,10 @@ test.describe("Item incident lifecycle", () => {
 			STATUS_LABELS.resolved,
 		);
 
-		// Reload to prove the resolved state was persisted, not just optimistic.
+		// Resolving releases the item's incident pointer (WI-1536), so a reload
+		// shows no active incident and the declare control returns.
 		await page.reload();
-		await expect(page.getByTestId("item-incident-panel").getByTestId("item-incident-status")).toHaveText(
-			STATUS_LABELS.resolved,
-		);
+		await expect(page.getByTestId("item-incident-panel")).toHaveCount(0);
+		await expect(page.getByTestId("item-incident-trigger")).toBeVisible();
 	});
 });

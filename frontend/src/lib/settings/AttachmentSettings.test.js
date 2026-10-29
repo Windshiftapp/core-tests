@@ -1,14 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    attachmentSettings: {
-      get: vi.fn(),
-      getStatus: vi.fn(),
-      update: vi.fn(),
-    },
-  },
+vi.mock('../api/misc.js', () => ({
+  attachmentSettings: {
+        get: vi.fn(),
+        getStatus: vi.fn(),
+        update: vi.fn(),
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -19,7 +17,7 @@ vi.mock('../stores/toasts.svelte.js', () => ({
   successToast: vi.fn(),
 }));
 
-import { api } from '../api.js';
+import { attachmentSettings } from '../api/misc.js';
 import { attachmentStatus } from '../stores/attachmentStatus.svelte.js';
 import AttachmentSettings from './AttachmentSettings.svelte';
 
@@ -40,10 +38,10 @@ describe('AttachmentSettings availability synchronization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     attachmentStatus.hydrate({ enabled: false, writable: true });
-    api.attachmentSettings.get
+    attachmentSettings.get
       .mockResolvedValueOnce(disabledSettings)
       .mockResolvedValue(enabledSettings);
-    api.attachmentSettings.getStatus
+    attachmentSettings.getStatus
       .mockResolvedValueOnce({
         enabled: false,
         attachment_path: '/data/attachments',
@@ -54,7 +52,7 @@ describe('AttachmentSettings availability synchronization', () => {
         attachment_path: '/data/attachments',
         writable: true,
       });
-    api.attachmentSettings.update.mockResolvedValue(enabledSettings);
+    attachmentSettings.update.mockResolvedValue(enabledSettings);
   });
 
   it('refreshes shared availability after attachments are enabled', async () => {
@@ -67,11 +65,11 @@ describe('AttachmentSettings availability synchronization', () => {
     await fireEvent.click(toggle);
 
     await waitFor(() => {
-      expect(api.attachmentSettings.update).toHaveBeenCalledWith(
+      expect(attachmentSettings.update).toHaveBeenCalledWith(
         1,
         expect.objectContaining({ enabled: true })
       );
-      expect(api.attachmentSettings.getStatus).toHaveBeenCalledTimes(2);
+      expect(attachmentSettings.getStatus).toHaveBeenCalledTimes(2);
       expect(attachmentStatus.enabled).toBe(true);
       expect(screen.getByText('settings.attachments.attachmentsEnabled')).toBeInTheDocument();
     });

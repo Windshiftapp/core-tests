@@ -41,7 +41,7 @@ test.describe('Portal happy-path submission', () => {
       slug,
       name: `Happy Path ${stamp}`,
     });
-    const rt = await createSimpleRequestType(request, channel.channelId, {
+    const rt = await createSimpleRequestType(request, channel, {
       name: 'General request',
     });
     await attachRequestTypesToSection(request, channel, [rt.id]);

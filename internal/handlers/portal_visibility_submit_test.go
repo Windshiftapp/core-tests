@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"windshift/internal/auth"
+	"windshift/internal/blobstore"
 	"windshift/internal/middleware"
 	"windshift/internal/testutils"
 )
@@ -104,7 +105,7 @@ func newPortalVisibilitySubmitFixture(t *testing.T) *portalVisibilitySubmitFixtu
 	}
 
 	return &portalVisibilitySubmitFixture{
-		db: db, handler: NewPortalHandler(db, nil, nil, nil, ""),
+		db: db, handler: NewPortalHandler(db, nil, nil, nil, blobstore.Disabled()),
 		allowedUserID: allowedUserID, disallowedUserID: disallowedUserID,
 		restrictedTypeID: restrictedID, openTypeID: openID,
 	}

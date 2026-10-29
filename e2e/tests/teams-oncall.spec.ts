@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/context-path';
-import { createUserViaAPI } from '../fixtures/api-helpers';
+import { createUserViaAPI, addTeamMembersViaAPI } from '../fixtures/api-helpers';
 import { generateSchedule, generateTeam, generateUser } from '../fixtures/test-data';
 import { TeamsPage } from '../pages/teams.page';
 import { TeamOnCallPage } from '../pages/team-oncall.page';
@@ -57,6 +57,8 @@ test.describe('Team On-Call Schedules', () => {
       last_name: u2.last_name,
       password_hash: u2.password_hash,
     });
+    // On-call layer members must belong to the team.
+    await addTeamMembersViaAPI(request, teamId, [created1.id, created2.id]);
 
     await oncall.openAddLayerForm(schedule.name);
     await oncall.fillLayerForm({
@@ -104,6 +106,11 @@ test.describe('Team On-Call Schedules', () => {
       last_name: replacement.last_name,
       password_hash: replacement.password_hash,
     });
+    // On-call overrides must reference team members.
+    await addTeamMembersViaAPI(request, teamId, [
+      createdReplaced.id,
+      createdReplacement.id,
+    ]);
 
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const dayAfter = new Date(Date.now() + 48 * 60 * 60 * 1000);

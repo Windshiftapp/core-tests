@@ -15,6 +15,7 @@ vi.mock('../../stores/toasts.svelte.js', () => ({
 import { getDomainEventDiagnostics, replayDomainEvent } from '../../api/diagnostics.js';
 import { successToast } from '../../stores/toasts.svelte.js';
 import DomainEventsSection from './DomainEventsSection.svelte';
+import { skipDomainEvent } from '../../api/diagnostics.js';
 
 describe('DomainEventsSection', () => {
   beforeEach(() => {

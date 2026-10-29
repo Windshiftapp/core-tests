@@ -24,10 +24,7 @@ beforeAll(() => {
     };
   }
   if (!globalThis.requestAnimationFrame) {
-    globalThis.requestAnimationFrame = (callback) => {
-      queueMicrotask(() => callback(performance.now()));
-      return 0;
-    };
+    globalThis.requestAnimationFrame = (callback) => { queueMicrotask(() => callback(performance.now())); };
   }
 });
 
@@ -66,7 +63,6 @@ describe('BacklogItemActions', () => {
 
     const trigger = screen.getByTestId('backlog-item-menu-42');
     expect(trigger).toHaveAttribute('aria-label', 'Backlog actions for Improve the backlog');
-    expect(trigger).toHaveStyle('color: var(--ds-text-subtle)');
 
     await fireEvent.click(trigger);
     await fireEvent.click(screen.getByTestId('backlog-move-start-42'));

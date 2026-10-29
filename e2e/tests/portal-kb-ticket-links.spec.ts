@@ -97,7 +97,7 @@ test.describe('Portal ticket KB article links', () => {
       slug,
       name: `KB Link ${stamp}`,
     });
-    const rt = await createSimpleRequestType(request, channel.channelId, {
+    const rt = await createSimpleRequestType(request, channel, {
       name: 'General request',
     });
     await attachRequestTypesToSection(request, channel, [rt.id]);

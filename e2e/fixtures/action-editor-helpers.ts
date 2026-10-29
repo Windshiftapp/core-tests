@@ -58,12 +58,15 @@ export async function getActionViaAPI(
 }
 
 export async function openActionEditor(page: Page, workspaceId: number, actionId: number) {
+  // Wait for the workspace-scoped catalog so the node palette is populated.
+  // networkidle is deliberately avoided: the app holds a notification
+  // EventSource open, so the page never reaches network idle.
+  const catalogReady = page.waitForResponse(
+    (r) => r.url().includes(`/api/v2/workspaces/${workspaceId}/action-catalog`) && r.ok()
+  );
   await page.goto(`/workspaces/${workspaceId}/actions/${actionId}`);
   await expect(page.getByTestId('action-editor-canvas')).toBeVisible();
-  // The editor re-fetches and re-inits the flow store once on mount (live
-  // reload on agent runs). Let that settle before interacting, otherwise an
-  // early edit can be clobbered by the re-init.
-  await page.waitForLoadState('networkidle');
+  await catalogReady;
 }
 
 /**

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/contextkeys"
 	"windshift/internal/database"
 	"windshift/internal/models"
@@ -40,6 +41,7 @@ func newAttachmentDeleteTestDB(t *testing.T) database.Database {
 			has_thumbnail BOOLEAN DEFAULT FALSE,
 			thumbnail_path TEXT,
 			category TEXT DEFAULT '',
+			is_internal BOOLEAN NOT NULL DEFAULT false,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE items (id INTEGER PRIMARY KEY, workspace_id INTEGER NOT NULL, creator_portal_customer_id INTEGER)`,
@@ -65,7 +67,8 @@ func newAttachmentDeleteTestDB(t *testing.T) database.Database {
 			resource_name TEXT,
 			details TEXT,
 			success BOOLEAN NOT NULL DEFAULT TRUE,
-			error_message TEXT
+			error_message TEXT,
+			source TEXT NOT NULL DEFAULT ''
 		)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
@@ -81,7 +84,7 @@ func newAttachmentDeleteTestDB(t *testing.T) database.Database {
 func newAttachmentHandler(db database.Database) *AttachmentHandler {
 	return &AttachmentHandler{
 		db:                db,
-		attachmentPath:    "/tmp/windshift-test-attachments",
+		storage:           blobstore.NewLocal("/tmp/windshift-test-attachments"),
 		permissionService: nil,
 		attachmentService: services.NewAttachmentServiceWithPermissions(db, nil),
 	}

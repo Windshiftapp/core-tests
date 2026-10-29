@@ -8,17 +8,15 @@ beforeAll(() => {
 });
 
 // MentionPicker fetches users when opened. Provide a fixed roster.
-vi.mock("../api.js", () => ({
-	api: {
-		getUsers: vi.fn(async () => [
-			{ username: "alice", first_name: "Alice", last_name: "Johnson" },
-			{ username: "bob", first_name: "Bob", last_name: "Smith" },
-		]),
-		getAssignableUsers: vi.fn(async () => [
-			{ username: "alice", first_name: "Alice", last_name: "Johnson" },
-			{ username: "bob", first_name: "Bob", last_name: "Smith" },
-		]),
-	},
+vi.mock('../api/users.js', () => ({
+  getUsers: vi.fn(async () => [
+  			{ username: "alice", first_name: "Alice", last_name: "Johnson" },
+  			{ username: "bob", first_name: "Bob", last_name: "Smith" },
+  		]),
+  getAssignableUsers: vi.fn(async () => [
+  			{ username: "alice", first_name: "Alice", last_name: "Johnson" },
+  			{ username: "bob", first_name: "Bob", last_name: "Smith" },
+  		]),
 }));
 
 // i18n.t — return the key verbatim so assertions don't depend on locale data.
@@ -48,7 +46,7 @@ vi.mock("runed", () => ({
 	},
 }));
 
-import { api } from "../api.js";
+import { getAssignableUsers, getUsers } from '../api/users.js';
 import MentionPicker from "./MentionPicker.svelte";
 
 afterEach(() => {
@@ -79,7 +77,7 @@ function pressKey(key) {
 
 describe("MentionPicker — shared workspace roster", () => {
 	test("loads the same actionable roster as the assignee picker", async () => {
-		api.getAssignableUsers.mockResolvedValueOnce([
+		getAssignableUsers.mockResolvedValueOnce([
 			{
 				username: "human",
 				first_name: "Human",
@@ -100,8 +98,47 @@ describe("MentionPicker — shared workspace roster", () => {
 		await vi.waitFor(() => {
 			expect(document.querySelectorAll('[role="option"]')).toHaveLength(2);
 		});
-		expect(api.getAssignableUsers).toHaveBeenCalledWith(42);
-		expect(api.getUsers).not.toHaveBeenCalled();
+		expect(getAssignableUsers).toHaveBeenCalledWith(42);
+		expect(getUsers).not.toHaveBeenCalled();
+	});
+});
+
+describe("MentionPicker — mention identity", () => {
+	test("inserts a username when another user shares the display name", async () => {
+		getUsers.mockResolvedValueOnce([
+			{ username: "jdoe", first_name: "John", last_name: "Doe" },
+			{ username: "john.doe", first_name: "John", last_name: "Doe" },
+		]);
+		const onSelect = vi.fn();
+		render(MentionPicker, { props: { open: true, onSelect } });
+
+		await vi.waitFor(() => {
+			expect(document.querySelectorAll('[role="option"]').length).toBe(2);
+		});
+
+		pressKey("Enter");
+
+		expect(onSelect).toHaveBeenCalledWith(
+			expect.objectContaining({ username: "jdoe", mentionText: "@jdoe" }),
+		);
+	});
+
+	test("keeps a unique display name as a quoted mention", async () => {
+		getUsers.mockResolvedValueOnce([
+			{ username: "jsmith", first_name: "Jane", last_name: "Smith" },
+		]);
+		const onSelect = vi.fn();
+		render(MentionPicker, { props: { open: true, onSelect } });
+
+		await vi.waitFor(() => {
+			expect(document.querySelectorAll('[role="option"]').length).toBe(1);
+		});
+
+		pressKey("Enter");
+
+		expect(onSelect).toHaveBeenCalledWith(
+			expect.objectContaining({ username: "jsmith", mentionText: '@"Jane Smith"' }),
+		);
 	});
 });
 
@@ -155,7 +192,7 @@ describe("MentionPicker — Enter while open must not break the mention (WI-200)
 
 		expect(onSelect).not.toHaveBeenCalled();
 		expect(preventDefault).not.toHaveBeenCalled();
-		expect(api.getUsers).not.toHaveBeenCalled();
+		expect(getUsers).not.toHaveBeenCalled();
 	});
 
 	test("Escape cancels and consumes the key even with zero results", async () => {

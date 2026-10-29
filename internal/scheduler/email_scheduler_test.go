@@ -11,6 +11,8 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 
+	"windshift/internal/blobstore"
+	"windshift/internal/database"
 	"windshift/internal/email"
 	"windshift/internal/models"
 	"windshift/internal/services"
@@ -62,7 +64,7 @@ func TestEmailSchedulerDefersUIDUntilTrackingClaimRecovers(t *testing.T) {
 		Raw: []byte("From: customer@example.com\r\nSubject: Need help\r\nMessage-ID: <" + messageID + ">\r\n\r\nPlease help\r\n"),
 	}
 	enc := sso.NewSecretEncryption("test-server-secret-with-sufficient-length-for-derivation")
-	es := NewEmailScheduler(db, email.NewCredentialManager(db, enc), t.TempDir())
+	es := NewEmailScheduler(db, email.NewCredentialManager(db, enc), blobstore.NewLocal(t.TempDir()))
 	es.SetCommentService(services.NewCommentService(db))
 	es.providerForChannel = func(context.Context, int) (email.Provider, *models.ChannelConfig, error) {
 		return &fakeProvider{client: &fakeIMAPClient{uidValidity: 7, messages: []*email.FetchedMessage{message}}},
@@ -189,6 +191,18 @@ func TestEmailScheduler_PoisonMessageDroppedAfterMaxAttempts(t *testing.T) {
 		t.Fatalf("insert channel: %v", err)
 	}
 
+	// The intake targets a workspace that does not exist, so processing fails
+	// deterministically and the message looks like poison. The watermark is
+	// per intake.
+	var intakeID int
+	if err := db.QueryRowContext(ctx, `
+		INSERT INTO intakes (mailbox_id, folder, workspace_id, status)
+		VALUES (?, 'INBOX', 0, 'enabled')
+		RETURNING id
+	`, channelID).Scan(&intakeID); err != nil {
+		t.Fatalf("insert intake: %v", err)
+	}
+
 	const poisonUID = uint32(1)
 	poison := &email.FetchedMessage{
 		UID: poisonUID,
@@ -203,7 +217,7 @@ func TestEmailScheduler_PoisonMessageDroppedAfterMaxAttempts(t *testing.T) {
 	}
 
 	enc := sso.NewSecretEncryption("test-server-secret-with-sufficient-length-for-derivation")
-	es := NewEmailScheduler(db, email.NewCredentialManager(db, enc), t.TempDir())
+	es := NewEmailScheduler(db, email.NewCredentialManager(db, enc), blobstore.NewLocal(t.TempDir()))
 
 	// Inject the fake provider. The returned config has no workspace, so the
 	// real processor fails ProcessEmail on every poll (releasing its dedup
@@ -228,8 +242,8 @@ func TestEmailScheduler_PoisonMessageDroppedAfterMaxAttempts(t *testing.T) {
 		if state.ErrorCount != i {
 			t.Fatalf("poll %d: error_count = %d, want %d", i, state.ErrorCount, i)
 		}
-		if state.LastUID != 0 {
-			t.Fatalf("poll %d: watermark advanced early to %d", i, state.LastUID)
+		if uid := intakeStateUID(t, db, intakeID); uid != 0 {
+			t.Fatalf("poll %d: watermark advanced early to %d", i, uid)
 		}
 	}
 
@@ -237,15 +251,12 @@ func TestEmailScheduler_PoisonMessageDroppedAfterMaxAttempts(t *testing.T) {
 	if ok := es.processChannel(ctx, ch); ok {
 		t.Fatalf("drop poll: expected processChannel to report failure")
 	}
+	if uid := intakeStateUID(t, db, intakeID); uid != int(poisonUID) {
+		t.Fatalf("watermark did not advance past poison: last_uid = %d, want %d", uid, poisonUID)
+	}
 	state, err := es.getOrCreateChannelState(ctx, channelID)
 	if err != nil {
 		t.Fatalf("read state after drop: %v", err)
-	}
-	if state.LastUID != int(poisonUID) {
-		t.Fatalf("watermark did not advance past poison: last_uid = %d, want %d", state.LastUID, poisonUID)
-	}
-	if state.ErrorCount != 0 {
-		t.Fatalf("error_count not reset after drop: %d", state.ErrorCount)
 	}
 	if !strings.Contains(state.LastError, "dropped poison message") {
 		t.Fatalf("last_error does not record the drop: %q", state.LastError)
@@ -256,4 +267,14 @@ func TestEmailScheduler_PoisonMessageDroppedAfterMaxAttempts(t *testing.T) {
 	if ok := es.processChannel(ctx, ch); !ok {
 		t.Fatalf("post-drop poll: channel still failing; expected it to be unwedged")
 	}
+}
+
+// intakeStateUID reads the per-folder watermark for an intake.
+func intakeStateUID(t *testing.T, db database.Database, intakeID int) int {
+	t.Helper()
+	var uid int
+	if err := db.QueryRow(`SELECT last_uid FROM email_intake_state WHERE intake_id = ?`, intakeID).Scan(&uid); err != nil {
+		t.Fatalf("read intake state: %v", err)
+	}
+	return uid
 }

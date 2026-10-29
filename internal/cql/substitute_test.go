@@ -22,6 +22,16 @@ func TestSubstituteFunctions(t *testing.T) {
 		{"customer", `cf_owner = currentCustomer()`, FunctionContext{CustomerID: &cid}, `cf_owner = 7`},
 		{"organisation", `cf_org = currentOrganisation()`, FunctionContext{OrganisationID: &oid}, `cf_org = 99`},
 		{"unknown function untouched", `assignee = somethingElse()`, FunctionContext{UserID: &uid}, `assignee = somethingElse()`},
+		{"literal currentUser in double quotes", `title = "currentUser()"`, FunctionContext{UserID: &uid}, `title = "currentUser()"`},
+		{"literal currentUser in single quotes", `title = 'currentUser()'`, FunctionContext{UserID: &uid}, `title = 'currentUser()'`},
+		{"literal currentUser in backtick identifier", "`currentUser()` = 1", FunctionContext{UserID: &uid}, "`currentUser()` = 1"},
+		{"literal with whitespace variant", `title = "currentUser ( )"`, FunctionContext{UserID: &uid}, `title = "currentUser ( )"`},
+		{"mixed literal and real call", `title = "currentUser()" AND assignee = currentUser()`, FunctionContext{UserID: &uid}, `title = "currentUser()" AND assignee = 42`},
+		{"escaped quote inside literal", `title = "say \"currentUser()\""`, FunctionContext{UserID: &uid}, `title = "say \"currentUser()\""`},
+		{"escaped backslash inside literal", `title = "back\\currentUser()"`, FunctionContext{UserID: &uid}, `title = "back\\currentUser()"`},
+		{"unresolved context left untouched", `customer = currentCustomer() AND assignee = currentUser()`, FunctionContext{UserID: &uid}, `customer = currentCustomer() AND assignee = 42`},
+		{"literal customer not substituted", `title = "currentCustomer()"`, FunctionContext{CustomerID: &cid}, `title = "currentCustomer()"`},
+		{"literal organisation not substituted", `title = "currentOrganisation()"`, FunctionContext{OrganisationID: &oid}, `title = "currentOrganisation()"`},
 	}
 
 	for _, tc := range cases {

@@ -1,11 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../api.js", () => ({
-	api: {
-		analytics: { getAnalytics: vi.fn() },
-		collections: { getAll: vi.fn() },
-	},
+vi.mock('../../api/analytics.js', () => ({
+  analytics: { getAnalytics: vi.fn() },
+}))
+
+vi.mock('../../api/collections.js', () => ({
+  collections: { getAll: vi.fn() },
+  collectionCategories: { getAll: vi.fn().mockResolvedValue([]) },
 }));
 
 vi.mock("../../router.js", () => ({
@@ -18,7 +20,8 @@ vi.mock("../../stores/i18n.svelte.js", () => ({
 	),
 }));
 
-import { api } from "../../api.js";
+import { collections } from '../../api/collections.js';
+import { analytics } from '../../api/analytics.js';
 import WorkspaceAnalytics from "./WorkspaceAnalytics.svelte";
 
 function deferred() {
@@ -84,7 +87,7 @@ function analyticsResponse(workspaceItemNumber, title) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	api.collections.getAll.mockResolvedValue([]);
+	collections.getAll.mockResolvedValue([]);
 	window.history.replaceState({}, "", "/workspaces/1/analytics");
 	globalThis.ResizeObserver = class {
 		observe() {}
@@ -96,14 +99,14 @@ beforeEach(() => {
 describe("WorkspaceAnalytics analytics lifecycle", () => {
 	it("does not let a previous workspace response replace the current workspace", async () => {
 		const firstWorkspace = deferred();
-		api.analytics.getAnalytics.mockImplementation((workspaceId) => {
+		analytics.getAnalytics.mockImplementation((workspaceId) => {
 			if (String(workspaceId) === "1") return firstWorkspace.promise;
 			return Promise.resolve(analyticsResponse(2, "Workspace two item"));
 		});
 
 		const view = render(WorkspaceAnalytics, { props: { workspaceId: 1 } });
 		await waitFor(() =>
-			expect(api.analytics.getAnalytics).toHaveBeenCalledWith(
+			expect(analytics.getAnalytics).toHaveBeenCalledWith(
 				1,
 				expect.any(Object),
 			),
@@ -125,7 +128,7 @@ describe("WorkspaceAnalytics analytics lifecycle", () => {
 	it("surfaces missing completion history when there are no delivery-time samples", async () => {
 		const response = analyticsResponse(1, "Imported completed item");
 		response.delivery_time.missing_history_items = 2;
-		api.analytics.getAnalytics.mockResolvedValue(response);
+		analytics.getAnalytics.mockResolvedValue(response);
 
 		render(WorkspaceAnalytics, { props: { workspaceId: 1 } });
 
@@ -135,7 +138,7 @@ describe("WorkspaceAnalytics analytics lifecycle", () => {
 	});
 
 	it("renders analytics metrics with the minimal icon treatment", async () => {
-		api.analytics.getAnalytics.mockResolvedValue(
+		analytics.getAnalytics.mockResolvedValue(
 			analyticsResponse(1, "Analytics item"),
 		);
 

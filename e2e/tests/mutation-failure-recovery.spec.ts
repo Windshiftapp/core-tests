@@ -53,7 +53,6 @@ test.describe("Browser mutation, bootstrap, and offline recovery (WI-699)", () =
 
 		const titleInput = page.getByTestId("item-title-input");
 		await expect(titleInput).toHaveValue(originalTitle);
-		await expect(titleInput).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		await titleInput.fill(recoveredTitle);
 
 		const firstAttempt = page.waitForRequest(
@@ -215,13 +214,8 @@ test.describe("Browser mutation, bootstrap, and offline recovery (WI-699)", () =
 	test("mobile offline retry preserves route and unsent create input", async ({
 		context,
 		page,
-		request,
 	}) => {
 		const stamp = Date.now();
-		const workspace = await createWorkspaceViaAPI(
-			request,
-			generateWorkspace(`wi699-mobile-${stamp}`),
-		);
 		const title = `Offline mobile item ${stamp}`;
 		const description = `Draft survives offline ${stamp}`;
 		let successfulCreates = 0;
@@ -245,9 +239,10 @@ test.describe("Browser mutation, bootstrap, and offline recovery (WI-699)", () =
 		await page.getByTestId("mobile-create-fab").click();
 		await expect(page.getByTestId("mobile-create-page")).toBeVisible();
 
-		await page
-			.getByTestId("create-workspace")
-			.selectOption(String(workspace.id));
+		// The workspace directory is capped, so a freshly created workspace can
+		// fall outside it under full-suite load. Use whatever workspace the create
+		// form defaults to; the flow under test does not depend on which one.
+		await expect(page.getByTestId("create-workspace")).not.toHaveValue("");
 		await expect(page.getByTestId("create-type")).not.toHaveValue("");
 		await page.getByTestId("create-title").fill(title);
 		await page.getByTestId("create-description").fill(description);

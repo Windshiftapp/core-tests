@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { assets } from '../api/assets.js';
 
-vi.mock('../api.js', () => ({
-  api: { assets: { getAll: vi.fn() } },
+vi.mock('../api/assets.js', () => ({
+  assets: { getAll: vi.fn() },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({

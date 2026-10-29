@@ -1,16 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    sla: {
-      getWarningThresholds: vi.fn(),
-      getMetrics: vi.fn(),
-      createWarningThreshold: vi.fn(),
-      updateWarningThreshold: vi.fn(),
-      deleteWarningThreshold: vi.fn(),
-    },
-  },
+vi.mock('../../api/sla.js', () => ({
+  sla: {
+        getWarningThresholds: vi.fn(),
+        getMetrics: vi.fn(),
+        createWarningThreshold: vi.fn(),
+        updateWarningThreshold: vi.fn(),
+        deleteWarningThreshold: vi.fn(),
+      },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -26,7 +24,7 @@ vi.mock('../../composables/useConfirm.js', () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
-import { api } from '../../api.js';
+import { sla } from '../../api/sla.js';
 import SlaWarningThresholdsTab from './SlaWarningThresholdsTab.svelte';
 
 const thresholds = [
@@ -37,14 +35,14 @@ const thresholds = [
 describe('SlaWarningThresholdsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.sla.getWarningThresholds.mockResolvedValue(thresholds);
-    api.sla.getMetrics.mockResolvedValue([{ id: 9, name: 'First response' }]);
+    sla.getWarningThresholds.mockResolvedValue(thresholds);
+    sla.getMetrics.mockResolvedValue([{ id: 9, name: 'First response' }]);
   });
 
   it('lists workspace-scoped and metric-scoped thresholds', async () => {
     render(SlaWarningThresholdsTab, { workspaceId: 5 });
 
-    await waitFor(() => expect(api.sla.getWarningThresholds).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(sla.getWarningThresholds).toHaveBeenCalledWith(5));
     expect(await screen.findByTestId('sla-threshold-row-1')).toBeTruthy();
     expect(screen.getByTestId('sla-threshold-row-2')).toBeTruthy();
     expect(screen.getByText('Approaching')).toBeTruthy();
@@ -61,7 +59,7 @@ describe('SlaWarningThresholdsTab', () => {
     });
     await fireEvent.click(screen.getByTestId('sla-threshold-submit'));
 
-    expect(api.sla.createWarningThreshold).not.toHaveBeenCalled();
+    expect(sla.createWarningThreshold).not.toHaveBeenCalled();
     expect(await screen.findByTestId('sla-threshold-error')).toBeTruthy();
   });
 });

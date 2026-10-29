@@ -65,7 +65,7 @@ func withTokenScopes(method string, scopes ...string) *http.Request {
 // :write does NOT imply :delete (the TokenManager hierarchy only does
 // write→read), so the delete route is asserted separately.
 func TestV1PageRoutes_ScopeGate(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	sentinel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -95,7 +95,7 @@ func TestV1PageRoutes_ScopeGate(t *testing.T) {
 // read the current state). Delete intentionally does NOT participate in
 // this hierarchy.
 func TestV1PageRoutes_WriteImpliesRead(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	sentinel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -121,7 +121,7 @@ func TestV1PageRoutes_WriteImpliesRead(t *testing.T) {
 // middleware/auth_test.go and pins that the per-route scope middleware
 // is not the first authorization gate (RequireAuth is).
 func TestV1PageRoutes_NoToken_Unauthorized(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	sentinel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

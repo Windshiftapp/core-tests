@@ -186,16 +186,16 @@ func TestExternalItemReconciliationCreateUsesCanonicalMutationAndSideEffects(t *
 	if len(labels) != 1 || labels[0].ID != env.labelID {
 		t.Fatalf("labels = %+v, want %d", labels, env.labelID)
 	}
-	var historyCount int
-	if err := env.db.QueryRow("SELECT COUNT(*) FROM item_history WHERE item_id = ?", item.ID).Scan(&historyCount); err != nil {
-		t.Fatalf("count history: %v", err)
+	var userHistoryCount int
+	if err := env.db.QueryRow("SELECT COUNT(*) FROM item_history WHERE item_id = ? AND actor_kind = 'user'", item.ID).Scan(&userHistoryCount); err != nil {
+		t.Fatalf("count user history: %v", err)
 	}
-	if historyCount != 0 {
-		t.Fatalf("history count = %d, want no user-attributed history", historyCount)
+	if userHistoryCount != 0 {
+		t.Fatalf("user-attributed history count = %d, want 0", userHistoryCount)
 	}
 	live := spy.snapshot()
-	if len(live) != 1 || live[0].itemID != item.ID || live[0].kind != ItemChangeCreated {
-		t.Fatalf("live updates = %+v, want one item.created for %d", live, item.ID)
+	if len(live) != 1 || live[0] != item.ID {
+		t.Fatalf("live updates = %+v, want one publish for %d", live, item.ID)
 	}
 }
 
@@ -287,16 +287,16 @@ func TestExternalItemReconciliationUpdateUsesCanonicalMutationWithoutUserHistory
 	if len(result.FieldChanges) != 0 {
 		t.Fatalf("field changes = %+v, want no user history", result.FieldChanges)
 	}
-	var historyCount int
-	if err := env.db.QueryRow("SELECT COUNT(*) FROM item_history WHERE item_id = ?", itemID).Scan(&historyCount); err != nil {
-		t.Fatalf("count history: %v", err)
+	var userHistoryCount int
+	if err := env.db.QueryRow("SELECT COUNT(*) FROM item_history WHERE item_id = ? AND actor_kind = 'user'", itemID).Scan(&userHistoryCount); err != nil {
+		t.Fatalf("count user history: %v", err)
 	}
-	if historyCount != 0 {
-		t.Fatalf("history count = %d, want zero", historyCount)
+	if userHistoryCount != 0 {
+		t.Fatalf("user-attributed history count = %d, want 0", userHistoryCount)
 	}
 	live := spy.snapshot()
-	if len(live) != 1 || live[0].itemID != itemID || live[0].kind != ItemChangeUpdated {
-		t.Fatalf("live updates = %+v, want one item.updated for %d", live, itemID)
+	if len(live) != 1 || live[0] != itemID {
+		t.Fatalf("live updates = %+v, want one publish for %d", live, itemID)
 	}
 }
 

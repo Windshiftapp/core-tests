@@ -1,7 +1,7 @@
 import { createWorkspaceViaAPI } from "../fixtures/api-helpers";
 import { expect, test } from "../fixtures/context-path";
 import { generateWorkspace } from "../fixtures/test-data";
-import { scrollToContent } from "../helpers/scroll-to-content";
+import { expectContained, scrollToContent } from "../helpers/scroll-to-content";
 import { KnowledgePage } from "../pages/knowledge.page";
 
 test.afterEach(async ({ page }, testInfo) => {
@@ -38,59 +38,6 @@ test.afterEach(async ({ page }, testInfo) => {
 		contentType: "application/json",
 	});
 });
-
-for (const width of [1600, 900]) {
-	test(`page controls sit above a full-width title at ${width}px`, async ({
-		page,
-		request,
-	}, testInfo) => {
-		const workspace = await createWorkspaceViaAPI(
-			request,
-			generateWorkspace("page-title-layout"),
-		);
-		try {
-			await page.setViewportSize({ width, height: 900 });
-			const knowledge = new KnowledgePage(page);
-			const title = "Bulk Work Item Operations — API and Atomic Updates";
-			await knowledge.createRootPage(String(workspace.id), title);
-
-			for (const mode of ["read", "edit"]) {
-				await page.getByTestId(`page-mode-${mode}`).click();
-				await expect(page.getByTestId(`page-mode-${mode}`)).toHaveAttribute(
-					"aria-pressed",
-					"true",
-				);
-				await expect(knowledge.titleInput).toHaveValue(title);
-				await expect
-					.poll(async () => {
-						const titleBox = await knowledge.titleInput.boundingBox();
-						const controls = await page
-							.getByTestId("page-mode-toggle")
-							.boundingBox();
-						if (!titleBox || !controls)
-							throw new Error("Title or controls are not rendered");
-						return titleBox.y - (controls.y + controls.height);
-					})
-					.toBeGreaterThanOrEqual(8);
-				const titleBox = await knowledge.titleInput.boundingBox();
-				const labels = await page.getByTestId("page-label-row").boundingBox();
-				if (!titleBox || !labels)
-					throw new Error("Title or labels are not rendered");
-				expect(titleBox.width).toBeGreaterThan(labels.width * 0.85);
-				expect(
-					await knowledge.titleInput.evaluate((el) =>
-						parseFloat(getComputedStyle(el).fontSize),
-					),
-				).toBeLessThanOrEqual(28);
-			}
-			await page.screenshot({ path: testInfo.outputPath("page-title.png") });
-		} finally {
-			expect(
-				(await request.delete(`/api/v2/workspaces/${workspace.id}`)).status(),
-			).toBe(204);
-		}
-	});
-}
 
 for (const mode of ["edit", "read"]) {
 	test(`long page can scroll to its end in ${mode} mode @critical-browser`, async ({
@@ -136,11 +83,11 @@ for (const mode of ["edit", "read"]) {
 				})
 				.toBeGreaterThanOrEqual(0);
 			await scrollToContent(page, page.getByTestId("pages-view"), final);
-			await expect(final).toBeInViewport({ ratio: 1 });
+			await expectContained(page.getByTestId("pages-view"), final);
 			await expect(page.locator("#pages-add-button")).toBeInViewport();
 			await page.setViewportSize({ width: 900, height: 320 });
 			await scrollToContent(page, page.getByTestId("pages-view"), final);
-			await expect(final).toBeInViewport({ ratio: 1 });
+			await expectContained(page.getByTestId("pages-view"), final);
 			await expect(page.locator("#pages-add-button")).toBeInViewport();
 			await page.screenshot({
 				path: testInfo.outputPath(`page-content-${mode}.png`),
@@ -152,3 +99,126 @@ for (const mode of ["edit", "read"]) {
 		}
 	});
 }
+
+test("header action row meets the editor toolbar divider on the right", async ({
+	page,
+	request,
+}) => {
+	const workspace = await createWorkspaceViaAPI(
+		request,
+		generateWorkspace("page-toolbar-align"),
+	);
+	try {
+		const response = await request.post(
+			`/api/v2/workspaces/${workspace.id}/pages`,
+			{ data: { title: "Alignment", content: "Body." } },
+		);
+		expect(response.ok(), await response.text()).toBeTruthy();
+		const created = (await response.json()).data;
+
+		// 1440px is above the 1281px breakpoint where the page frame shrinks
+		// to 75% of the pane; 1100px keeps the frame at full pane width. The
+		// header controls must share the divider's right edge in both frames.
+		for (const width of [1440, 1100]) {
+			await page.setViewportSize({ width, height: 900 });
+			await page.goto(`/workspaces/${workspace.id}/pages/${created.id}`);
+			const kebab = page.getByTestId("page-toolbar-kebab");
+			const divider = page
+				.getByTestId("page-editor")
+				.getByTestId("milkdown-toolbar");
+			await expect(kebab).toBeVisible();
+			await expect(divider).toBeVisible();
+			await page.evaluate(() => document.fonts.ready);
+			await expect
+				.poll(async () => {
+					const kebabBox = await kebab.boundingBox();
+					const dividerBox = await divider.boundingBox();
+					if (!kebabBox || !dividerBox)
+						throw new Error("Toolbars are not rendered");
+					return Math.abs(
+						kebabBox.x + kebabBox.width - (dividerBox.x + dividerBox.width),
+					);
+				})
+				.toBeLessThanOrEqual(1);
+		}
+	} finally {
+		expect(
+			(await request.delete(`/api/v2/workspaces/${workspace.id}`)).status(),
+		).toBe(204);
+	}
+});
+
+test("a long title wraps instead of clipping in edit and read mode", async ({
+	page,
+	request,
+}) => {
+	const workspace = await createWorkspaceViaAPI(
+		request,
+		generateWorkspace("page-title-wrap"),
+	);
+	try {
+		const longTitle =
+			"Bulk Work Item Operations — API and Atomic Updates for Concurrent Editors";
+		const shortTitle = "Short title";
+		const created: Array<{ id: number; title: string }> = [];
+		for (const title of [longTitle, shortTitle]) {
+			const response = await request.post(
+				`/api/v2/workspaces/${workspace.id}/pages`,
+				{ data: { title, content: "Body." } },
+			);
+			expect(response.ok(), await response.text()).toBeTruthy();
+			created.push((await response.json()).data);
+		}
+		const [longPage, shortPage] = created;
+
+		// 1440px is above the 1281px breakpoint where the page frame shrinks to
+		// 75% of the pane — the narrow frame that used to clip a long title.
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await page.goto(`/workspaces/${workspace.id}/pages/${longPage.id}`);
+		const knowledge = new KnowledgePage(page);
+		await expect(knowledge.titleInput).toHaveValue(longTitle);
+
+		const titleMetrics = () =>
+			knowledge.titleInput.evaluate((el) => {
+				const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
+				return {
+					clippedHorizontally: el.scrollWidth > el.clientWidth + 1,
+					clippedVertically: el.scrollHeight > el.clientHeight + 1,
+					wrapped: el.clientHeight > lineHeight * 1.5,
+				};
+			});
+
+		for (const mode of ["edit", "read"] as const) {
+			await page.getByTestId(`page-mode-${mode}`).click();
+			await expect(page.getByTestId(`page-mode-${mode}`)).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			await expect.poll(titleMetrics).toEqual({
+				clippedHorizontally: false,
+				clippedVertically: false,
+				wrapped: true,
+			});
+		}
+
+		// Switching pages in place must re-measure the height for the new title.
+		await knowledge.selectPage(shortPage.id);
+		await expect(knowledge.titleInput).toHaveValue(shortTitle);
+		await expect.poll(titleMetrics).toEqual({
+			clippedHorizontally: false,
+			clippedVertically: false,
+			wrapped: false,
+		});
+		await knowledge.selectPage(longPage.id);
+		await expect(knowledge.titleInput).toHaveValue(longTitle);
+		await expect.poll(titleMetrics).toEqual({
+			clippedHorizontally: false,
+			clippedVertically: false,
+			wrapped: true,
+		});
+	} finally {
+		expect(
+			(await request.delete(`/api/v2/workspaces/${workspace.id}`)).status(),
+		).toBe(204);
+	}
+});

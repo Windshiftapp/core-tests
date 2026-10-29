@@ -1,12 +1,12 @@
 import { render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { forms } from '../../api/forms.js';
 
-vi.mock("../../api.js", () => ({
-	api: {
-		forms: {
-			getForms: vi.fn(),
-		},
-	},
+
+vi.mock('../../api/forms.js', () => ({
+  forms: {
+  			getForms: vi.fn(),
+  		},
 }));
 
 vi.mock("../../stores/i18n.svelte.js", () => ({
@@ -17,7 +17,7 @@ vi.mock("../../runtime/contextPath.js", () => ({
 	publicBaseURL: () => "https://windshift.example",
 }));
 
-const { api } = await import("../../api.js");
+
 const { default: FormIntegrationPanel } = await import(
 	"./FormIntegrationPanel.svelte"
 );
@@ -26,7 +26,7 @@ describe("FormIntegrationPanel authenticated embed contract", () => {
 	beforeEach(() => vi.clearAllMocks());
 
 	it("offers only the hosted URL when any form requires authentication", async () => {
-		api.forms.getForms.mockResolvedValue([
+		forms.getForms.mockResolvedValue([
 			{ id: 7, config: { require_auth: true } },
 			{ id: 8, config: { require_auth: false } },
 		]);
@@ -42,14 +42,14 @@ describe("FormIntegrationPanel authenticated embed contract", () => {
 	});
 
 	it("keeps iframe and widget modes for anonymous forms", async () => {
-		api.forms.getForms.mockResolvedValue([
+		forms.getForms.mockResolvedValue([
 			{ id: 7, config: { require_auth: false } },
 		]);
 
 		render(FormIntegrationPanel, { props: { slug: "support" } });
 
 		await vi.waitFor(() =>
-			expect(api.forms.getForms).toHaveBeenCalledWith("support"),
+			expect(forms.getForms).toHaveBeenCalledWith("support"),
 		);
 		expect(screen.queryByTestId("authenticated-form-embed-warning")).toBeNull();
 		expect(screen.getByTestId("form-integration-tab-hosted")).toBeTruthy();
@@ -61,7 +61,7 @@ describe("FormIntegrationPanel authenticated embed contract", () => {
 
 	it("fails closed to the hosted URL when authentication requirements cannot be loaded", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-		api.forms.getForms.mockRejectedValue(new Error("offline"));
+		forms.getForms.mockRejectedValue(new Error("offline"));
 
 		render(FormIntegrationPanel, { props: { slug: "support" } });
 

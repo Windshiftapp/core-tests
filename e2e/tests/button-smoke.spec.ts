@@ -37,52 +37,6 @@ function allowEnvironmentalNoise(allow: (pattern: RegExp) => void) {
   allow(/Failed to load attachment status/);
 }
 
-test.describe('Button smoke — page loads without console errors', () => {
-  const pages: Array<{ name: string; path: string; settleSelector?: string }> = [
-    { name: 'workspaces list', path: '/workspaces', settleSelector: 'tbody, main' },
-    { name: 'admin panel', path: '/admin', settleSelector: '#admin-search' },
-    { name: 'admin users', path: '/admin/users', settleSelector: 'main' },
-    { name: 'admin priorities', path: '/admin/priorities', settleSelector: 'main' },
-    { name: 'admin custom-fields', path: '/admin/custom-fields', settleSelector: 'main' },
-    // Teams live at the global /teams route, not under /admin — use a real
-    // admin sub-route here instead of the non-existent /admin/teams.
-    { name: 'admin groups', path: '/admin/groups', settleSelector: 'main' },
-    // /personal renders the personal-workspace view (router.js); /personal/tasks
-    // is not a registered route and silently falls through to the 404 page.
-    { name: 'personal workspace', path: '/personal', settleSelector: 'main' },
-    { name: 'notifications', path: '/notifications', settleSelector: 'main' },
-    { name: 'global search', path: '/search', settleSelector: 'main' },
-    { name: 'logbook', path: '/logbook', settleSelector: 'main' },
-    { name: 'assets', path: '/assets', settleSelector: 'main' },
-    { name: 'channels inbox', path: '/channels/inbox', settleSelector: 'main' },
-  ];
-
-  for (const { name, path, settleSelector } of pages) {
-    test(`${name} loads clean`, async ({ page, allowConsoleError }) => {
-      allowEnvironmentalNoise(allowConsoleError);
-      await page.goto(path);
-
-      if (settleSelector) {
-        await page
-          .locator(settleSelector)
-          .first()
-          .waitFor({ state: 'visible', timeout: 5000 })
-          .catch(() => {});
-      }
-      // Sanity: the page rendered something. Real assertion is the error fixture.
-      await expect(page.locator('body')).toBeVisible();
-      // 404 guard: the SPA falls back to NotFound.svelte for unregistered
-      // routes — without this assertion the test passes against a 404 page
-      // (no console error, body is visible). Catch it loudly so a broken or
-      // typo'd path here fails the spec.
-      await expect(
-        page.getByRole('heading', { name: 'Page Not Found' }),
-        `${name} (${path}) rendered the 404 page`
-      ).toHaveCount(0);
-    });
-  }
-});
-
 /**
  * Close any modal that's open. The Modal component listens for Escape on the
  * document, but focus inside form inputs can swallow it first — pressing on

@@ -1,6 +1,6 @@
 import {
 	createWorkspaceViaAPI,
-	listItemTypesViaAPI,
+	listWorkspaceItemTypesViaAPI,
 } from "../fixtures/api-helpers";
 import { expect, test } from "../fixtures/context-path";
 import { generateWorkspace } from "../fixtures/test-data";
@@ -26,7 +26,9 @@ test.describe("Board swimlane quick-add item types", () => {
 		});
 		const workspaceId = created.id as number;
 
-		const itemTypes = await listItemTypesViaAPI(request);
+		// New workspaces bind a subset of the global catalog; the board offers
+		// exactly the workspace's effective types.
+		const itemTypes = await listWorkspaceItemTypesViaAPI(request, workspaceId);
 		const byLevel = (level: number) =>
 			itemTypes.filter((type) => (type.hierarchy_level ?? 0) === level);
 

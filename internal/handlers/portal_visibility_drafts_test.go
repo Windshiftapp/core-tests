@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"windshift/internal/auth"
+	"windshift/internal/blobstore"
 	"windshift/internal/middleware"
 	"windshift/internal/models"
 	"windshift/internal/repository"
@@ -89,7 +90,7 @@ func newPortalVisibilityDraftFixture(t *testing.T) *portalVisibilityDraftFixture
 	}
 
 	return &portalVisibilityDraftFixture{
-		db: db, handler: NewPortalHandler(db, nil, nil, nil, ""),
+		db: db, handler: NewPortalHandler(db, nil, nil, nil, blobstore.Disabled()),
 		userID: userID, channelID: channelID,
 		visibleRequestTypeID: visibleID, hiddenRequestTypeID: hiddenID, inactiveRequestTypeID: inactiveID,
 	}

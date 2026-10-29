@@ -60,7 +60,7 @@ func (f *slaFixture) createMetric(t *testing.T) int {
 			Conditions: []models.SLACondition{{Phase: models.SLAPhaseStart, Position: 0, ConditionType: "created", Config: json.RawMessage(`{}`)}},
 			Goals: []models.SLAGoal{{
 				Position: 0, QLQuery: "priority = high", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: f.calendarID}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: f.calendarID}},
 			}},
 		})
 		metricID = id
@@ -252,7 +252,7 @@ func TestTeamBindingDeleteRefusesWhenTeamCalendarTargeted(t *testing.T) {
 		_, err := fixture.repo.CreateMetric(ctx, tx, &models.SLAMetric{
 			WorkspaceID: fixture.workspaceID, Name: "Bound", IsActive: true, ImportStatus: "native",
 			Goals: []models.SLAGoal{{Position: 0, QLQuery: "true", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 1000, CalendarID: teamCalendarID}}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 1000, CalendarID: teamCalendarID}}}},
 		})
 		return err
 	})
@@ -323,6 +323,56 @@ func TestTouchWorkspaceStateAdvancesGeneration(t *testing.T) {
 	}
 	if missing, err := fixture.repo.WorkspaceGeneration(ctx, 9999); err != nil || missing != 0 {
 		t.Fatalf("missing workspace generation = %d/%v, want 0/nil", missing, err)
+	}
+}
+
+// TestListRecalculationJobsScopesToWorkspace covers the recalculation tab
+// read path, which joins sla_metrics and items to scope jobs to a workspace.
+func TestListRecalculationJobsScopesToWorkspace(t *testing.T) {
+	fixture := newSLAFixture(t)
+	ctx := context.Background()
+	metricID := fixture.createMetric(t)
+	now := time.Now().UTC()
+
+	var otherWorkspaceID int
+	if err := fixture.db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Other workspace', 'SLAO') RETURNING id`).Scan(&otherWorkspaceID); err != nil {
+		t.Fatalf("insert other workspace: %v", err)
+	}
+	var otherItemID int
+	if err := fixture.db.QueryRow(`INSERT INTO items (workspace_id, workspace_item_number, title, description, frac_index) VALUES (?, 1, 'Other item', '', ?) RETURNING id`, otherWorkspaceID, testutils.NextTestFracIndex()).Scan(&otherItemID); err != nil {
+		t.Fatalf("insert other item: %v", err)
+	}
+
+	if err := database.WithTx(fixture.db, func(tx database.Tx) error {
+		if err := fixture.repo.UpsertJob(ctx, tx, &models.SLAJob{Kind: models.SLAJobRecalcMetric, MetricID: &metricID, DueAt: now}); err != nil {
+			return err
+		}
+		if err := fixture.repo.UpsertJob(ctx, tx, &models.SLAJob{Kind: models.SLAJobRecalcItem, ItemID: &fixture.itemID, DueAt: now.Add(time.Minute)}); err != nil {
+			return err
+		}
+		if err := fixture.repo.UpsertJob(ctx, tx, &models.SLAJob{Kind: models.SLAJobRecalcCalendar, ThresholdKey: fmt.Sprintf("%d", fixture.calendarID), MetricID: &metricID, DueAt: now.Add(2 * time.Minute)}); err != nil {
+			return err
+		}
+		return fixture.repo.UpsertJob(ctx, tx, &models.SLAJob{Kind: models.SLAJobRecalcItem, ItemID: &otherItemID, DueAt: now.Add(3 * time.Minute)})
+	}); err != nil {
+		t.Fatalf("upsert jobs: %v", err)
+	}
+
+	jobs, err := fixture.repo.ListRecalculationJobs(ctx, fixture.workspaceID)
+	if err != nil {
+		t.Fatalf("ListRecalculationJobs: %v", err)
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("jobs = %#v, want 3", jobs)
+	}
+	if jobs[0].Kind != models.SLAJobRecalcMetric || jobs[0].MetricID == nil || *jobs[0].MetricID != metricID {
+		t.Fatalf("first job = %#v, want recalc_metric for metric %d", jobs[0], metricID)
+	}
+	if jobs[1].Kind != models.SLAJobRecalcItem || jobs[1].ItemID == nil || *jobs[1].ItemID != fixture.itemID {
+		t.Fatalf("second job = %#v, want recalc_item for item %d", jobs[1], fixture.itemID)
+	}
+	if jobs[2].Kind != models.SLAJobRecalcCalendar || jobs[2].MetricID == nil || *jobs[2].MetricID != metricID {
+		t.Fatalf("third job = %#v, want recalc_calendar for metric %d", jobs[2], metricID)
 	}
 }
 
@@ -423,7 +473,7 @@ func TestSLADurationsAcceptLongTargets(t *testing.T) {
 		id, err := fixture.repo.CreateMetric(ctx, tx, &models.SLAMetric{
 			WorkspaceID: fixture.workspaceID, Name: "Long target", DisplayFormat: "time", IsActive: true, ImportStatus: "native",
 			Goals: []models.SLAGoal{{Position: 0, QLQuery: "true", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: thirtyDaysMs, CalendarID: fixture.calendarID}}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: thirtyDaysMs, CalendarID: fixture.calendarID}}}},
 		})
 		metricID = id
 		return err
@@ -587,7 +637,7 @@ func TestTeamReferencedCalendarsCountsBoundTargets(t *testing.T) {
 		_, err := fixture.repo.CreateMetric(ctx, tx, &models.SLAMetric{
 			WorkspaceID: fixture.workspaceID, Name: "Bound", IsActive: true, ImportStatus: "native",
 			Goals: []models.SLAGoal{{Position: 0, QLQuery: "true", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 1_000, CalendarID: teamCalendarID}}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 1_000, CalendarID: teamCalendarID}}}},
 		})
 		return err
 	}); err != nil {
@@ -598,3 +648,37 @@ func TestTeamReferencedCalendarsCountsBoundTargets(t *testing.T) {
 	}
 }
 
+// TestListMetricSummariesSkipsConfiguration pins the badge read path: summaries
+// carry metric identity fields but never hydrate conditions, goals, or targets,
+// so badge batches do not pay the 1+2M+G configuration queries per chunk.
+func TestListMetricSummariesSkipsConfiguration(t *testing.T) {
+	fixture := newSLAFixture(t)
+	ctx := context.Background()
+	metricID := fixture.createMetric(t)
+
+	hydrated, err := fixture.repo.ListMetrics(ctx, fixture.workspaceID)
+	if err != nil {
+		t.Fatalf("ListMetrics: %v", err)
+	}
+	if len(hydrated) != 1 {
+		t.Fatalf("ListMetrics returned %d metrics, want 1", len(hydrated))
+	}
+	if len(hydrated[0].Conditions) == 0 || len(hydrated[0].Goals) == 0 {
+		t.Fatalf("ListMetrics did not hydrate configuration: %+v", hydrated[0])
+	}
+
+	summaries, err := fixture.repo.ListMetricSummaries(ctx, fixture.workspaceID)
+	if err != nil {
+		t.Fatalf("ListMetricSummaries: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("ListMetricSummaries returned %d metrics, want 1", len(summaries))
+	}
+	got := summaries[0]
+	if got.ID != metricID || got.Name != "First response" || got.DisplayFormat != "time" {
+		t.Fatalf("summary identity = %+v, want id=%d name=First response format=time", got, metricID)
+	}
+	if len(got.Conditions) != 0 || len(got.Goals) != 0 {
+		t.Fatalf("summary hydrated unused configuration: %+v", got)
+	}
+}

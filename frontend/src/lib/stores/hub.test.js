@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { hub } from '../api/hub.js';
 
 const mocks = vi.hoisted(() => ({
   hub: {
@@ -9,16 +10,16 @@ const mocks = vi.hoisted(() => ({
   authenticated: true,
 }));
 
-vi.mock('../api.js', () => ({
-  api: { hub: mocks.hub },
+vi.mock('../api/hub.js', () => ({
+  hub: mocks.hub,
 }));
 
-vi.mock('../stores', () => ({
+vi.mock('../stores/auth.svelte.js', () => ({
   authStore: {
-    get isAuthenticated() {
-      return mocks.authenticated;
+      get isAuthenticated() {
+        return mocks.authenticated;
+      },
     },
-  },
 }));
 
 const { hubStore } = await import('./hub.svelte.js');

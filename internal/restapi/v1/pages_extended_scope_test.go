@@ -24,7 +24,7 @@ func TestV1PageExtendedRoutes_ScopeGate(t *testing.T) {
 		{http.MethodPatch, "/workspaces/{id}/pages/{pageId}/inheritance", "pages:write"},
 	}
 
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	sentinel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

@@ -99,7 +99,7 @@ func TestBindingService_UpdateAgentConfig_RunnerImage(t *testing.T) {
 	sp := func(s string) *string { return &s }
 
 	// Set an image.
-	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "", sp("ghcr.io/acme/playwright:1"), nil); err != nil {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "", sp("ghcr.io/acme/playwright:1"), nil, nil); err != nil {
 		t.Fatalf("set image: %v", err)
 	}
 	if b, _ := st.Bindings.Get(ctx, poolBinding); b.RunnerImage != "ghcr.io/acme/playwright:1" {
@@ -107,21 +107,21 @@ func TestBindingService_UpdateAgentConfig_RunnerImage(t *testing.T) {
 	}
 	// Presence-aware (WI-450 P2): a nil runner image leaves the current value
 	// untouched, so a client omitting the key never clears it.
-	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "new instructions", nil, nil); err != nil {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "new instructions", nil, nil, nil); err != nil {
 		t.Fatalf("update without image: %v", err)
 	}
 	if b, _ := st.Bindings.Get(ctx, poolBinding); b.RunnerImage != "ghcr.io/acme/playwright:1" {
 		t.Fatalf("omitted image must preserve existing; got %q", b.RunnerImage)
 	}
 	// An explicit empty string clears it.
-	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "", sp(""), nil); err != nil {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "", sp(""), nil, nil); err != nil {
 		t.Fatalf("clear image: %v", err)
 	}
 	if b, _ := st.Bindings.Get(ctx, poolBinding); b.RunnerImage != "" {
 		t.Fatalf("after clear: RunnerImage = %q, want empty", b.RunnerImage)
 	}
 	// Bad ref → typed error.
-	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "", sp("bad image!!"), nil); !errors.Is(err, ErrBindingInvalidRunnerImage) {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, poolBinding, "", sp("bad image!!"), nil, nil); !errors.Is(err, ErrBindingInvalidRunnerImage) {
 		t.Errorf("bad ref: want ErrBindingInvalidRunnerImage, got %v", err)
 	}
 
@@ -133,7 +133,7 @@ func TestBindingService_UpdateAgentConfig_RunnerImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed local binding: %v", err)
 	}
-	if err := st.BS.UpdateAgentConfig(ctx, 1, localBinding, "", sp("ghcr.io/acme/playwright:1"), nil); !errors.Is(err, ErrBindingRunnerImageRequiresPool) {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, localBinding, "", sp("ghcr.io/acme/playwright:1"), nil, nil); !errors.Is(err, ErrBindingRunnerImageRequiresPool) {
 		t.Errorf("local binding image: want ErrBindingRunnerImageRequiresPool, got %v", err)
 	}
 }

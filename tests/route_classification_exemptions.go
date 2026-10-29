@@ -105,7 +105,6 @@ var RouteClassificationExemptions = []RouteClassificationExemption{
 	{Method: "DELETE", Path: "/api/items/{id}/unschedule", Reason: "destructive (workspace.item.edit intent — consumes schedule fixture)"},
 	{Method: "DELETE", Path: "/api/items/{id}/recurrence", Reason: "destructive (workspace.item.edit intent — consumes recurrence fixture)"},
 	{Method: "DELETE", Path: "/api/items/{id}/labels/{labelId}", Reason: "destructive (workspace.item.edit intent — needs label fixture)"},
-	{Method: "DELETE", Path: "/api/items/{id}/personal-labels/{labelId}", Reason: "destructive (workspace.item.edit intent — needs personal-label fixture)"},
 
 	// Endpoints with non-workspace-scoped gates. These don't fit the
 	// 8-actor workspace matrix model; coverage belongs in their own

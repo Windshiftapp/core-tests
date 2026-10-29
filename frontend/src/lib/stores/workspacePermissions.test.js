@@ -1,20 +1,24 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    permissions: {
-      getUserPermissions: vi.fn(),
-    },
-    auth: {
-      getCurrentUser: vi.fn(),
-    },
-  },
+vi.mock('../api/permissions.js', () => ({
+  permissions: {
+        getUserPermissions: vi.fn(),
+      },
+}))
+
+vi.mock('../api/auth.js', () => ({
+  auth: {
+        getCurrentUser: vi.fn(),
+      },
 }));
 
-import { api } from '../api.js';
+import { permissions } from '../api/permissions.js';
 import { authStore } from './auth.svelte.js';
 import { clearPermissionProfiles } from './permissionProfile.js';
 import { workspacePermissions } from './workspacePermissions.svelte.js';
+
+import { auth } from '../api/auth.js';
+
 
 // Builds the compact WI-1444 profile: workspace_permissions maps a stringified
 // workspace ID to its permission keys. Entries for the same workspace merge,
@@ -41,7 +45,7 @@ describe('workspacePermissions reload', () => {
   test('refreshes a stale profile so a newly-created workspace grants admin', async () => {
     // The profile cached at bootstrap predates workspace creation, so the new
     // workspace is absent from it.
-    api.permissions.getUserPermissions
+    permissions.getUserPermissions
       .mockResolvedValueOnce(profileFor([]))
       .mockResolvedValueOnce(profileFor([[3, 'workspace.admin']]));
 
@@ -51,22 +55,22 @@ describe('workspacePermissions reload', () => {
     await workspacePermissions.reload();
 
     expect(workspacePermissions.canAdminWorkspace(3)).toBe(true);
-    expect(api.permissions.getUserPermissions).toHaveBeenCalledTimes(2);
-    expect(api.permissions.getUserPermissions).toHaveBeenLastCalledWith(7);
+    expect(permissions.getUserPermissions).toHaveBeenCalledTimes(2);
+    expect(permissions.getUserPermissions).toHaveBeenLastCalledWith(7);
   });
 
   test('reload uses the signed-in user without arguments', async () => {
-    api.permissions.getUserPermissions.mockResolvedValue(profileFor([]));
+    permissions.getUserPermissions.mockResolvedValue(profileFor([]));
 
     await workspacePermissions.reload();
 
-    expect(api.permissions.getUserPermissions).toHaveBeenCalledWith(7);
+    expect(permissions.getUserPermissions).toHaveBeenCalledWith(7);
   });
 });
 
 describe('page permission helpers', () => {
   test('canCreatePages accepts page.create, page.admin, or workspace.admin', async () => {
-    api.permissions.getUserPermissions
+    permissions.getUserPermissions
       .mockResolvedValueOnce(profileFor([[3, 'page.create']]))
       .mockResolvedValueOnce(profileFor([[3, 'page.admin']]))
       .mockResolvedValueOnce(profileFor([[3, 'workspace.admin']]));
@@ -83,7 +87,7 @@ describe('page permission helpers', () => {
   });
 
   test('canCreatePages denies page.view-only callers; page.delete alone stays denied', async () => {
-    api.permissions.getUserPermissions
+    permissions.getUserPermissions
       .mockResolvedValueOnce(profileFor([[3, 'page.view']]))
       .mockResolvedValueOnce(profileFor([[3, 'page.view'], [3, 'page.delete']]));
 
@@ -97,7 +101,7 @@ describe('page permission helpers', () => {
   });
 
   test('page permission grants are workspace-scoped', async () => {
-    api.permissions.getUserPermissions.mockResolvedValue(
+    permissions.getUserPermissions.mockResolvedValue(
       profileFor([[3, 'page.create'], [3, 'page.delete']]),
     );
     await workspacePermissions.loadPermissions(7);

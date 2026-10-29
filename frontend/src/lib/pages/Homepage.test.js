@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { homepage } from '../api/misc.js';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -7,10 +8,8 @@ const mocks = vi.hoisted(() => ({
   updateLayout: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    homepage: mocks,
-  },
+vi.mock('../api/misc.js', () => ({
+  homepage: mocks,
 }));
 
 vi.mock('../stores/i18n.svelte.js', async (importOriginal) => ({

@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildHierarchyDatePatches,
-  projectHierarchyDates,
-} from './roadmapHierarchyDates.js';
+import { buildHierarchyDatePatches, projectHierarchyDates } from './roadmapHierarchyDates.js';
 
 function item(id, parentId, startDate, endDate) {
   return {

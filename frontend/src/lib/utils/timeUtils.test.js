@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import {
-  addMinutesToTime,
-  createDurationSync,
-  durationToString,
-  listIanaTimezones,
-  minutesBetweenTimes,
-  parseDuration,
-} from './timeUtils.js';
+import { addMinutesToTime, createDurationSync, durationToString, listIanaTimezones, minutesBetweenTimes, parseDuration } from './timeUtils.js';
 
 describe('listIanaTimezones', () => {
   afterEach(() => {

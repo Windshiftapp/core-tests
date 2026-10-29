@@ -41,6 +41,11 @@ func newContinuationResponseService(t *testing.T) (*AgentPRService, database.Dat
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The fixture pins the item id, so drop the creation history that now
+	// references the generated id before moving the primary key.
+	if _, err := db.Exec(`DELETE FROM item_history WHERE item_id = ?`, int(createdItemID)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`UPDATE items SET id = 10 WHERE id = ?`, int(createdItemID)); err != nil {
 		t.Fatal(err)
 	}

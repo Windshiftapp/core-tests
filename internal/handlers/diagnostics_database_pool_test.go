@@ -96,10 +96,8 @@ func TestDiagnosticsDatabasePoolReportsControlledSaturation(t *testing.T) {
 	}()
 
 	deadline := time.Now().Add(time.Second)
-	tick := time.NewTicker(time.Millisecond)
-	defer tick.Stop()
 	for db.GetDB().Stats().WaitCount == 0 && time.Now().Before(deadline) {
-		<-tick.C
+		<-time.After(time.Millisecond)
 	}
 	if db.GetDB().Stats().WaitCount == 0 {
 		_ = held.Close()

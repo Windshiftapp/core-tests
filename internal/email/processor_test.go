@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/database"
 	"windshift/internal/email"
 	"windshift/internal/models"
@@ -137,6 +138,22 @@ func TestStripSignature_ThankYouSignOff(t *testing.T) {
 	}
 }
 
+// TestStripSignature_SignOffWithNoPrecedingContentIsKept covers the bug hunt
+// finding that a short reply was discarded entirely when its first line was a
+// sign-off word.
+func TestStripSignature_SignOffWithNoPrecedingContentIsKept(t *testing.T) {
+	for _, input := range []string{
+		"Thanks\nPlease close the request",
+		"Thanks",
+		"Best regards,\nPlease schedule the visit for Tuesday.",
+	} {
+		got := email.StripSignature(input)
+		if got != input {
+			t.Errorf("StripSignature(%q) = %q, want unchanged", input, got)
+		}
+	}
+}
+
 // --- Processor integration tests ---
 
 // processorTestEnv holds the test environment for processor integration tests.
@@ -201,7 +218,7 @@ func setupProcessorTestEnv(t *testing.T, withAttachments bool) *processorTestEnv
 		attachmentPath = t.TempDir()
 	}
 
-	processor := email.NewProcessor(db, attachmentPath)
+	processor := email.NewProcessor(db, blobstore.NewLocal(attachmentPath))
 	// Email comment replies go exclusively through CommentService now (WI-483);
 	// the direct-SQL fallback was removed.
 	processor.SetCommentService(services.NewCommentService(db))
@@ -739,5 +756,107 @@ func TestProcessor_GrantChannelAccess_Idempotent(t *testing.T) {
 	exec(6, 200)
 	if got := count(); got != 3 {
 		t.Fatalf("after second customer on same channel: got %d, want 3", got)
+	}
+}
+
+// TestProcessor_RemovedParticipantReplyDoesNotAppendToTicket is the WI-1715
+// end-to-end contract: an accepted participant reply, then an explicit removal,
+// then another reply (with an attachment) quoting the same thread must not
+// append a comment or attachment to the original ticket. The reply starts a new
+// ticket instead, which is the intake's normal behavior for a sender with no
+// access to the quoted item. Re-adding the participant restores access.
+func TestProcessor_RemovedParticipantReplyDoesNotAppendToTicket(t *testing.T) {
+	env := setupProcessorTestEnv(t, true)
+	ctx := context.Background()
+
+	original := newTestEmail("<removed-original@example.com>", "Removal test", "Original request")
+	original.From = email.EmailAddress{Name: "Customer", Address: "customer@example.com"}
+	origResult, err := env.processor.ProcessEmail(ctx, original, env.channelID, 0, env.config)
+	if err != nil {
+		t.Fatalf("process original: %v", err)
+	}
+	if origResult.Action != email.ActionItemCreated {
+		t.Fatalf("original action = %s, want item_created", origResult.Action)
+	}
+	itemID := *origResult.ItemID
+
+	var customerID int
+	if err := env.db.QueryRow(`INSERT INTO portal_customers (name, email, created_via) VALUES ('Participant', 'participant@example.com', 'agent') RETURNING id`).Scan(&customerID); err != nil {
+		t.Fatalf("insert participant customer: %v", err)
+	}
+	participants := services.NewItemParticipantService(env.db)
+	if _, _, err := participants.Add(ctx, env.userID, itemID, services.ParticipantInput{PortalCustomerID: &customerID}); err != nil {
+		t.Fatalf("add participant: %v", err)
+	}
+
+	// An active participant's reply is accepted as a comment on the ticket.
+	firstReply := newTestReplyEmail("<participant-reply-1@example.com>", "<removed-original@example.com>", "Adding context from the participant")
+	firstReply.From = email.EmailAddress{Name: "Participant", Address: "participant@example.com"}
+	firstResult, err := env.processor.ProcessEmail(ctx, firstReply, env.channelID, 0, env.config)
+	if err != nil {
+		t.Fatalf("process accepted reply: %v", err)
+	}
+	if firstResult.Action != email.ActionCommentAdded || firstResult.ItemID == nil || *firstResult.ItemID != itemID {
+		t.Fatalf("accepted reply result = %#v, want comment_added on item %d", firstResult, itemID)
+	}
+
+	if _, err := participants.Remove(ctx, env.userID, itemID, customerID); err != nil {
+		t.Fatalf("remove participant: %v", err)
+	}
+
+	// The removed participant's next reply must not reach the original ticket.
+	secondReply := newTestReplyEmail("<participant-reply-2@example.com>", "<removed-original@example.com>", "Sneaking back into the thread")
+	secondReply.From = email.EmailAddress{Name: "Participant", Address: "participant@example.com"}
+	secondReply.Attachments = []email.Attachment{{
+		Filename:    "sneaky.png",
+		ContentType: "image/png",
+		Size:        256,
+		Data:        make([]byte, 256),
+	}}
+	secondResult, err := env.processor.ProcessEmail(ctx, secondReply, env.channelID, 0, env.config)
+	if err != nil {
+		t.Fatalf("process removed-participant reply: %v", err)
+	}
+	if secondResult.Action != email.ActionItemCreated {
+		t.Fatalf("removed-participant reply action = %s, want item_created (new ticket)", secondResult.Action)
+	}
+	if secondResult.ItemID == nil || *secondResult.ItemID == itemID {
+		t.Fatalf("removed-participant reply item = %v, want a new ticket, not %d", secondResult.ItemID, itemID)
+	}
+
+	var comments int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM comments WHERE item_id = ? AND content LIKE ?`, itemID, "%Sneaking back%").Scan(&comments); err != nil {
+		t.Fatalf("count comments: %v", err)
+	}
+	if comments != 0 {
+		t.Fatalf("removed participant appended %d comment(s) to the original ticket", comments)
+	}
+	var originalAttachments int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM attachments WHERE item_id = ?`, itemID).Scan(&originalAttachments); err != nil {
+		t.Fatalf("count original attachments: %v", err)
+	}
+	if originalAttachments != 0 {
+		t.Fatalf("removed participant attached %d file(s) to the original ticket", originalAttachments)
+	}
+	var newAttachments int
+	if err := env.db.QueryRow(`SELECT COUNT(*) FROM attachments WHERE item_id = ?`, *secondResult.ItemID).Scan(&newAttachments); err != nil {
+		t.Fatalf("count new-ticket attachments: %v", err)
+	}
+	if newAttachments != 1 {
+		t.Fatalf("new ticket attachments = %d, want 1", newAttachments)
+	}
+
+	// Re-adding restores reply access.
+	if _, _, err := participants.Add(ctx, env.userID, itemID, services.ParticipantInput{PortalCustomerID: &customerID}); err != nil {
+		t.Fatalf("re-add participant: %v", err)
+	}
+	thirdReply := newTestReplyEmail("<participant-reply-3@example.com>", "<removed-original@example.com>", "Re-added and replying")
+	thirdReply.From = email.EmailAddress{Name: "Participant", Address: "participant@example.com"}
+	thirdResult, err := env.processor.ProcessEmail(ctx, thirdReply, env.channelID, 0, env.config)
+	if err != nil {
+		t.Fatalf("process re-added reply: %v", err)
+	}
+	if thirdResult.Action != email.ActionCommentAdded || thirdResult.ItemID == nil || *thirdResult.ItemID != itemID {
+		t.Fatalf("re-added reply result = %#v, want comment_added on item %d", thirdResult, itemID)
 	}
 }

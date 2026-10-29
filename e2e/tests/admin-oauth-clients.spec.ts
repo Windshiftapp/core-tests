@@ -117,7 +117,15 @@ test.describe("Admin OAuth clients", () => {
 			await page.getByTestId("oauth-client-redirect-uris").fill(`http://localhost:3000/cb/${slug}`);
 			await page.getByTestId("oauth-client-scope-items:read").click();
 			await page.getByTestId("oauth-client-type").selectOption("public");
+			// Public clients show no secret modal to await, so synchronize on the
+			// create response before asserting persistence.
+			const registered = page.waitForResponse(
+				(resp) =>
+					resp.request().method() === "POST" &&
+					resp.url().includes("/api/admin/oauth-clients"),
+			);
 			await page.getByTestId("oauth-client-register-submit").click();
+			expect((await registered).ok()).toBeTruthy();
 
 			// No secret modal for public clients — row lands directly.
 			const clients = await listClients(request);

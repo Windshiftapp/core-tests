@@ -3,6 +3,7 @@
 package services_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,6 +24,9 @@ type mockSMTPSender struct {
 
 func (m *mockSMTPSender) IsSMTPConfigured() bool { return m.configured }
 func (m *mockSMTPSender) SendThreadedEmail(p smtp.ThreadedEmailParams) error {
+	return m.SendThreadedEmailContext(context.Background(), p)
+}
+func (m *mockSMTPSender) SendThreadedEmailContext(_ context.Context, p smtp.ThreadedEmailParams) error {
 	m.sent = append(m.sent, p)
 	return m.sendErr
 }
@@ -578,5 +582,207 @@ func TestEmailReplyService_SubjectAlreadyHasRe(t *testing.T) {
 	// Subject should NOT get double Re:
 	if sent := mock.sent[0]; sent.Subject != "Re: Already replied" {
 		t.Errorf("Expected subject 'Re: Already replied' (no double Re:), got '%s'", sent.Subject)
+	}
+}
+
+// Customer replies must route back to the monitored intake mailbox, not the
+// SMTP sender, and the resolved address must be persisted on the outbox row so
+// a retry is stable if the channel config changes.
+func TestEmailReplyService_PersistsMonitoredReplyToAddress(t *testing.T) {
+	db := createCommentTestDB(t)
+	tenv := setupEmailReplyTestEnv(t, db)
+	mock := &mockSMTPSender{configured: true}
+	svc := services.NewEmailReplyService(db, mock)
+
+	if _, err := db.Exec(`
+		UPDATE channels SET config = ? WHERE id = ?
+	`, `{"email_auth_method":"basic","imap_username":"support@example.com"}`, tenv.ChannelID); err != nil {
+		t.Fatalf("set email channel config: %v", err)
+	}
+
+	insertTrackingRecord(t, db, tenv.ChannelID, "<orig-rt@example.com>", "Help", tenv.ItemID)
+	insertTestComment(t, db, 500, tenv.ItemID, tenv.UserID)
+
+	if err := svc.HandleCommentCreated(services.HandleCommentParams{
+		CommentID: 500,
+		ItemID:    tenv.ItemID,
+		AuthorID:  tenv.UserID,
+		Content:   "Reply",
+	}); err != nil {
+		t.Fatalf("HandleCommentCreated: %v", err)
+	}
+	if len(mock.sent) != 1 {
+		t.Fatalf("sent = %d, want 1", len(mock.sent))
+	}
+	if got := mock.sent[0].ReplyToEmail; got != "support@example.com" {
+		t.Errorf("ReplyToEmail = %q, want support@example.com", got)
+	}
+
+	var stored string
+	if err := db.QueryRow(
+		`SELECT reply_to_email FROM email_reply_outbox WHERE comment_id = 500`,
+	).Scan(&stored); err != nil {
+		t.Fatalf("load outbox reply_to_email: %v", err)
+	}
+	if stored != "support@example.com" {
+		t.Errorf("persisted reply_to_email = %q, want support@example.com", stored)
+	}
+}
+
+// A portal-originated item routes replies back to the mailbox whose enabled
+// intake feeds the portal.
+func TestEmailReplyService_UsesIntakeMailboxForPortalReply(t *testing.T) {
+	db := createCommentTestDB(t)
+	tenv := setupEmailReplyTestEnv(t, db)
+	mock := &mockSMTPSender{configured: true}
+	svc := services.NewEmailReplyService(db, mock)
+
+	if _, err := db.Exec(`
+		UPDATE channels SET config = ? WHERE id = ?
+	`, `{"email_auth_method":"basic","imap_username":"support@example.com"}`, tenv.ChannelID); err != nil {
+		t.Fatalf("set email channel config: %v", err)
+	}
+
+	portalChannelID := testutils.InsertID(t, db, `
+		INSERT INTO channels (name, type, direction, status, config)
+		VALUES ('Portal', 'portal', 'inbound', 'enabled', '{"portal_slug":"support","portal_workspace_ids":[1]}')
+	`)
+	if _, err := db.Exec(`
+		INSERT INTO intakes (mailbox_id, folder, workspace_id, portal_channel_id, item_type_id, status)
+		VALUES (?, 'INBOX', ?, ?, (SELECT id FROM item_types WHERE is_default = true ORDER BY id LIMIT 1), 'enabled')
+	`, tenv.ChannelID, tenv.WorkspaceID, portalChannelID); err != nil {
+		t.Fatalf("insert portal intake: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE items SET channel_id = ? WHERE id = ?`, portalChannelID, tenv.ItemID); err != nil {
+		t.Fatalf("retarget item to portal: %v", err)
+	}
+
+	insertTrackingRecord(t, db, int64(portalChannelID), "<portal-intake@example.com>", "Help", tenv.ItemID)
+	insertTestComment(t, db, 601, tenv.ItemID, tenv.UserID)
+
+	if err := svc.HandleCommentCreated(services.HandleCommentParams{
+		CommentID: 601,
+		ItemID:    tenv.ItemID,
+		AuthorID:  tenv.UserID,
+		Content:   "Reply",
+	}); err != nil {
+		t.Fatalf("HandleCommentCreated: %v", err)
+	}
+	if len(mock.sent) != 1 {
+		t.Fatalf("sent = %d, want 1", len(mock.sent))
+	}
+	if got := mock.sent[0].ReplyToEmail; got != "support@example.com" {
+		t.Errorf("ReplyToEmail = %q, want support@example.com from the feeding intake", got)
+	}
+}
+
+// Portal Reply-To resolution must skip a disabled mailbox and a mailbox with
+// no readable address, falling through to the next enabled intake instead of
+// sending the customer to a dead address.
+func TestEmailReplyService_SkipsUnusableIntakeMailboxes(t *testing.T) {
+	tests := []struct {
+		name        string
+		firstStatus string
+		firstConfig string
+	}{
+		{
+			name:        "disabled mailbox falls through",
+			firstStatus: "disabled",
+			firstConfig: `{"email_auth_method":"basic","imap_username":"disabled@example.com"}`,
+		},
+		{
+			name:        "addressless mailbox falls through",
+			firstStatus: "enabled",
+			firstConfig: `{"email_auth_method":"basic"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := createCommentTestDB(t)
+			tenv := setupEmailReplyTestEnv(t, db)
+			mock := &mockSMTPSender{configured: true}
+			svc := services.NewEmailReplyService(db, mock)
+
+			if _, err := db.Exec(`UPDATE channels SET status = ?, config = ? WHERE id = ?`,
+				tt.firstStatus, tt.firstConfig, tenv.ChannelID); err != nil {
+				t.Fatalf("configure first mailbox: %v", err)
+			}
+			secondMailboxID := testutils.InsertID(t, db, `
+				INSERT INTO channels (name, type, direction, status, config)
+				VALUES ('Healthy', 'email', 'inbound', 'enabled', '{"email_auth_method":"basic","imap_username":"support@example.com"}')
+			`)
+			portalChannelID := testutils.InsertID(t, db, `
+				INSERT INTO channels (name, type, direction, status, config)
+				VALUES ('Portal', 'portal', 'inbound', 'enabled', '{"portal_slug":"support","portal_workspace_ids":[1]}')
+			`)
+
+			// The unusable mailbox is the older intake, so a naive "oldest enabled
+			// intake" lookup would pick it.
+			for index, mailboxID := range []int{int(tenv.ChannelID), secondMailboxID} {
+				if _, err := db.Exec(`
+					INSERT INTO intakes (mailbox_id, folder, workspace_id, portal_channel_id, item_type_id, status)
+					VALUES (?, ?, ?, ?, (SELECT id FROM item_types WHERE is_default = true ORDER BY id LIMIT 1), 'enabled')
+				`, mailboxID, fmt.Sprintf("Box%d", index), tenv.WorkspaceID, portalChannelID); err != nil {
+					t.Fatalf("insert portal intake %d: %v", index, err)
+				}
+			}
+			if _, err := db.Exec(`UPDATE items SET channel_id = ? WHERE id = ?`, portalChannelID, tenv.ItemID); err != nil {
+				t.Fatalf("retarget item to portal: %v", err)
+			}
+
+			insertTrackingRecord(t, db, int64(portalChannelID), "<portal-fallthrough@example.com>", "Help", tenv.ItemID)
+			insertTestComment(t, db, 701, tenv.ItemID, tenv.UserID)
+
+			if err := svc.HandleCommentCreated(services.HandleCommentParams{
+				CommentID: 701,
+				ItemID:    tenv.ItemID,
+				AuthorID:  tenv.UserID,
+				Content:   "Reply",
+			}); err != nil {
+				t.Fatalf("HandleCommentCreated: %v", err)
+			}
+			if len(mock.sent) != 1 {
+				t.Fatalf("sent = %d, want 1", len(mock.sent))
+			}
+			if got := mock.sent[0].ReplyToEmail; got != "support@example.com" {
+				t.Errorf("ReplyToEmail = %q, want support@example.com from the healthy intake", got)
+			}
+		})
+	}
+}
+
+// A portal-originated item with no feeding intake must omit Reply-To rather
+// than invent a dead address.
+func TestEmailReplyService_OmitsReplyToWhenNoMonitoredMailbox(t *testing.T) {
+	db := createCommentTestDB(t)
+	tenv := setupEmailReplyTestEnv(t, db)
+	mock := &mockSMTPSender{configured: true}
+	svc := services.NewEmailReplyService(db, mock)
+
+	portalChannelID := testutils.InsertID(t, db, `
+		INSERT INTO channels (name, type, direction, status, config)
+		VALUES ('Portal', 'portal', 'inbound', 'enabled', '{"portal_slug":"support","portal_workspace_ids":[1]}')
+	`)
+	if _, err := db.Exec(`UPDATE items SET channel_id = ? WHERE id = ?`, portalChannelID, tenv.ItemID); err != nil {
+		t.Fatalf("retarget item to portal: %v", err)
+	}
+
+	insertTrackingRecord(t, db, int64(portalChannelID), "<portal-orig@example.com>", "Help", tenv.ItemID)
+	insertTestComment(t, db, 600, tenv.ItemID, tenv.UserID)
+
+	if err := svc.HandleCommentCreated(services.HandleCommentParams{
+		CommentID: 600,
+		ItemID:    tenv.ItemID,
+		AuthorID:  tenv.UserID,
+		Content:   "Reply",
+	}); err != nil {
+		t.Fatalf("HandleCommentCreated: %v", err)
+	}
+	if len(mock.sent) != 1 {
+		t.Fatalf("sent = %d, want 1", len(mock.sent))
+	}
+	if got := mock.sent[0].ReplyToEmail; got != "" {
+		t.Errorf("ReplyToEmail = %q, want empty for portal-originated item", got)
 	}
 }

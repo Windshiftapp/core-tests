@@ -79,10 +79,9 @@ func seedBulkFixture(t *testing.T, incompleteCount int) bulkFixture {
 		VALUES ('Target iteration', '', '2026-07-15', '2026-07-28', 'planned', false, ?)
 	`, workspaceID)
 
-	// Create items through the production path. CreatorID is deliberately nil
-	// so CreateItem does not enqueue async creation-history rows: the tests
-	// below assert exact item_history counts produced by the bulk/complete
-	// operation under test, not by fixture setup.
+	// Create items through the production path. The tests below assert exact
+	// item_history counts produced by the bulk/complete operation under test,
+	// so drop the creation history CreateItem records for the fixture items.
 	incompleteIDs := make([]int, incompleteCount)
 	for i := range incompleteCount {
 		created, err := CreateItem(db, ItemCreationParams{
@@ -106,6 +105,15 @@ func seedBulkFixture(t *testing.T, incompleteCount int) bulkFixture {
 		t.Fatalf("insert completed bulk item: %v", err)
 	}
 	completedItem := int(completedItem64)
+	allIDs := append(append([]int{}, incompleteIDs...), completedItem)
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(allIDs)), ",")
+	args := make([]any, len(allIDs))
+	for i, id := range allIDs {
+		args[i] = id
+	}
+	if _, err := db.ExecWrite("DELETE FROM item_history WHERE item_id IN ("+placeholders+")", args...); err != nil {
+		t.Fatalf("clear fixture creation history: %v", err)
+	}
 	return bulkFixture{
 		db: db, userID: userID, workspaceID: workspaceID, sourceID: sourceID,
 		targetID: targetID, incompleteIDs: incompleteIDs, completedItem: completedItem,

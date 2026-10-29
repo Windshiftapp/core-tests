@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -128,22 +127,10 @@ func TestSessionValidationCacheHonorsExactTTL(t *testing.T) {
 		t.Fatalf("within-TTL first name = %q, want cached value", withinTTL.User.FirstName)
 	}
 
-	// The cache has no injectable clock; poll until a validation misses the
-	// cache and reloads from the database, proving the 40ms TTL elapsed.
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
-	deadline := time.Now().Add(2 * time.Second)
-	var afterTTL *Session
-	for {
-		result, err := manager.ValidateSessionContext(context.Background(), session.Token, sessionValidationTestIP)
-		if err != nil {
-			t.Fatalf("after-TTL validation: %v", err)
-		}
-		afterTTL = result
-		if manager.SessionValidationCacheStats().DatabaseLoads >= 2 || time.Now().After(deadline) {
-			break
-		}
-		<-tick.C
+	<-time.After(60 * time.Millisecond)
+	afterTTL, err := manager.ValidateSessionContext(context.Background(), session.Token, sessionValidationTestIP)
+	if err != nil {
+		t.Fatalf("after-TTL validation: %v", err)
 	}
 	if afterTTL.User.FirstName != "Updated" {
 		t.Fatalf("after-TTL first name = %q, want Updated", afterTTL.User.FirstName)
@@ -386,11 +373,7 @@ func TestSessionValidationSingleflightCoalescesConcurrentMisses(t *testing.T) {
 	}
 	close(start)
 	<-gatedDB.entered
-	// Yield scheduling so the remaining callers reach the in-flight
-	// singleflight before the gate opens.
-	for i := 0; i < 100; i++ {
-		runtime.Gosched()
-	}
+	<-time.After(25 * time.Millisecond)
 	close(gatedDB.release)
 	waitGroup.Wait()
 	close(errorsChannel)

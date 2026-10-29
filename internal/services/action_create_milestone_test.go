@@ -32,6 +32,9 @@ func (f *fakeCommitAttacher) AttachCommitIssues(_ context.Context, in MilestoneC
 // zero-value works without spinning up the engine.
 type stubNodeAPI struct {
 	emitted []*models.ActionEvent
+	// authorizeErr, when set, is returned by AuthorizeWorkspaceMutation so
+	// tests can exercise the revoked-actor path.
+	authorizeErr error
 }
 
 func (s *stubNodeAPI) SubstituteVariables(template string, ctx *models.ExecutionContext) string {
@@ -42,7 +45,7 @@ func (s *stubNodeAPI) EmitActionEvent(event *models.ActionEvent) {
 }
 
 func (s *stubNodeAPI) AuthorizeWorkspaceMutation(actorUserID, workspaceID int, permission string) error {
-	return nil
+	return s.authorizeErr
 }
 
 // newCreateMilestoneTestDB builds an in-memory SQLite with just enough

@@ -78,7 +78,7 @@ func TestSMTPTLSConfigAllowsChannelVerificationBypass(t *testing.T) {
 }
 
 func TestBuildMimeCanonicalizesThreadingMessageIDs(t *testing.T) {
-	mime := buildMime(mimeOptions{
+	mime := buildTestMime(t, mimeOptions{
 		FromEmail: "team@example.com", ToEmail: "customer@example.com",
 		Subject: "Reply", TextBody: "text", HTMLBody: "<p>text</p>",
 		MessageID: "outbound@example.com", InReplyTo: "legacy-inbound@example.com",

@@ -4,8 +4,9 @@ import {
   createTimeProjectViaAPI,
   createWorkspaceViaAPI,
 } from '../fixtures/api-helpers';
-import { expect, test } from '../fixtures/context-path';
+import { expect, test, type Page } from '../fixtures/context-path';
 import { generateTimeProject, generateWorklog } from '../fixtures/test-data';
+import { BoardPage } from '../pages/board.page';
 import { TimeTrackingPage } from '../pages/time-tracking.page';
 
 /**
@@ -15,6 +16,35 @@ import { TimeTrackingPage } from '../pages/time-tracking.page';
  */
 
 const SEC_FETCH = { 'Sec-Fetch-Site': 'same-origin' };
+
+// Distinct civil dates in the current UTC month, excluding today. The default
+// Time filter shows the current month, and today's created_at must differ from
+// the work date so a list that ignores the work date is observable.
+function currentMonthWorkDates(count: number): string[] {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth() + 1;
+  const today = now.getUTCDate();
+  const dates: string[] = [];
+  for (let day = 1; day <= 28 && dates.length < count; day += 1) {
+    if (day === today) continue;
+    dates.push(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+  }
+  return dates;
+}
+
+// Mirror the list's date label (app locale, UTC civil date) in the browser.
+async function civilDateLabel(page: Page, ymd: string): Promise<string> {
+  return page.evaluate((value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Intl.DateTimeFormat(document.documentElement.lang || 'en', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(Date.UTC(year, month - 1, day)));
+  }, ymd);
+}
 
 test.describe('Time Tracking', () => {
   let timeTrackingPage: TimeTrackingPage;
@@ -121,6 +151,41 @@ test.describe('Time Tracking', () => {
 
       const worklogRow = timeTrackingPage.findWorklogByDescription(worklog.description);
       await expect(worklogRow).toBeVisible();
+    });
+
+    test('reflects an edited date and time in the list', async ({ page }) => {
+      const description = `E2E Worklog edit ${Date.now()}`;
+      const [workDate, editedDate] = currentMonthWorkDates(2);
+
+      await timeTrackingPage.goto();
+      await timeTrackingPage.logTime({
+        project: setupProjectName,
+        description,
+        duration: '1h',
+        date: workDate,
+        startTime: '09:00',
+        endTime: '10:00',
+      });
+
+      const row = timeTrackingPage.findWorklogByDescription(description);
+      await expect(row).toBeVisible({ timeout: 10_000 });
+      // The list shows the work date, not the created_at date.
+      await expect(row).toContainText(await civilDateLabel(page, workDate));
+
+      await row.getByTestId(/^worklog-actions-/).click();
+      await page.getByTestId('worklog-edit').click();
+
+      const dialog = page.getByTestId('time-log-modal');
+      await expect(dialog).toBeVisible();
+      await dialog.locator('#time-log-date').fill(editedDate);
+      await dialog.locator('#time-log-start-time').fill('11:00');
+      await dialog.locator('#time-log-end-time').fill('12:30');
+      await dialog.getByTestId('dialog-confirm').click();
+      await dialog.waitFor({ state: 'detached', timeout: 10_000 });
+
+      await expect(row).toContainText(await civilDateLabel(page, editedDate));
+      await expect(row).toContainText('11:00');
+      await expect(row).toContainText('12:30');
     });
 
     test('exports a Markdown time report through the printable Milkdown view', async ({ page }) => {
@@ -263,6 +328,54 @@ test.describe('Time Tracking', () => {
       await stopResp;
 
       await expect(floating).toBeHidden({ timeout: 5000 });
+    });
+  });
+
+  test.describe('Worklogs from the item detail modal', () => {
+    test('should log time from the item detail modal', async ({ page, request }, testInfo) => {
+      const stamp = `${Date.now()}${testInfo.workerIndex}${testInfo.repeatEachIndex}`;
+      const workspace = await createWorkspaceViaAPI(request, {
+        name: `E2E Modal Log ${stamp}`,
+        key: `ML${stamp.slice(-6)}`.toUpperCase(),
+        description: 'workspace for item-modal log-time spec',
+        time_project_id: setupProjectId,
+      });
+      const item = await createItemViaAPI(request, workspace.id, {
+        title: `Modal log item ${stamp}`,
+        description: 'item used by the log-time-from-modal e2e',
+      });
+
+      const boardPage = new BoardPage(page);
+      await boardPage.goto(String(workspace.id));
+      await boardPage.verifyCardExists(item.title);
+      await boardPage.clickCard(item.title);
+
+      const dialog = page.getByTestId('item-detail-modal');
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      await dialog.getByTestId('item-detail-time-tab').click();
+
+      // Regression: the Log Time modal used to be rendered only in the
+      // full-page view, so clicking this button in the modal did nothing.
+      await dialog.getByTestId('log-time-btn').click();
+      const timeModal = page.getByTestId('time-log-modal');
+      await expect(timeModal).toBeVisible({ timeout: 5_000 });
+
+      const description = `Modal worklog ${stamp}`;
+      await timeModal.locator('#time-log-description').fill(description);
+      await timeModal.locator('#time-log-duration').fill('45m');
+
+      const saveResp = page.waitForResponse(
+        (r) =>
+          r.url().endsWith('/api/v2/time/worklogs') &&
+          r.request().method() === 'POST' &&
+          r.ok(),
+      );
+      await timeModal.getByTestId('dialog-confirm').click();
+      await saveResp;
+      await expect(timeModal).toBeHidden({ timeout: 5_000 });
+
+      // The new entry is listed in the modal's time tab without a reload.
+      await expect(dialog).toContainText(description, { timeout: 10_000 });
     });
   });
 });

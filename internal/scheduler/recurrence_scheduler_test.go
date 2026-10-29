@@ -4,6 +4,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"windshift/internal/constants"
 	"windshift/internal/events"
 	"windshift/internal/itemevents"
 	"windshift/internal/models"
@@ -188,6 +190,34 @@ func TestRecurrenceSchedulerRecordsOneCanonicalCreatedEvent(t *testing.T) {
 				t.Fatalf("created event count = %d, want 1", count)
 			}
 		})
+	}
+}
+
+func TestRecurrenceSchedulerRecordsCreationHistory(t *testing.T) {
+	scheduler, recurrenceRepo, templateID, statusID, creatorID := recurrenceSchedulerFixture(t)
+	ruleID := createSingleOccurrenceRule(t, scheduler, recurrenceRepo, templateID, statusID, creatorID)
+	if _, err := scheduler.ForceGenerate(ruleID); err != nil {
+		t.Fatalf("generate recurrence: %v", err)
+	}
+
+	instances, err := recurrenceRepo.GetInstancesByRuleID(ruleID, 10, 0)
+	if err != nil {
+		t.Fatalf("list recurrence instances: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("recurrence instances = %d, want 1", len(instances))
+	}
+
+	var actorKind string
+	var userID sql.NullInt64
+	if err := scheduler.db.QueryRow(`
+		SELECT actor_kind, user_id FROM item_history
+		WHERE item_id = ? AND field_name = 'title'
+	`, instances[0].InstanceItemID).Scan(&actorKind, &userID); err != nil {
+		t.Fatalf("load generated item creation history: %v", err)
+	}
+	if actorKind != "user" || !userID.Valid || int(userID.Int64) != creatorID {
+		t.Fatalf("generated creation history actor = %q/%v, want user/%d", actorKind, userID, creatorID)
 	}
 }
 
@@ -398,5 +428,94 @@ func TestRecurrenceSchedulerBoundsHighFrequencyRulePerPass(t *testing.T) {
 	}
 	if persisted.LastGeneratedUntil == nil || !persisted.LastGeneratedUntil.Before(end) {
 		t.Fatalf("last_generated_until = %v, want progress before horizon %s", persisted.LastGeneratedUntil, end)
+	}
+}
+
+// TestRecurrenceSchedulerGeneratesValidPersonalTask is the WI-1719 regression:
+// generating an instance of an owner's personal-task recurrence rule must
+// succeed. The scheduler used to revalidate with a zero user id, so every
+// is_task rule failed to generate.
+func TestRecurrenceSchedulerGeneratesValidPersonalTask(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	t.Cleanup(func() { tdb.Close() })
+	data := tdb.SeedTestData(t)
+
+	var personalWorkspaceID int
+	if err := tdb.QueryRow(`
+		INSERT INTO workspaces (name, key, active, is_personal, owner_id)
+		VALUES ('Personal tasks', 'PERSONAL-TASKS', true, true, ?)
+		RETURNING id
+	`, data.UserID).Scan(&personalWorkspaceID); err != nil {
+		t.Fatalf("create personal workspace: %v", err)
+	}
+
+	openStatusID := constants.StatusIDOpen
+	templateID, err := services.CreateItem(tdb.GetDatabase(), services.ItemCreationParams{
+		WorkspaceID:      personalWorkspaceID,
+		Title:            "Personal recurring template",
+		StatusID:         &openStatusID,
+		IsTask:           true,
+		CreatorID:        &data.UserID,
+		ValidatingUserID: data.UserID,
+	})
+	if err != nil {
+		t.Fatalf("create personal task template: %v", err)
+	}
+
+	recurrenceRepo := repository.NewRecurrenceRepository(tdb.GetDatabase())
+	scheduler := NewRecurrenceScheduler(tdb.GetDatabase(), services.NewWorkflowService(tdb.GetDatabase()))
+
+	start := time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour)
+	ruleID, err := recurrenceRepo.Create(&models.RecurrenceRule{
+		TemplateItemID: int(templateID),
+		WorkspaceID:    personalWorkspaceID,
+		RRule:          "FREQ=DAILY;COUNT=1",
+		DtStart:        start,
+		Timezone:       "UTC",
+		LeadTimeDays:   2,
+		StatusOnCreate: &openStatusID,
+		IsActive:       true,
+		CreatedBy:      &data.UserID,
+	})
+	if err != nil {
+		t.Fatalf("create recurrence rule: %v", err)
+	}
+
+	generated, err := scheduler.ForceGenerate(ruleID)
+	if err != nil || generated != 1 {
+		t.Fatalf("generate personal task = %d, %v; want 1, nil", generated, err)
+	}
+
+	instances, err := recurrenceRepo.GetInstancesByRuleID(ruleID, 10, 0)
+	if err != nil {
+		t.Fatalf("list recurrence instances: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("recurrence instances = %d, want 1", len(instances))
+	}
+	instanceItemID := instances[0].InstanceItemID
+
+	var workspaceID, statusID, creatorID int
+	var isTask bool
+	if err := tdb.QueryRow(`
+		SELECT workspace_id, status_id, creator_id, is_task FROM items WHERE id = ?
+	`, instanceItemID).Scan(&workspaceID, &statusID, &creatorID, &isTask); err != nil {
+		t.Fatalf("load generated task: %v", err)
+	}
+	if workspaceID != personalWorkspaceID || statusID != constants.StatusIDOpen || creatorID != data.UserID || !isTask {
+		t.Fatalf("generated task = ws:%d status:%d creator:%d is_task:%t",
+			workspaceID, statusID, creatorID, isTask)
+	}
+
+	var actorKind string
+	var historyUserID sql.NullInt64
+	if err := tdb.QueryRow(`
+		SELECT actor_kind, user_id FROM item_history
+		WHERE item_id = ? AND field_name = 'title'
+	`, instanceItemID).Scan(&actorKind, &historyUserID); err != nil {
+		t.Fatalf("load generated creation history: %v", err)
+	}
+	if actorKind != "user" || !historyUserID.Valid || int(historyUserID.Int64) != data.UserID {
+		t.Fatalf("generated creation history actor = %q/%v, want user/%d", actorKind, historyUserID, data.UserID)
 	}
 }

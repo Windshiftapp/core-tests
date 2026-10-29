@@ -31,6 +31,14 @@ describe('buildSummary', () => {
       totalHours: 0, totalEntries: 0, averageHoursPerDay: 0, topProject: null, topCustomer: null,
     });
   });
+
+  test('carries the builtin key of the top customer so the UI can localize it', () => {
+    const summary = buildSummary([
+      { user_id: 1, user_name: 'Ada', project_id: 10, project_name: 'Apollo', customer_id: 100, customer_name: 'No customer', customer_builtin_key: 'no_customer', duration_minutes: 600, entries: 5 },
+    ]);
+
+    expect(summary.topCustomer).toEqual({ name: 'No customer', hours: 10, builtinKey: 'no_customer' });
+  });
 });
 
 describe('buildMemberBreakdown', () => {

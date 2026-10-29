@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { portal } from '../api/portal.js';
 
 const mocks = vi.hoisted(() => ({
   authenticated: true,
@@ -9,34 +10,34 @@ const mocks = vi.hoisted(() => ({
   getMyRequests: vi.fn(),
   getRequestAttachments: vi.fn(),
   getRequestComments: vi.fn(),
+  getRequestDetail: vi.fn(),
   listDrafts: vi.fn(),
   navigate: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    portal: {
-      addRequestAttachment: mocks.addRequestAttachment,
-      addRequestComment: mocks.addRequestComment,
-      getMyApprovals: mocks.getMyApprovals,
-      getMyRequests: mocks.getMyRequests,
-      getRequestAttachments: mocks.getRequestAttachments,
-      getRequestComments: mocks.getRequestComments,
-      requestAttachmentUrl: (slug, itemId, attachmentId) =>
-        `/api/portal/${slug}/requests/${itemId}/attachments/${attachmentId}/download`,
-      drafts: { list: mocks.listDrafts },
-    },
-  },
+vi.mock('../api/portal.js', () => ({
+  portal: {
+        addRequestAttachment: mocks.addRequestAttachment,
+        addRequestComment: mocks.addRequestComment,
+        getMyApprovals: mocks.getMyApprovals,
+        getMyRequests: mocks.getMyRequests,
+        getRequestAttachments: mocks.getRequestAttachments,
+        getRequestComments: mocks.getRequestComments,
+        getRequestDetail: mocks.getRequestDetail,
+        requestAttachmentUrl: (slug, itemId, attachmentId) =>
+          `/api/portal/${slug}/requests/${itemId}/attachments/${attachmentId}/download`,
+        drafts: { list: mocks.listDrafts },
+      },
 }));
 
 vi.mock('../router.js', () => ({ navigate: mocks.navigate }));
 
-vi.mock('../stores', () => ({
+vi.mock('../stores/auth.svelte.js', () => ({
   authStore: {
-    get isAuthenticated() {
-      return mocks.authenticated;
+      get isAuthenticated() {
+        return mocks.authenticated;
+      },
     },
-  },
 }));
 
 vi.mock('./portalAuth.svelte.js', () => ({
@@ -45,13 +46,7 @@ vi.mock('./portalAuth.svelte.js', () => ({
 
 vi.mock('./toasts.svelte.js', () => ({ errorToast: vi.fn() }));
 
-import {
-  configurePortalActivityStore,
-  portalActivityStore,
-  portalApprovalsStore,
-  portalDraftsStore,
-  portalRequestsStore,
-} from './portalActivity.svelte.js';
+import { configurePortalActivityStore, portalActivityStore, portalApprovalsStore, portalDraftsStore, portalRequestsStore } from './portalActivity.svelte.js';
 
 function deferred() {
   let resolve;
@@ -94,6 +89,89 @@ describe('portal activity stores', () => {
 
     expect(portalRequestsStore.openCount).toBe(1);
     expect(portalApprovalsStore.pendingCount).toBe(1);
+  });
+
+  it('follows a merged request to its canonical', async () => {
+    mocks.getRequestDetail
+      .mockResolvedValueOnce({ id: 7, merged_into_item_id: 42 })
+      .mockResolvedValueOnce({ id: 42, title: 'Canonical request' });
+    mocks.getRequestComments.mockResolvedValue([]);
+    mocks.getRequestAttachments.mockResolvedValue([]);
+
+    await portalRequestsStore.loadAndView(7);
+
+    expect(mocks.getRequestDetail).toHaveBeenNthCalledWith(1, 'support', 7);
+    expect(mocks.getRequestDetail).toHaveBeenNthCalledWith(2, 'support', 42);
+    expect(portalRequestsStore.selected).toMatchObject({ id: 42 });
+  });
+
+  it('falls back to a merged duplicate when the canonical is not readable', async () => {
+    mocks.getRequestDetail
+      .mockResolvedValueOnce({ id: 7, merged_into_item_id: 42 })
+      .mockRejectedValueOnce(new Error('not found'))
+      .mockResolvedValueOnce({ id: 7, title: 'Own duplicate' });
+    mocks.getRequestComments.mockResolvedValue([]);
+    mocks.getRequestAttachments.mockResolvedValue([]);
+
+    await portalRequestsStore.loadAndView(7);
+
+    expect(portalRequestsStore.selected).toMatchObject({ id: 7 });
+  });
+
+  it('ignores attachments that resolve after switching requests (WI-1589)', async () => {
+    const delayedAttachments = deferred();
+    mocks.getRequestDetail.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce({ id: 2 });
+    mocks.getRequestComments.mockResolvedValue([]);
+    mocks.getRequestAttachments
+      .mockReturnValueOnce(delayedAttachments.promise)
+      .mockResolvedValueOnce([{ id: 'b', filename: 'b.txt' }]);
+
+    const first = portalRequestsStore.loadAndView(1);
+    await Promise.resolve();
+    await portalRequestsStore.loadAndView(2);
+    delayedAttachments.resolve([{ id: 'a', filename: 'a.txt' }]);
+    await first;
+
+    expect(portalRequestsStore.selected).toMatchObject({ id: 2 });
+    expect(portalRequestsStore.attachments).toEqual([{ id: 'b', filename: 'b.txt' }]);
+  });
+
+  it('does not append an upload that completes after switching requests (WI-1589)', async () => {
+    const upload = deferred();
+    mocks.getRequestDetail.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce({ id: 2 });
+    mocks.getRequestComments.mockResolvedValue([]);
+    mocks.getRequestAttachments.mockResolvedValue([]);
+
+    await portalRequestsStore.loadAndView(1);
+    mocks.addRequestAttachment.mockReturnValue(upload.promise);
+    const pendingUpload = portalRequestsStore.addAttachment({ name: 'a.txt' });
+    await portalRequestsStore.loadAndView(2);
+    upload.resolve({ attachment: { id: 'a', filename: 'a.txt' } });
+    await pendingUpload;
+
+    expect(portalRequestsStore.selected).toMatchObject({ id: 2 });
+    expect(portalRequestsStore.attachments).toEqual([]);
+  });
+
+  it('does not append a comment that completes after switching requests', async () => {
+    const commentPost = deferred();
+    mocks.getRequestDetail.mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce({ id: 2 });
+    mocks.getRequestComments.mockResolvedValue([]);
+    mocks.getRequestAttachments.mockResolvedValue([]);
+
+    await portalRequestsStore.view({ id: 1 });
+    portalRequestsStore.newComment = 'about request 1';
+    mocks.addRequestComment.mockReturnValue(commentPost.promise);
+    const pendingComment = portalRequestsStore.addComment();
+
+    await portalRequestsStore.view({ id: 2 });
+    portalRequestsStore.newComment = 'draft for request 2';
+    commentPost.resolve({ id: 99, content: 'about request 1' });
+    await pendingComment;
+
+    expect(portalRequestsStore.selected).toMatchObject({ id: 2 });
+    expect(portalRequestsStore.comments).toEqual([]);
+    expect(portalRequestsStore.newComment).toBe('draft for request 2');
   });
 
   it('discards a delayed request response after reset', async () => {

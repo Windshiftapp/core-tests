@@ -7,28 +7,23 @@ import (
 	"time"
 
 	"windshift/internal/database"
-	"windshift/internal/models"
 )
 
 func TestNextFailedMessageAttemptIsScopedToUIDAndValidity(t *testing.T) {
-	state := &models.EmailChannelState{
-		FailedMessageUID:         42,
-		FailedMessageUIDValidity: 7,
-		FailedMessageCount:       3,
-		ErrorCount:               99, // Channel health must not affect poison retries.
-	}
+	// Channel health (ErrorCount) is not an input; only the poison tracker is.
+	failedUID, failedValidity, failedCount := 42, uint32(7), 3
 
-	uid, validity, count := nextFailedMessageAttempt(state, 42, 7)
+	uid, validity, count := nextFailedMessageAttempt(failedUID, failedValidity, failedCount, 42, 7)
 	if uid != 42 || validity != 7 || count != 4 {
 		t.Fatalf("same message attempt = (%d, %d, %d), want (42, 7, 4)", uid, validity, count)
 	}
 
-	_, _, count = nextFailedMessageAttempt(state, 43, 7)
+	_, _, count = nextFailedMessageAttempt(failedUID, failedValidity, failedCount, 43, 7)
 	if count != 1 {
 		t.Fatalf("different UID inherited %d attempts, want 1", count)
 	}
 
-	_, _, count = nextFailedMessageAttempt(state, 42, 8)
+	_, _, count = nextFailedMessageAttempt(failedUID, failedValidity, failedCount, 42, 8)
 	if count != 1 {
 		t.Fatalf("new UIDVALIDITY epoch inherited %d attempts, want 1", count)
 	}

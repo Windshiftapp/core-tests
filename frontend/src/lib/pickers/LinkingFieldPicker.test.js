@@ -1,22 +1,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    links: {
-      create: vi.fn(),
-      delete: vi.fn(),
-      getFieldLinks: vi.fn(),
-      search: vi.fn(),
-    },
-  },
+vi.mock('../api/configuration.js', () => ({
+  links: {
+        create: vi.fn(),
+        delete: vi.fn(),
+        getFieldLinks: vi.fn(),
+        search: vi.fn(),
+      },
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
   errorToast: vi.fn(),
 }));
 
-import { api } from '../api.js';
+import { links } from '../api/configuration.js';
 import LinkingFieldPicker from './LinkingFieldPicker.svelte';
 
 afterEach(() => {
@@ -106,7 +104,7 @@ describe('LinkingFieldPicker item links', () => {
 
   it('lets the server perform the one required source-target swap for mirror fields', async () => {
     const onChanged = vi.fn();
-    api.links.search.mockResolvedValueOnce([
+    links.search.mockResolvedValueOnce([
       { id: 404, title: 'Mirror source candidate', type: 'item' },
     ]);
     render(LinkingFieldPicker, {
@@ -127,10 +125,10 @@ describe('LinkingFieldPicker item links', () => {
     await fireEvent.input(screen.getByPlaceholderText('Search items...'), {
       target: { value: 'Mirror source' },
     });
-    await waitFor(() => expect(api.links.search).toHaveBeenCalled());
+    await waitFor(() => expect(links.search).toHaveBeenCalled());
     await fireEvent.click(screen.getByRole('button', { name: 'Mirror source candidate' }));
 
-    expect(api.links.create).toHaveBeenCalledWith({
+    expect(links.create).toHaveBeenCalledWith({
       link_type_id: 5,
       source_type: 'item',
       source_id: 303,
@@ -150,7 +148,7 @@ describe('LinkingFieldPicker search', () => {
     vi.useFakeTimers();
     try {
       let resolveFirst;
-      api.links.search
+      links.search
         .mockImplementationOnce(
           () =>
             new Promise((resolve) => {
@@ -174,11 +172,11 @@ describe('LinkingFieldPicker search', () => {
 
       await fireEvent.input(input, { target: { value: 'first query' } });
       await vi.advanceTimersByTimeAsync(300);
-      expect(api.links.search).toHaveBeenCalledTimes(1);
+      expect(links.search).toHaveBeenCalledTimes(1);
 
       await fireEvent.input(input, { target: { value: 'second query' } });
       await vi.advanceTimersByTimeAsync(300);
-      expect(api.links.search).toHaveBeenCalledTimes(2);
+      expect(links.search).toHaveBeenCalledTimes(2);
       expect(screen.getByRole('button', { name: 'Fresh result' })).toBeInTheDocument();
 
       resolveFirst([{ id: 404, title: 'Stale result', type: 'item' }]);
@@ -196,7 +194,7 @@ describe('LinkingFieldPicker search', () => {
     vi.useFakeTimers();
     try {
       let resolveFirst;
-      api.links.search.mockImplementationOnce(
+      links.search.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
             resolveFirst = resolve;

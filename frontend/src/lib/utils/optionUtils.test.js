@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  parseFieldOptions,
-  resolveOptionLabel,
-  resolveOptionLabels,
-  serializeOptions,
-} from './optionUtils.js';
+import { parseFieldOptions, resolveOptionLabel, resolveOptionLabels, serializeOptions } from './optionUtils.js';
 
 // The custom-field option format on the wire is:
 //   { "next_id": 5, "items": [{ "id": 1, "label": "Critical" }, ...] }

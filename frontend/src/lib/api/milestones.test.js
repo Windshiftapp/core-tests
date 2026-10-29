@@ -65,4 +65,26 @@ describe('milestones API', () => {
       body: JSON.stringify({ tag_name: 'v0.8.4' }),
     });
   });
+
+  it('creates a workspace-scoped milestone on the workspace path', async () => {
+    fetchV2Data.mockResolvedValue({});
+
+    await milestones.create({ name: 'Release', is_global: false, workspace_id: 23 });
+
+    expect(fetchV2Data).toHaveBeenCalledWith('/workspaces/23/milestones', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Release' }),
+    });
+  });
+
+  it('creates a global milestone on the global path', async () => {
+    fetchV2Data.mockResolvedValue({});
+
+    await milestones.create({ name: 'Release', is_global: true, workspace_id: null });
+
+    expect(fetchV2Data).toHaveBeenCalledWith('/milestones', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Release' }),
+    });
+  });
 });

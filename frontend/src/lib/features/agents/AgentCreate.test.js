@@ -1,46 +1,59 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
+vi.mock('../../api/agentBindings.js', () => ({
   agentBindings: {
     listTemplates: vi.fn(),
     getCandidates: vi.fn(),
     listToolCapabilities: vi.fn(),
     createProfile: vi.fn(),
   },
-  api: {
-    llmProviders: {
-      getEnabled: vi.fn(),
-    },
-    workspaceSCM: {
-      getConnections: vi.fn(),
-      getConnectionsOverview: vi.fn(),
-      getLinkedRepos: vi.fn(),
-    },
-    actionCapabilities: {
-      getForWorkspace: vi.fn(),
-    },
-    runnerPools: {
-      listWorkspaceTokens: vi.fn(),
-      mintWorkspaceToken: vi.fn(),
-      revokeWorkspaceToken: vi.fn(),
-      listWorkspaceInstances: vi.fn(),
-    },
-    setup: {
-      getModuleSettings: vi.fn(),
-      updateModuleSettings: vi.fn(),
-    },
-  },
+}));
+
+vi.mock('../../api/ai.js', () => ({
+  llmProviders: {
+        getEnabled: vi.fn(),
+      },
+  actionCapabilities: {
+        getForWorkspace: vi.fn(),
+      },
+  runnerPools: {
+        listWorkspaceTokens: vi.fn(),
+        mintWorkspaceToken: vi.fn(),
+        revokeWorkspaceToken: vi.fn(),
+        listWorkspaceInstances: vi.fn(),
+      },
+}))
+
+vi.mock('../../api/scm.js', () => ({
+  workspaceSCM: {
+        getConnections: vi.fn(),
+        getConnectionsOverview: vi.fn(),
+        getLinkedRepos: vi.fn(),
+      },
+}))
+
+vi.mock('../../api/admin.js', () => ({
+  setup: {
+        getModuleSettings: vi.fn(),
+        updateModuleSettings: vi.fn(),
+      },
 }));
 
 vi.mock('../../router.js', () => ({
   navigate: vi.fn(),
 }));
 
-import { agentBindings, api } from '../../api.js';
+import { actionCapabilities, llmProviders } from '../../api/ai.js';
+import { workspaceSCM } from '../../api/scm.js';
+import { agentBindings } from '../../api/agentBindings.js';
 import { navigate } from '../../router.js';
 import { getShortcutDisplay } from '../../utils/keyboardShortcuts.js';
 import AgentCreate from './AgentCreate.svelte';
+import { runnerPools } from '../../api/ai.js';
+
+import { setup } from '../../api/admin.js';
+
 
 const storedValues = new Map();
 const localStorageMock = {
@@ -80,13 +93,13 @@ beforeEach(() => {
     },
   ]);
   agentBindings.createProfile.mockResolvedValue({ id: 42 });
-  api.llmProviders.getEnabled.mockResolvedValue([
+  llmProviders.getEnabled.mockResolvedValue([
     { id: 9, name: 'Primary model', model: 'gpt-example' },
   ]);
-  api.workspaceSCM.getConnections.mockResolvedValue([]);
-  api.workspaceSCM.getConnectionsOverview.mockResolvedValue([]);
-  api.workspaceSCM.getLinkedRepos.mockResolvedValue([]);
-  api.actionCapabilities.getForWorkspace.mockResolvedValue([]);
+  workspaceSCM.getConnections.mockResolvedValue([]);
+  workspaceSCM.getConnectionsOverview.mockResolvedValue([]);
+  workspaceSCM.getLinkedRepos.mockResolvedValue([]);
+  actionCapabilities.getForWorkspace.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -96,7 +109,7 @@ afterEach(() => {
 
 describe('AgentCreate', () => {
   it('loads linked repositories through one expanded connection request', async () => {
-    api.workspaceSCM.getConnectionsOverview.mockResolvedValue([
+    workspaceSCM.getConnectionsOverview.mockResolvedValue([
       {
         id: 3,
         name: 'GitHub',
@@ -112,12 +125,12 @@ describe('AgentCreate', () => {
     render(AgentCreate, { props: { workspaceId: 7 } });
     await screen.findAllByTestId('agent-template');
 
-    expect(api.workspaceSCM.getConnectionsOverview).toHaveBeenCalledOnce();
-    expect(api.workspaceSCM.getConnectionsOverview).toHaveBeenCalledWith(7, {
+    expect(workspaceSCM.getConnectionsOverview).toHaveBeenCalledOnce();
+    expect(workspaceSCM.getConnectionsOverview).toHaveBeenCalledWith(7, {
       includeRepositories: true,
     });
-    expect(api.workspaceSCM.getConnections).not.toHaveBeenCalled();
-    expect(api.workspaceSCM.getLinkedRepos).not.toHaveBeenCalled();
+    expect(workspaceSCM.getConnections).not.toHaveBeenCalled();
+    expect(workspaceSCM.getLinkedRepos).not.toHaveBeenCalled();
   });
 
   it('gives each built-in specialist a distinct purpose-specific icon', async () => {

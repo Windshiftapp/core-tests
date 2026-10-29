@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-	decodePageDiagramPayload,
-	PageDiagramSceneError,
-	pageDiagramSceneFingerprint,
-	preparePageDiagramScene,
-} from "./pageDiagramScene.js";
+import { decodePageDiagramPayload, PageDiagramSceneError, pageDiagramSceneFingerprint, preparePageDiagramScene } from "./pageDiagramScene.js";
 
 describe("Page diagram scene payloads", () => {
 	it("recognizes and converts a Mermaid seed into editable Excalidraw data", async () => {

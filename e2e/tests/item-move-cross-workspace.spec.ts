@@ -31,7 +31,15 @@ test("moves a work item to another workspace from its detail view", async ({
 
 	await page.getByTestId("item-detail-actions-menu").click();
 	await page.getByTestId("item-move-workspace-open").click();
-	await page.locator("#item-move-workspace-picker").click();
+	// The picker mounts at most 100 options, so filter to the destination to
+	// keep its option rendered no matter how many workspaces exist.
+	const workspacePicker = page.locator("#item-move-workspace-picker");
+	await workspacePicker.click();
+	await workspacePicker.fill(destination.name);
+	const destinationOption = page.getByTestId(
+		`item-move-workspace-option-${destination.id}`,
+	);
+	await expect(destinationOption).toBeVisible();
 
 	const previewResponse = page.waitForResponse(
 		(response) =>
@@ -40,9 +48,7 @@ test("moves a work item to another workspace from its detail view", async ({
 				`/api/v2/items/${item.id}/move-workspace/preview`,
 			),
 	);
-	await page
-		.getByTestId(`item-move-workspace-option-${destination.id}`)
-		.click();
+	await destinationOption.click();
 	expect((await previewResponse).ok()).toBeTruthy();
 
 	const preview = page.getByTestId("item-move-workspace-preview");

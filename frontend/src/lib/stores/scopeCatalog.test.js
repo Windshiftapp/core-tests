@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ getScopeCatalog: vi.fn() }));
 
-vi.mock('../api.js', () => ({ api: { getScopeCatalog: mocks.getScopeCatalog } }));
+vi.mock('../api/users.js', () => ({
+  getScopeCatalog: mocks.getScopeCatalog,
+}));
 
 import { scopeCatalogStore } from './scopeCatalog.svelte.js';
+import { getScopeCatalog } from '../api/users.js';
 
 beforeEach(() => {
   vi.clearAllMocks();

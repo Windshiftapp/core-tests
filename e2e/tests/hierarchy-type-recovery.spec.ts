@@ -114,6 +114,37 @@ test("a compatible item type restores reparenting after hierarchy configuration 
 		description: "Isolated workspace for hierarchy recovery UX",
 	});
 
+	// A fresh workspace only binds the default item-type catalog. Bind the
+	// newly created types through a dedicated configuration set so the drift
+	// scenario can resolve their hierarchy levels.
+	const catalogResponse = await request.get("/api/v2/item-types", {
+		headers: SEC_FETCH,
+	});
+	expect(catalogResponse.ok()).toBeTruthy();
+	const catalog = ((await catalogResponse.json()).data ?? []) as ItemType[];
+	const workflowsResponse = await request.get("/api/v2/workflows", {
+		headers: SEC_FETCH,
+	});
+	expect(workflowsResponse.ok()).toBeTruthy();
+	const workflows = ((await workflowsResponse.json()).data ?? []) as Array<{
+		id: number;
+		is_default?: boolean;
+	}>;
+	const workflow = workflows.find((entry) => entry.is_default) ?? workflows[0];
+	const configSetResponse = await request.post("/api/v2/configuration-sets", {
+		headers: SEC_FETCH,
+		data: {
+			name: `Hierarchy Recovery ${suffix}`,
+			workflow_id: workflow?.id ?? null,
+			workspace_ids: [workspace.id],
+			item_type_configs: catalog.map((type) => ({ item_type_id: type.id })),
+		},
+	});
+	expect(
+		configSetResponse.ok(),
+		`create config set: ${configSetResponse.status()} ${await configSetResponse.text()}`,
+	).toBeTruthy();
+
 	const originalParent = await createItem(
 		request,
 		workspace.id,

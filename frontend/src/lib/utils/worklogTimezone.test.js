@@ -9,14 +9,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
   t: (key) => key,
 }));
 
-import {
-  addDaysToKey,
-  dateKeyInZone,
-  formatClockInZone,
-  mondayKeyInZone,
-  monthBoundsInZone,
-  splitWorklogMinutesByDay,
-} from './worklogTimezone.js';
+import { addDaysToKey, dateKeyInZone, formatClockInZone, mondayKeyInZone, monthBoundsInZone, splitWorklogMinutesByDay } from './worklogTimezone.js';
 
 // 2026-08-06T05:00:00Z = Aug 5, 23:00 Denver and Aug 6, 14:00 Tokyo.
 const OVERNIGHT_START = 1785992400;

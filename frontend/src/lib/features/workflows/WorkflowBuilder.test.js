@@ -2,26 +2,30 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { writable } from 'svelte/store';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-    statuses: { getAll: vi.fn() },
-    workflows: {
-      create: vi.fn(),
-      delete: vi.fn(),
-      getAll: vi.fn(),
-      update: vi.fn(),
-    },
-    objectTranslations: {
-      list: vi.fn(),
-      resolve: vi.fn(),
-      upsert: vi.fn(),
-      delete: vi.fn(),
-    },
-  },
+vi.mock('../../api/core.js', () => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+  delete: vi.fn(),
+}))
+
+vi.mock('../../api/workflows.js', () => ({
+  statuses: { getAll: vi.fn() },
+  workflows: {
+        create: vi.fn(),
+        delete: vi.fn(),
+        getAll: vi.fn(),
+        update: vi.fn(),
+      },
+}))
+
+vi.mock('../../api/objectTranslations.js', () => ({
+  objectTranslations: {
+        list: vi.fn(),
+        resolve: vi.fn(),
+        upsert: vi.fn(),
+        delete: vi.fn(),
+      },
 }));
 
 vi.mock('../../router.js', () => ({ navigate: vi.fn() }));
@@ -38,15 +42,17 @@ vi.mock('../../stores/permissions.svelte.js', () => ({
 vi.mock('../../stores/toasts.svelte.js', () => ({ errorToast: vi.fn() }));
 vi.mock('../../composables/useConfirm.js', () => ({ confirm: vi.fn() }));
 
-import { api } from '../../api.js';
+import { objectTranslations } from '../../api/objectTranslations.js';
+import { statuses, workflows } from '../../api/workflows.js';
 import WorkflowBuilder from './WorkflowBuilder.svelte';
+import { get, post, put } from '../../api/core.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  api.objectTranslations.list.mockResolvedValue([]);
-  api.objectTranslations.upsert.mockResolvedValue({});
-  api.statuses.getAll.mockResolvedValue([{ id: 1, name: 'Open' }]);
-  api.workflows.getAll.mockResolvedValue([
+  objectTranslations.list.mockResolvedValue([]);
+  objectTranslations.upsert.mockResolvedValue({});
+  statuses.getAll.mockResolvedValue([{ id: 1, name: 'Open' }]);
+  workflows.getAll.mockResolvedValue([
     {
       id: 7,
       name: 'Company Workflow',
@@ -54,7 +60,7 @@ beforeEach(() => {
       is_default: false,
     },
   ]);
-  api.workflows.update.mockResolvedValue({
+  workflows.update.mockResolvedValue({
     id: 7,
     name: 'Updated Workflow',
     description: 'Workflow for the company project',
@@ -65,7 +71,7 @@ beforeEach(() => {
 describe('WorkflowBuilder modal shortcuts', () => {
   test('submits a new workflow only once while the first create is pending', async () => {
     let resolveCreate;
-    api.workflows.create.mockReturnValue(
+    workflows.create.mockReturnValue(
       new Promise((resolve) => {
         resolveCreate = resolve;
       })
@@ -81,7 +87,7 @@ describe('WorkflowBuilder modal shortcuts', () => {
     await fireEvent.submit(form);
     await fireEvent.submit(form);
 
-    expect(api.workflows.create).toHaveBeenCalledTimes(1);
+    expect(workflows.create).toHaveBeenCalledTimes(1);
     resolveCreate({ id: 8, name: 'One workflow', description: '', is_default: false });
     await Promise.resolve();
   });
@@ -103,12 +109,12 @@ describe('WorkflowBuilder modal shortcuts', () => {
     await fireEvent.keyDown(description, { key: 'Enter', metaKey: true });
 
     await waitFor(() => {
-      expect(api.workflows.update).toHaveBeenCalledWith(7, {
+      expect(workflows.update).toHaveBeenCalledWith(7, {
         name: 'Company Workflow',
         description: 'Workflow for the company project',
         is_default: false,
       });
-      expect(api.objectTranslations.upsert).toHaveBeenCalledWith(
+      expect(objectTranslations.upsert).toHaveBeenCalledWith(
         'workflow',
         7,
         'name',
@@ -120,7 +126,7 @@ describe('WorkflowBuilder modal shortcuts', () => {
 
   test('submits an edited workflow only once while the first save is pending', async () => {
     let resolveUpdate;
-    api.workflows.update.mockReturnValue(
+    workflows.update.mockReturnValue(
       new Promise((resolve) => {
         resolveUpdate = resolve;
       })
@@ -136,8 +142,8 @@ describe('WorkflowBuilder modal shortcuts', () => {
     await fireEvent.keyDown(description, { key: 'Enter', metaKey: true });
     await fireEvent.keyDown(description, { key: 'Enter', metaKey: true });
 
-    expect(api.workflows.update).toHaveBeenCalledTimes(1);
+    expect(workflows.update).toHaveBeenCalledTimes(1);
     resolveUpdate({ id: 7 });
-    await waitFor(() => expect(api.workflows.getAll).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(workflows.getAll).toHaveBeenCalledTimes(2));
   });
 });

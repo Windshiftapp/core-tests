@@ -105,7 +105,14 @@ test.describe("Item detail request budget (WI-617)", () => {
 				const path = apiPath(browserRequest.url());
 				if (!path || browserRequest.method() !== "GET") return;
 				if (measuringCold) coldRequests.push(path);
-				if (path !== itemEventsPath) pendingAPIRequests.add(browserRequest);
+				// SSE streams stay open for the life of the page; only finite
+				// requests should gate the cold-graph settle.
+				if (
+					browserRequest.resourceType() !== "eventsource" &&
+					path !== itemEventsPath
+				) {
+					pendingAPIRequests.add(browserRequest);
+				}
 			});
 			page.on("requestfinished", (browserRequest) =>
 				pendingAPIRequests.delete(browserRequest),
@@ -167,6 +174,12 @@ test.describe("Item detail request budget (WI-617)", () => {
 			).toHaveLength(1);
 			expect(coldRequests.filter((path) => path === itemPath)).toHaveLength(0);
 			expect(duplicates).toEqual([]);
+			// Assignee and team pickers acquire options on first open (WI-1752); a
+			// cold detail mount must not re-fetch the assignable-users directory the
+			// workspace bootstrap already provided.
+			expect(
+				coldRequests.some((path) => path.includes("/assignable-users")),
+			).toBe(false);
 			expect(
 				coldRequests.filter((path) => path === `${itemPath}/diagrams`),
 			).toHaveLength(1);
@@ -203,13 +216,14 @@ test.describe("Item detail request budget (WI-617)", () => {
 				),
 				contentType: "application/json",
 			});
-			if (process.env.CI) {
+			if (process.env.CI || testInfo.config.workers > 1) {
 				// Shared runners cannot honor an interactive-time budget: samples
 				// ranged 1.8-5.5s against the 3.5s ceiling across identical commits.
-				// The request, transfer, and duplicate budgets above stay enforced on
-				// CI; samples are still attached above for local trending.
+				// The request, transfer, and duplicate budgets above stay enforced;
+				// samples are still attached above for local trending. Run with
+				// --workers=1 to assert the interaction ceiling.
 				console.log(
-					`[item-detail-budget] interactive p95 not asserted on CI: ${Math.round(percentile95(interactiveSamples))}ms`,
+					`[item-detail-budget] interactive p95 not asserted with ${testInfo.config.workers} worker(s): ${Math.round(percentile95(interactiveSamples))}ms`,
 				);
 			} else {
 				expect(

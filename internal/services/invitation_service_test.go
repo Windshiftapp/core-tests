@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"fmt"
+	"strings"
 )
 
 func createInvitedUser(t *testing.T, tdb *testutils.TestDB, email, username string) int {
@@ -137,6 +138,46 @@ func TestInvitationService_AcceptSetsPasswordAndMarksUsed(t *testing.T) {
 	}
 	if !usedAt.Valid {
 		t.Fatal("Expected used_at to be set")
+	}
+}
+
+func TestInvitationService_AcceptRejectsOverlongPassword(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	defer tdb.Close()
+
+	svc := NewInvitationService(tdb.GetDatabase(), nil, "http://test.local")
+	userID := createInvitedUser(t, tdb, "overlong@example.com", "overlonguser")
+
+	token, err := svc.GenerateInvitation(userID)
+	if err != nil {
+		t.Fatalf("GenerateInvitation failed: %v", err)
+	}
+
+	if err := svc.AcceptInvitation(token, strings.Repeat("a", 73)); err == nil {
+		t.Fatal("AcceptInvitation accepted a password over bcrypt's limit")
+	}
+
+	// A rejected password must not activate the account or consume the invitation.
+	var passwordHash sql.NullString
+	var isActive bool
+	var usedAt sql.NullTime
+	err = tdb.QueryRow(`
+		SELECT u.password_hash, u.is_active, i.used_at
+		FROM users u
+		JOIN user_invitations i ON i.user_id = u.id
+		WHERE u.id = ?
+	`, userID).Scan(&passwordHash, &isActive, &usedAt)
+	if err != nil {
+		t.Fatalf("Failed to query user state: %v", err)
+	}
+	if passwordHash.Valid {
+		t.Fatal("over-long password was persisted")
+	}
+	if isActive {
+		t.Fatal("over-long password activated the account")
+	}
+	if usedAt.Valid {
+		t.Fatal("over-long password consumed the invitation")
 	}
 }
 

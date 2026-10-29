@@ -47,8 +47,6 @@ func waitForActionLog(t *testing.T, server *TestServer, workspaceKey string, act
 
 	deadline := time.Now().Add(timeout)
 	endpoint := fmt.Sprintf("/workspaces/%s/actions/%d/logs", workspaceKey, actionID)
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
 
 	for time.Now().Before(deadline) {
 		resp := MakeAuthRequest(t, server, http.MethodGet, endpoint, nil)
@@ -61,36 +59,11 @@ func waitForActionLog(t *testing.T, server *TestServer, workspaceKey string, act
 				return log
 			}
 		}
-		<-tick.C
+		<-time.After(100 * time.Millisecond)
 	}
 
 	t.Fatalf("Timed out waiting for action %d log with status %q", actionID, expectedStatus)
 	return nil
-}
-
-// waitForCascadeSettle polls workspace action logs until the count is
-// unchanged for several consecutive polls, meaning the cascade finished.
-func waitForCascadeSettle(t *testing.T, server *TestServer, workspaceKey string) {
-	t.Helper()
-	endpoint := fmt.Sprintf("/workspaces/%s/action-logs", workspaceKey)
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	deadline := time.Now().Add(10 * time.Second)
-	last := -1
-	stable := 0
-	for stable < 5 && time.Now().Before(deadline) {
-		resp := MakeAuthRequest(t, server, http.MethodGet, endpoint, nil)
-		var logs []map[string]interface{}
-		DecodeJSON(t, resp, &logs)
-		resp.Body.Close()
-		if len(logs) > 0 && len(logs) == last {
-			stable++
-		} else {
-			stable = 0
-		}
-		last = len(logs)
-		<-tick.C
-	}
 }
 
 // getItem fetches a single item by ID.
@@ -728,10 +701,10 @@ func TestActionCascadeDepthLimit(t *testing.T) {
 	AssertStatusCode(t, resp, http.StatusOK)
 	resp.Body.Close()
 
-	// Poll the workspace logs until the cascade settles (count unchanged for
-	// several consecutive polls), proving it is depth-limited rather than
-	// still running.
-	waitForCascadeSettle(t, server, workspaceKey)
+	// Wait a bit for the cascade to run and be depth-limited
+	<-time.After(2 * time.Second)
+
+	// Verify the test completes (didn't hang) — check workspace logs to see bounded executions
 	wsLogResp := MakeAuthRequest(t, server, http.MethodGet,
 		fmt.Sprintf("/workspaces/%s/action-logs", workspaceKey), nil)
 	defer wsLogResp.Body.Close()

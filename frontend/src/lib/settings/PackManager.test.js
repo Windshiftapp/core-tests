@@ -6,19 +6,17 @@ const listPacks = vi.hoisted(() => vi.fn());
 const applyPack = vi.hoisted(() => vi.fn());
 const verifyPack = vi.hoisted(() => vi.fn());
 
-vi.mock('../api.js', () => ({
-  api: {
-    packs: { list: listPacks, apply: applyPack, verify: verifyPack },
-  },
+vi.mock('../api/packs.js', () => ({
+  packs: { list: listPacks, apply: applyPack, verify: verifyPack },
 }));
 
-vi.mock('../stores', async () => {
+vi.mock('../stores/workspaces.svelte.js', async () => {
   const { writable: writableStore } = await import('svelte/store');
   return {
     workspacesStore: Object.assign(
-      writableStore({ regularWorkspaces: [{ id: 4, name: 'Support', key: 'SUP' }] }),
-      { load: vi.fn(), reload: vi.fn() },
-    ),
+          writableStore({ regularWorkspaces: [{ id: 4, name: 'Support', key: 'SUP' }] }),
+          { load: vi.fn(), reload: vi.fn() },
+        ),
   };
 });
 
@@ -32,6 +30,7 @@ vi.mock('../stores/toasts.svelte.js', () => ({
 }));
 
 import PackManager from './PackManager.svelte';
+import { packs } from '../api/packs.js';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -58,7 +57,6 @@ describe('PackManager', () => {
     render(PackManager);
 
     await fireEvent.click(await screen.findByTestId('pack-apply-helpdesk'));
-    await fireEvent.click(screen.getByTestId('pack-target-mode-new'));
     await fireEvent.input(screen.getByTestId('pack-new-name'), {
       target: { value: 'Helpdesk' },
     });

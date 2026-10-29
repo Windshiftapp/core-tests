@@ -36,10 +36,29 @@ test.describe('Command palette: recently viewed', () => {
     }).toPass({ timeout: 10000 });
   }
 
-  test('launcher is the default first entry and opens the recent-items sub-palette', async ({ page }) => {
+  test('launcher is the default first entry and opens the recent-items sub-palette', async ({ page, request }) => {
     // Open the item's detail once so it is recorded as recently viewed.
     await page.goto(`/workspaces/${workspaceNumericId}/items/${itemId}`);
     await expect(page.getByTestId('item-title-edit')).toContainText(itemTitle);
+
+    // View recording is batched asynchronously. Wait until the homepage
+    // actually reflects the view before opening the palette, otherwise the
+    // recent-items sub-palette can be populated before the write lands.
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get('/api/homepage');
+          if (!response.ok()) return false;
+          const data = (await response.json()) as {
+            recently_viewed?: Array<{ ItemID?: number; item_id?: number }>;
+          };
+          return (data.recently_viewed ?? []).some(
+            (entry) => (entry.ItemID ?? entry.item_id) === itemId
+          );
+        },
+        { timeout: 15_000 }
+      )
+      .toBe(true);
 
     // Back to the homepage, then open the palette with an empty query.
     await page.goto('/');

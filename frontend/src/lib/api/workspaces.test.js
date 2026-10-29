@@ -25,7 +25,7 @@ describe('workspace API', () => {
     await workspaces.getBootstrap(42);
 
     expect(fetchAPI).toHaveBeenCalledOnce();
-    expect(fetchAPI).toHaveBeenCalledWith('/workspaces/42/bootstrap');
+    expect(fetchAPI).toHaveBeenCalledWith('/workspaces/42/bootstrap', expect.any(Object));
   });
 
   it('loads workspace-visible time projects from the canonical v2 owner path', async () => {

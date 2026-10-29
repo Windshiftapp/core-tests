@@ -304,7 +304,7 @@ test.describe("Item Management", () => {
 			await itemPage.gotoWorkspaceBacklog(workspaceId);
 			await itemPage.openItemDetailModal(parentItem.title);
 			const parentDialog = itemPage.page.locator('[role="dialog"]').first();
-			await expect(parentDialog.locator("button.title-button")).toContainText(
+			await expect(parentDialog.getByTestId("item-title-edit")).toContainText(
 				parentItem.title,
 			);
 
@@ -314,7 +314,7 @@ test.describe("Item Management", () => {
 			await expect(itemPage.page.getByText("Work Item Details")).toBeVisible({
 				timeout: 5000,
 			});
-			await expect(parentDialog.locator("button.title-button")).toContainText(
+			await expect(parentDialog.getByTestId("item-title-edit")).toContainText(
 				parentItem.title,
 			);
 

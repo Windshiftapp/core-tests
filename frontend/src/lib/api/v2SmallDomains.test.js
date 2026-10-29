@@ -54,7 +54,7 @@ describe('v2 preferences', () => {
     await userPreferences.get();
     await userPreferences.update({ color_mode: 'dark' });
 
-    expect(fetchV2Data).toHaveBeenNthCalledWith(1, '/users/me/preferences');
+    expect(fetchV2Data).toHaveBeenNthCalledWith(1, '/users/me/preferences', {});
     expect(fetchV2Data).toHaveBeenNthCalledWith(2, '/users/me/preferences', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/merge-patch+json' },
@@ -115,7 +115,8 @@ describe('v2 item attachments', () => {
   });
 
   it('uses v2 binary URLs and deletion', async () => {
-    expect(attachments.getDownloadUrl(7)).toBe('/api/v2/attachments/7/content');
+    expect(attachments.getContentUrl(7)).toBe('/api/v2/attachments/7/content');
+    expect(attachments.getDownloadUrl(7)).toBe('/api/v2/attachments/7/download');
     expect(attachments.getThumbnailUrl(7)).toBe('/api/v2/attachments/7/thumbnail');
 
     await attachments.delete(7);

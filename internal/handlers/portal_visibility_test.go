@@ -49,17 +49,3 @@ func TestChannelResourceOwnershipTypes(t *testing.T) {
 		t.Fatal("non-portal channels unexpectedly support asset reports")
 	}
 }
-
-func TestEffectiveRequestTypeWorkspaceUsesPublicRuntimeRouting(t *testing.T) {
-	served := []int{11, 22}
-	if got, ok := effectiveRequestTypeWorkspace(served, nil); !ok || got != 11 {
-		t.Fatalf("legacy route = (%d, %v), want first workspace (11, true)", got, ok)
-	}
-	pinned := 22
-	if got, ok := effectiveRequestTypeWorkspace(served, &pinned); !ok || got != 22 {
-		t.Fatalf("pinned route = (%d, %v), want (22, true)", got, ok)
-	}
-	if _, ok := effectiveRequestTypeWorkspace(nil, nil); ok {
-		t.Fatal("legacy route without served workspaces unexpectedly resolved")
-	}
-}

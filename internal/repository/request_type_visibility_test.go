@@ -30,12 +30,19 @@ func newRequestTypeVisibilityFixture(t *testing.T) (*RequestTypeRepository, int,
 		t.Fatalf("create channel: %v", err)
 	}
 
+	var workspaceID int
+	if err := db.QueryRow(`
+		INSERT INTO workspaces (name, key) VALUES ('Visibility workspace', 'VISW') RETURNING id
+	`).Scan(&workspaceID); err != nil {
+		t.Fatalf("create visibility workspace: %v", err)
+	}
+
 	var requestTypeID int
 	if err := db.QueryRow(`
-		INSERT INTO request_types (channel_id, name, item_type_id, is_active, visibility_group_ids)
-		VALUES (?, 'Restricted request type', ?, true, '[42]')
+		INSERT INTO request_types (channel_id, name, item_type_id, workspace_id, is_active, visibility_group_ids)
+		VALUES (?, 'Restricted request type', ?, ?, true, '[42]')
 		RETURNING id
-	`, channelID, itemTypeID).Scan(&requestTypeID); err != nil {
+	`, channelID, itemTypeID, workspaceID).Scan(&requestTypeID); err != nil {
 		t.Fatalf("create restricted request type: %v", err)
 	}
 

@@ -1,5 +1,8 @@
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from '../api/core.js';
+import { publicBoard } from '../api/publicBoard.js';
+
 
 vi.mock("../api/publicBoard.js", () => ({
 	publicBoard: {
@@ -109,5 +112,94 @@ describe("PublicBoard response contracts", () => {
 			expect(card.textContent).toContain(expected);
 		}
 		expect(screen.getByTitle("Ada Lovelace")).toBeTruthy();
+	});
+});
+
+describe("PublicBoard slug changes (WI-1612)", () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	function board(name) {
+		return {
+			collection: { name, description: "" },
+			card_fields: [],
+			total_items: 0,
+			loaded_items: 0,
+			truncated: false,
+			item_limit: 500,
+			columns: [],
+		};
+	}
+
+	it("reloads and replaces the board when the slug changes without remounting", async () => {
+		publicBoard.get.mockImplementation((slug) => Promise.resolve(board(slug)));
+
+		const { rerender } = render(PublicBoard, { props: { slug: "alpha" } });
+		expect(await screen.findByText("alpha")).toBeInTheDocument();
+
+		// The router reuses the component for /board/beta, so the prop changes
+		// in place and the previous board must not linger.
+		await rerender({ slug: "beta" });
+
+		expect(await screen.findByText("beta")).toBeInTheDocument();
+		expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+		expect(publicBoard.get).toHaveBeenLastCalledWith("beta", expect.anything());
+	});
+
+	it("cancels the previous slug request", async () => {
+		publicBoard.get.mockImplementation((slug) => Promise.resolve(board(slug)));
+
+		const { rerender } = render(PublicBoard, { props: { slug: "alpha" } });
+		await screen.findByText("alpha");
+		const alphaSignal = publicBoard.get.mock.calls[0][1].signal;
+
+		await rerender({ slug: "beta" });
+		await screen.findByText("beta");
+
+		expect(alphaSignal.aborted).toBe(true);
+	});
+
+	it("does not let a late response from the old slug overwrite the new board", async () => {
+		const pending = {};
+		publicBoard.get.mockImplementation(
+			(slug) => new Promise((resolve) => { pending[slug] = resolve; }),
+		);
+
+		const { rerender } = render(PublicBoard, { props: { slug: "alpha" } });
+		await waitFor(() => expect(pending.alpha).toBeTypeOf("function"));
+
+		await rerender({ slug: "beta" });
+		await waitFor(() => expect(pending.beta).toBeTypeOf("function"));
+
+		pending.beta(board("beta"));
+		expect(await screen.findByText("beta")).toBeInTheDocument();
+
+		// The obsolete alpha response resolves last and must be discarded.
+		pending.alpha(board("alpha"));
+		await waitFor(() => expect(publicBoard.get).toHaveBeenCalledTimes(2));
+		expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+		expect(screen.getByText("beta")).toBeInTheDocument();
+	});
+
+	it("does not let a late failure from the old slug replace the new board", async () => {
+		const pending = {};
+		publicBoard.get.mockImplementation(
+			(slug) => new Promise((resolve, reject) => { pending[slug] = { resolve, reject }; }),
+		);
+
+		const { rerender } = render(PublicBoard, { props: { slug: "alpha" } });
+		await waitFor(() => expect(pending.alpha).toBeTypeOf("object"));
+
+		await rerender({ slug: "beta" });
+		await waitFor(() => expect(pending.beta).toBeTypeOf("object"));
+
+		pending.beta.resolve(board("beta"));
+		expect(await screen.findByText("beta")).toBeInTheDocument();
+
+		// A stale rejection must not clear the new board or show an error page.
+		pending.alpha.reject(Object.assign(new Error("gone"), { status: 404 }));
+		await waitFor(() => expect(publicBoard.get).toHaveBeenCalledTimes(2));
+		expect(screen.queryByTestId("public-board-not-found")).toBeNull();
+		expect(screen.queryByTestId("public-board-error")).toBeNull();
+		expect(screen.getByText("beta")).toBeInTheDocument();
 	});
 });

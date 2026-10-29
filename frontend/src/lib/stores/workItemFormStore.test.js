@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { itemTemplates } from '../api/configuration.js';
 
-vi.mock('../api.js', () => ({ api: {} }));
+const { itemTemplatesGetAll } = vi.hoisted(() => ({
+  itemTemplatesGetAll: vi.fn(),
+}));
+
+vi.mock('../api/configuration.js', () => ({
+  itemTemplates: { getAll: itemTemplatesGetAll },
+}));
 
 const { workItemFormStore } = await import('./workItemFormStore.svelte.js');
 
@@ -11,6 +18,19 @@ describe('workItemFormStore screen-field validation', () => {
     workItemFormStore.formData.workspace_id = 2;
     workItemFormStore.formData.name = 'Test item';
     workItemFormStore.formData.item_type_id = 5;
+    itemTemplatesGetAll.mockReset();
+    itemTemplatesGetAll.mockResolvedValue([]);
+  });
+
+  it('defers template loading until the workspace config set is loaded', async () => {
+    workItemFormStore.configSetLoadedForWorkspace = null;
+
+    await workItemFormStore.loadTemplatesForCurrentType();
+    expect(itemTemplatesGetAll).not.toHaveBeenCalled();
+
+    workItemFormStore.configSetLoadedForWorkspace = 2;
+    await workItemFormStore.loadTemplatesForCurrentType();
+    expect(itemTemplatesGetAll).toHaveBeenCalledWith(2, { item_type_id: 5 });
   });
 
   it('validates required milestone against milestone_ids', () => {
@@ -82,6 +102,19 @@ describe('workItemFormStore screen-field validation', () => {
     workItemFormStore.customFieldValues = { 42: [7] };
 
     expect(workItemFormStore.validate()).toBe(true);
+  });
+
+  it('does not block create for a required linking custom field', () => {
+    workItemFormStore.allCustomFields = [
+      { id: 77, name: 'Blocks', field_type: 'linking' },
+    ];
+    workItemFormStore.screenFields = [
+      { field_type: 'custom', field_identifier: '77', is_required: true },
+    ];
+    workItemFormStore.customFieldValues = { 77: '' };
+
+    expect(workItemFormStore.validate()).toBe(true);
+    expect(workItemFormStore.validationErrors).toEqual([]);
   });
 
   it('submits newly renderable system fields in the create payload', () => {

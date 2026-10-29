@@ -61,7 +61,8 @@ func newAuditLogStreamTestHandler(t *testing.T) (*AuditLogHandler, database.Data
 		resource_name TEXT,
 		details TEXT,
 		success BOOLEAN NOT NULL DEFAULT TRUE,
-		error_message TEXT
+		error_message TEXT,
+		source TEXT NOT NULL DEFAULT ''
 	)`); err != nil {
 		t.Fatalf("create audit_logs: %v", err)
 	}

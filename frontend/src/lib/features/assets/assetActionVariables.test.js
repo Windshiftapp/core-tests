@@ -1,10 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  assetActionConditionFields,
-  loadAssetActionCustomFields,
-} from './assetActionVariables.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../api/assets.js', () => ({
+  assetTypes: { getFields: vi.fn() },
+}));
+
+import { assetTypes } from '../../api/assets.js';
+import { assetActionConditionFields, loadAssetActionCustomFields } from './assetActionVariables.js';
 
 describe('asset action condition variables', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('offers the executor canonical field names', () => {
     expect(assetActionConditionFields.map(({ value }) => value)).toEqual([
       'asset_title',
@@ -15,7 +22,7 @@ describe('asset action condition variables', () => {
   });
 
   it('loads only fields assigned to the selected asset type', async () => {
-    const getFields = vi.fn().mockResolvedValue([
+    assetTypes.getFields.mockResolvedValue([
       {
         custom_field_id: 17,
         field_name: 'Serial number',
@@ -23,12 +30,11 @@ describe('asset action condition variables', () => {
         field_description: 'Hardware serial',
       },
     ]);
-    const apiClient = { assetTypes: { getFields } };
 
-    await expect(loadAssetActionCustomFields(apiClient, null)).resolves.toEqual([]);
-    expect(getFields).not.toHaveBeenCalled();
+    await expect(loadAssetActionCustomFields(null)).resolves.toEqual([]);
+    expect(assetTypes.getFields).not.toHaveBeenCalled();
 
-    await expect(loadAssetActionCustomFields(apiClient, 9)).resolves.toEqual([
+    await expect(loadAssetActionCustomFields(9)).resolves.toEqual([
       {
         id: '17',
         name: 'Serial number',
@@ -37,6 +43,6 @@ describe('asset action condition variables', () => {
         isCustom: true,
       },
     ]);
-    expect(getFields).toHaveBeenCalledWith(9);
+    expect(assetTypes.getFields).toHaveBeenCalledWith(9);
   });
 });

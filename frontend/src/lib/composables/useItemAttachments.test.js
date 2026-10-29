@@ -5,22 +5,21 @@ const mocks = vi.hoisted(() => ({
 	getByItem: vi.fn(),
 }));
 
-vi.mock("../api.js", () => ({
-	api: {
-		attachments: {
-			getByItem: mocks.getByItem,
-		},
-	},
+vi.mock('../api/misc.js', () => ({
+  attachments: {
+  			getByItem: mocks.getByItem,
+  		},
 }));
 
-vi.mock("../stores", () => ({
-	attachmentStatus: {
-		enabled: true,
-		load: vi.fn(),
-	},
+vi.mock('../stores/attachmentStatus.svelte.js', () => ({
+  attachmentStatus: {
+  		enabled: true,
+  		load: vi.fn(),
+  	},
 }));
 
 import ItemAttachmentsHarness from "./ItemAttachmentsHarness.svelte";
+import { attachments } from '../api/misc.js';
 
 afterEach(() => {
 	window.dispatchEvent(new Event("pageshow"));

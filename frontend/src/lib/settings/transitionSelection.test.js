@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  isSelectableTransition,
-  transitionsFromStatus,
-} from './transitionSelection.js';
+import { isSelectableTransition, transitionsFromStatus } from './transitionSelection.js';
 
 const directed = (id, from, to) => ({
   id,

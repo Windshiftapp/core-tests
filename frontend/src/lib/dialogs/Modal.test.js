@@ -39,6 +39,17 @@ test('delayed autofocus preserves a field the user already focused', async () =>
   expect(description).toHaveFocus();
 });
 
+test('customer dialog renders custom field editors for unset values', () => {
+  render(TimeCustomerModal, {
+    props: {
+      isOpen: true,
+      customerOrgFields: [{ id: 21, name: 'region', label: 'Region', field_type: 'text' }],
+    },
+  });
+
+  expect(screen.getByTestId('custom-field-input-21')).toHaveValue('');
+});
+
 test('customer dialog preserves description focus after opening', async () => {
   vi.useFakeTimers();
   render(TimeCustomerModal, { props: { isOpen: true } });

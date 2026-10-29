@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	buildTimeReportMarkdown,
-	escapeMarkdownText,
-} from "./timeReportMarkdown.js";
+import { buildTimeReportMarkdown, escapeMarkdownText } from "./timeReportMarkdown.js";
 
 describe("time report Markdown", () => {
 	it("escapes values that could change report structure", () => {

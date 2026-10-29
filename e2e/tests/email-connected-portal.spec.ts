@@ -6,9 +6,9 @@ import {
   type BrowserContext,
   type Page,
 } from '../fixtures/context-path';
-import { createWorkspaceViaAPI, createUserViaAPI, listItemTypesViaAPI } from '../fixtures/api-helpers';
+import { createWorkspaceViaAPI, createUserViaAPI } from '../fixtures/api-helpers';
 import { generateUser, generateWorkspace } from '../fixtures/test-data';
-import { createPortalChannel, type PortalChannelHandle } from '../helpers/portal-setup';
+import { createPortalChannel } from '../helpers/portal-setup';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8080';
 const SEC_FETCH = { 'Sec-Fetch-Site': 'same-origin' };
@@ -24,8 +24,6 @@ async function createUnconnectedEmailChannel(
   suffix: string
 ): Promise<EmailChannelHandle> {
   const ws = await createWorkspaceViaAPI(admin, generateWorkspace(`email-portal-${suffix}`));
-  const itemTypes = await listItemTypesViaAPI(admin);
-  expect(itemTypes.length, 'global item-type catalog must not be empty').toBeTruthy();
 
   const create = await admin.post('/api/channels', {
     headers: SEC_FETCH,
@@ -39,9 +37,8 @@ async function createUnconnectedEmailChannel(
   expect(create.ok(), `create email channel: ${create.status()} ${await create.text()}`).toBeTruthy();
   const channel = await create.json();
 
-  // A complete basic-auth config so the settings form passes client-side
-  // validation when it opens. The channel stays disabled; full email
-  // validation only runs at enable time.
+  // Connection-only config: routing lives on intakes since WI-1644. The
+  // channel stays disabled, so full email validation only runs at enable time.
   const config = await admin.put(`/api/channels/${channel.id}/config`, {
     headers: SEC_FETCH,
     data: {
@@ -51,11 +48,8 @@ async function createUnconnectedEmailChannel(
         imap_port: 993,
         imap_encryption: 'ssl',
         imap_username: `support-${suffix}@example.com`,
-        email_workspace_id: ws.id,
-        email_item_type_id: itemTypes[0].id,
+        imap_password: 'imap-secret',
         email_mailbox: 'INBOX',
-        email_mark_as_read: true,
-        email_delete_after_process: false,
       },
     },
   });
@@ -65,74 +59,71 @@ async function createUnconnectedEmailChannel(
 }
 
 async function openEmailChannelSettings(page: Page, channelId: number): Promise<void> {
-  // The modal loads the portal-option list on open; wait for it so the
-  // dropdown is populated before the test interacts with it.
+  // The modal loads the intake list and the portal-option list on open; wait
+  // for both so the form is populated before the test interacts with it.
+  const intakesLoaded = page.waitForResponse(
+    (resp) =>
+      resp.url().includes(`/channels/${channelId}/intakes`) &&
+      resp.request().method() === 'GET'
+  );
   const portalsLoaded = page.waitForResponse(
     (resp) => resp.url().includes('/channels') && resp.url().includes('type=portal')
   );
   await page.goto('/admin/channels');
   await expect(page.getByTestId(`admin-channel-row-${channelId}`)).toBeVisible();
   await page.getByTestId(`admin-channel-row-${channelId}`).click();
+  await intakesLoaded;
   await portalsLoaded;
-  await expect(page.locator('#email-connected-portal')).toBeVisible();
+  await expect(page.getByTestId('channel-intake-list')).toBeVisible();
 }
 
-async function openPortalDropdown(page: Page): Promise<void> {
-  const trigger = page.locator('#email-connected-portal');
-  await trigger.scrollIntoViewIfNeeded();
-  await trigger.click();
-  const listbox = page.getByTestId('email-connected-portal-listbox');
-  await expect(listbox).toBeVisible();
-  await expect(listbox).toBeFocused();
+// Routing is explicit since WI-1644: pick the target portal, one of the
+// workspaces it serves, and the item type created items use.
+async function selectPortalTarget(
+  page: Page,
+  portal: { channelId: number; workspaceId: number }
+): Promise<void> {
+  await page.locator('#intake-portal').click();
+  await page.locator(`#intake-portal-option-${portal.channelId}`).click();
+  await page.locator('#intake-workspace').click();
+  await page.locator(`#intake-workspace-option-${portal.workspaceId}`).click();
+  await page.locator('#intake-item-type').click();
+  // The first option is the "select a type" placeholder; pick the first real one.
+  await page.getByTestId('intake-item-type-option').nth(1).click();
 }
 
-async function selectConnectedPortal(page: Page, portalId: number | null): Promise<void> {
-  // The popover is positioned by melt-ui and can land off-viewport inside the
-  // scrollable modal, so select with keys inside the focused listbox instead
-  // of clicking options. A click-open leaves the highlight unset
-  // (aria-activedescendant absent, internal index -1); a keyboard-open
-  // highlights the current value. Read the live highlight and walk from it so
-  // both open paths land on the target option.
-  await openPortalDropdown(page);
-  const listbox = page.getByTestId('email-connected-portal-listbox');
-  const targetValue = portalId === null ? '' : String(portalId);
-  const { values, ids } = await listbox
-    .getByTestId('email-connected-portal-option')
-    .evaluateAll((els) => ({
-      values: els.map((el) => el.getAttribute('data-option-id')),
-      ids: els.map((el) => el.id),
-    }));
-  const targetIndex = values.indexOf(targetValue);
-  expect(
-    targetIndex,
-    `option ${targetValue || '"Not connected"'} among [${values.join(', ')}]`
-  ).toBeGreaterThanOrEqual(0);
-
-  const activeId = await listbox.getAttribute('aria-activedescendant');
-  let steps: number;
-  if (activeId === null) {
-    // No highlight yet: the first ArrowDown lands on index 0.
-    steps = targetIndex + 1;
-  } else {
-    const currentIndex = ids.indexOf(activeId);
-    steps = (targetIndex - currentIndex + values.length) % values.length;
-  }
-  for (let i = 0; i < steps; i++) {
-    await page.keyboard.press('ArrowDown');
-  }
-  await page.keyboard.press('Enter');
-  await expect(listbox).toBeHidden();
-}
-
-async function saveChannelSettings(page: Page, emailChannelId: number): Promise<number> {
-  const configPut = page.waitForResponse(
+async function addPortalIntake(
+  page: Page,
+  portal: { channelId: number; workspaceId: number },
+  folder: string
+): Promise<number> {
+  await page.getByTestId('channel-intake-add').click();
+  await page.getByTestId('channel-intake-folder').fill(folder);
+  await selectPortalTarget(page, portal);
+  const created = page.waitForResponse(
     (resp) =>
-      resp.url().includes(`/channels/${emailChannelId}/config`) &&
-      resp.request().method() === 'PUT'
+      /\/channels\/\d+\/intakes$/.test(new URL(resp.url()).pathname) &&
+      resp.request().method() === 'POST'
   );
-  await page.getByTestId('dialog-confirm').click();
-  const resp = await configPut;
-  return resp.status();
+  await page.getByTestId('channel-intake-save').click();
+  const resp = await created;
+  expect(resp.ok(), `create intake: ${resp.status()} ${await resp.text()}`).toBeTruthy();
+  const intake = await resp.json();
+  await expect(page.getByTestId(`channel-intake-${intake.id}`)).toBeVisible();
+  return intake.id;
+}
+
+async function deleteIntake(page: Page, intakeId: number): Promise<void> {
+  const deleted = page.waitForResponse(
+    (resp) =>
+      resp.url().includes(`/channels/`) &&
+      resp.url().endsWith(`/intakes/${intakeId}`) &&
+      resp.request().method() === 'DELETE'
+  );
+  await page.getByTestId(`channel-intake-delete-${intakeId}`).click();
+  const resp = await deleted;
+  expect(resp.status(), `delete intake: ${resp.status()}`).toBe(204);
+  await expect(page.getByTestId(`channel-intake-${intakeId}`)).toHaveCount(0);
 }
 
 async function browserForUser(
@@ -155,10 +146,10 @@ async function browserForUser(
   return { context, page: await context.newPage() };
 }
 
-test.describe('Email channel connected portal config (WI-1599)', () => {
+test.describe('Email mailbox intake routing (WI-1644)', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('admin connects a mailbox to a portal; the portal lists the mailbox and the link persists', async ({
+  test('admin routes a mailbox intake to a portal; the portal lists the mailbox and the link persists', async ({
     page,
     request,
   }) => {
@@ -170,15 +161,12 @@ test.describe('Email channel connected portal config (WI-1599)', () => {
     const email = await createUnconnectedEmailChannel(request, suffix);
 
     await openEmailChannelSettings(page, email.channelId);
-    await selectConnectedPortal(page, portal.channelId);
+    const intakeId = await addPortalIntake(page, portal, 'INBOX');
 
-    const saveStatus = await saveChannelSettings(page, email.channelId);
-    expect(saveStatus, 'config PUT must succeed for a channel admin').toBe(200);
-    await expect(page.getByTestId('channel-config-toast')).toBeVisible();
-
-    // The selection persists across a reload of the settings form.
+    // The intake persists across a reload of the settings form.
     await openEmailChannelSettings(page, email.channelId);
-    await expect(page.locator('#email-connected-portal')).toHaveText(portal.name);
+    await expect(page.getByTestId(`channel-intake-${intakeId}`)).toBeVisible();
+    await expect(page.getByTestId(`channel-intake-${intakeId}`)).toContainText('INBOX');
 
     // The portal's settings page lists the connected mailbox read-only.
     await page.goto(`/admin/channels/${portal.channelId}/portal`);
@@ -190,19 +178,16 @@ test.describe('Email channel connected portal config (WI-1599)', () => {
       page.getByTestId(`portal-connected-mailbox-status-${email.channelId}`)
     ).toContainText('Disabled');
 
-    // Disconnecting through the same form clears the link and empties the
-    // portal's mailbox list.
+    // Removing the intake clears the link and empties the portal's mailbox list.
     await openEmailChannelSettings(page, email.channelId);
-    await selectConnectedPortal(page, null);
-    const disconnectStatus = await saveChannelSettings(page, email.channelId);
-    expect(disconnectStatus).toBe(200);
+    await deleteIntake(page, intakeId);
 
     await page.goto(`/admin/channels/${portal.channelId}/portal`);
     await expect(page.getByTestId('portal-connected-mailboxes')).toBeVisible();
     await expect(page.getByTestId('portal-connected-mailbox-list')).toHaveCount(0);
   });
 
-  test('saving a stale portal selection after manage access is revoked is forbidden', async ({
+  test('saving an intake after the target access is revoked is forbidden and leaves the modal usable', async ({
     browser,
     page,
     request,
@@ -228,6 +213,8 @@ test.describe('Email channel connected portal config (WI-1599)', () => {
       username: data.username,
       password: data.password_hash,
     });
+    const pageErrors: string[] = [];
+    manager.page.on('pageerror', (e) => pageErrors.push(e.message));
 
     // The manager manages both channels, so the portal is offered. Admin then
     // revokes the portal management while the form is open; the still-listed
@@ -251,27 +238,66 @@ test.describe('Email channel connected portal config (WI-1599)', () => {
     );
     expect(revoke.ok(), `revoke portal manager: ${revoke.status()}`).toBeTruthy();
 
-    await selectConnectedPortal(manager.page, portal.channelId);
-
-    const saveStatus = await saveChannelSettings(manager.page, email.channelId);
-    expect(saveStatus, 'stale portal selection must be forbidden').toBe(403);
-    // The toast surfaces the localized permission-denied error, not the save.
-    await expect(manager.page.getByTestId('channel-config-toast')).toContainText(
+    await manager.page.getByTestId('channel-intake-add').click();
+    await manager.page.getByTestId('channel-intake-folder').fill('Denied');
+    await selectPortalTarget(manager.page, portal);
+    const denied = manager.page.waitForResponse(
+      (resp) =>
+        /\/channels\/\d+\/intakes$/.test(new URL(resp.url()).pathname) &&
+        resp.request().method() === 'POST'
+    );
+    await manager.page.getByTestId('channel-intake-save').click();
+    const deniedResponse = await denied;
+    expect(deniedResponse.status(), 'stale portal target must be forbidden').toBe(403);
+    await expect(manager.page.getByTestId('toast-message-error')).toContainText(
       'Insufficient permissions'
     );
 
-    // The denial is durable: no link was stored. (The follow-up dropdown
-    // check lives in the modal-crash bug: a failed save breaks the live app
-    // session, so this assertion deliberately inspects a fresh page load.)
-    await openEmailChannelSettings(manager.page, email.channelId);
-    await expect(manager.page.locator('#email-connected-portal')).toHaveText('Not connected');
+    // The modal stays usable: cancel the rejected form and confirm the intake
+    // list still renders without an unhandled render error.
+    await expect(manager.page.getByTestId('channel-intake-save')).toBeVisible();
+    expect(pageErrors, 'no unhandled render error after the failed save').toEqual([]);
 
-    // The unconnected portal lists no mailboxes (asserted from the admin view,
-    // which can always see the portal channel).
-    await page.goto(`/admin/channels/${portal.channelId}/portal`);
-    await expect(page.getByTestId('portal-connected-mailboxes')).toBeVisible();
-    await expect(page.getByTestId('portal-connected-mailbox-list')).toHaveCount(0);
+    // The denial is durable: no intake was stored. Reload to prove it.
+    await openEmailChannelSettings(manager.page, email.channelId);
+    await expect(manager.page.getByTestId('channel-intake-list')).not.toContainText('Denied');
 
     await manager.context.close();
+  });
+
+  test('enabling a mailbox without an intake surfaces the server error above the modal', async ({
+    page,
+    request,
+  }) => {
+    const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    const email = await createUnconnectedEmailChannel(request, suffix);
+
+    await openEmailChannelSettings(page, email.channelId);
+    await page.getByTestId('channel-email-enable').click();
+
+    const toggled = page.waitForResponse(
+      (resp) =>
+        resp.url().endsWith(`/channels/${email.channelId}/toggle`) &&
+        resp.request().method() === 'PUT'
+    );
+    await page.getByTestId('dialog-confirm').click();
+    const response = await toggled;
+    expect(response.status(), 'enabling without an intake is rejected').toBe(400);
+
+    const toast = page.getByTestId('toast-message-error').first();
+    await expect(toast).toBeVisible();
+    await expect(toast).toContainText('add at least one intake');
+
+    // The modal backdrop is portaled to <body> at z-50; the shared toast
+    // viewport layers above it, so the message must not be painted over.
+    const topmost = await toast.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2
+      );
+      return hit === el || el.contains(hit);
+    });
+    expect(topmost, 'toast is not occluded by the modal backdrop').toBe(true);
   });
 });

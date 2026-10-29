@@ -2,20 +2,21 @@ import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the api module before importing authStore
-vi.mock('../api.js', () => ({
-  api: {
-    auth: {
-      getCurrentUser: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      logoutAll: vi.fn(),
-      refreshSession: vi.fn(),
-      changePassword: vi.fn(),
-    },
-    workspaces: {
-      getOrCreatePersonal: vi.fn(),
-    },
-  },
+vi.mock('../api/auth.js', () => ({
+  auth: {
+        getCurrentUser: vi.fn(),
+        login: vi.fn(),
+        logout: vi.fn(),
+        logoutAll: vi.fn(),
+        refreshSession: vi.fn(),
+        changePassword: vi.fn(),
+      },
+}))
+
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: {
+        getOrCreatePersonal: vi.fn(),
+      },
 }));
 
 vi.mock('../api/core.js', () => ({
@@ -23,10 +24,13 @@ vi.mock('../api/core.js', () => ({
 }));
 
 import { setAPIRequestSessionKey } from '../api/core.js';
-import { api } from '../api.js';
+import { auth } from '../api/auth.js';
 // Import after mocking
 import { authStore } from './auth.svelte.js';
 import { workspacesStore } from './workspaces.svelte.js';
+
+import { workspaces } from '../api/workspaces.js';
+
 
 describe('authStore', () => {
   beforeEach(() => {
@@ -40,7 +44,7 @@ describe('authStore', () => {
       const mockUser = { id: '1', username: 'testuser', email: 'test@example.com' };
       const mockSession = { id: 'session-1', expires_at: '2025-01-01T00:00:00Z' };
 
-      api.auth.getCurrentUser.mockResolvedValueOnce({
+      auth.getCurrentUser.mockResolvedValueOnce({
         user: mockUser,
         session: mockSession,
       });
@@ -53,11 +57,11 @@ describe('authStore', () => {
       expect(state.session).toEqual(mockSession);
       expect(state.loading).toBe(false);
       expect(state.error).toBeNull();
-      expect(api.auth.getCurrentUser).toHaveBeenCalledTimes(1);
+      expect(auth.getCurrentUser).toHaveBeenCalledTimes(1);
     });
 
     it('does not authenticate a refreshed password+passkey session before assertion', async () => {
-      api.auth.getCurrentUser.mockResolvedValueOnce({
+      auth.getCurrentUser.mockResolvedValueOnce({
         user: { id: '1', username: 'pending-user' },
         session: {
           enrollment_required: true,
@@ -79,7 +83,7 @@ describe('authStore', () => {
     it('sets unauthenticated state only for an explicit 401', async () => {
       const unauthorized = new Error('Unauthorized');
       unauthorized.status = 401;
-      api.auth.getCurrentUser.mockRejectedValueOnce(unauthorized);
+      auth.getCurrentUser.mockRejectedValueOnce(unauthorized);
 
       const result = await authStore.init();
 
@@ -100,7 +104,7 @@ describe('authStore', () => {
         code: 'NETWORK_ERROR',
       });
       authStore.setAuthData(priorUser, priorSession);
-      api.auth.getCurrentUser.mockRejectedValueOnce(networkError);
+      auth.getCurrentUser.mockRejectedValueOnce(networkError);
 
       const result = await authStore.init({ timeout: 10_000 });
 
@@ -112,7 +116,7 @@ describe('authStore', () => {
         error: 'Unable to connect',
       });
       expect(result).toEqual({ status: 'error', error: networkError });
-      expect(api.auth.getCurrentUser).toHaveBeenCalledWith({ timeout: 10_000 });
+      expect(auth.getCurrentUser).toHaveBeenCalledWith({ timeout: 10_000 });
     });
   });
 
@@ -121,11 +125,11 @@ describe('authStore', () => {
       const mockUser = { id: '1', username: 'testuser' };
       const mockSession = { id: 'session-1' };
 
-      api.auth.login.mockResolvedValueOnce({
+      auth.login.mockResolvedValueOnce({
         success: true,
         user: mockUser,
       });
-      api.auth.getCurrentUser.mockResolvedValueOnce({
+      auth.getCurrentUser.mockResolvedValueOnce({
         user: mockUser,
         session: mockSession,
       });
@@ -142,7 +146,7 @@ describe('authStore', () => {
     });
 
     it('should handle invalid credentials', async () => {
-      api.auth.login.mockResolvedValueOnce({
+      auth.login.mockResolvedValueOnce({
         success: false,
         message: 'Invalid username or password',
       });
@@ -159,11 +163,11 @@ describe('authStore', () => {
 
     it('should clear auth state if session fetch fails after successful login', async () => {
       authStore.setAuthData({ id: 'old-user' }, { id: 'old-session' });
-      api.auth.login.mockResolvedValueOnce({
+      auth.login.mockResolvedValueOnce({
         success: true,
         user: { id: '1', username: 'testuser' },
       });
-      api.auth.getCurrentUser.mockRejectedValueOnce(new Error('Session fetch failed'));
+      auth.getCurrentUser.mockRejectedValueOnce(new Error('Session fetch failed'));
 
       const result = await authStore.login({ username: 'testuser', password: 'password123' });
 
@@ -178,7 +182,7 @@ describe('authStore', () => {
     });
 
     it('should handle login API errors', async () => {
-      api.auth.login.mockRejectedValueOnce(new Error('Network error'));
+      auth.login.mockRejectedValueOnce(new Error('Network error'));
 
       const result = await authStore.login({ username: 'user', password: 'pass' });
 
@@ -190,7 +194,7 @@ describe('authStore', () => {
     });
 
     it('keeps password+passkey login pending until WebAuthn completes', async () => {
-      api.auth.login.mockResolvedValueOnce({
+      auth.login.mockResolvedValueOnce({
         success: false,
         passkey_required: true,
         policy_message: 'Verify your passkey',
@@ -204,14 +208,14 @@ describe('authStore', () => {
         policy_message: 'Verify your passkey',
       });
       expect(get(authStore).isAuthenticated).toBe(false);
-      expect(api.auth.getCurrentUser).not.toHaveBeenCalled();
+      expect(auth.getCurrentUser).not.toHaveBeenCalled();
     });
 
     it('recognizes passkey-only policy fields from an HTTP error body', async () => {
       const policyError = Object.assign(new Error('Password login disabled'), {
         body: { passkey_required: true, policy_message: 'Use a passkey' },
       });
-      api.auth.login.mockRejectedValueOnce(policyError);
+      auth.login.mockRejectedValueOnce(policyError);
 
       const result = await authStore.login({ username: 'user', password: 'pass' });
 
@@ -225,7 +229,7 @@ describe('authStore', () => {
     it('loads canonical session metadata before authenticating', async () => {
       const mockUser = { id: '1', username: 'passkey-user' };
       const mockSession = { id: 'session-1', expires_at: '2026-01-01T00:00:00Z' };
-      api.auth.getCurrentUser.mockResolvedValueOnce({ user: mockUser, session: mockSession });
+      auth.getCurrentUser.mockResolvedValueOnce({ user: mockUser, session: mockSession });
 
       await expect(authStore.completePasskeyLogin()).resolves.toBe(true);
 
@@ -239,7 +243,7 @@ describe('authStore', () => {
     });
 
     it('does not authenticate when session elevation cannot be confirmed', async () => {
-      api.auth.getCurrentUser.mockRejectedValueOnce(new Error('Still pending'));
+      auth.getCurrentUser.mockRejectedValueOnce(new Error('Still pending'));
 
       await expect(authStore.completePasskeyLogin({ id: 'fallback' })).rejects.toThrow(
         'Still pending'
@@ -255,7 +259,7 @@ describe('authStore', () => {
       const mockUser = { id: '1', username: 'testuser' };
       authStore.setAuthData(mockUser, { id: 'session-1' });
 
-      api.auth.logout.mockResolvedValueOnce({});
+      auth.logout.mockResolvedValueOnce({});
 
       await authStore.logout();
 
@@ -264,7 +268,7 @@ describe('authStore', () => {
       expect(state.user).toBeNull();
       expect(state.session).toBeNull();
       expect(state.loading).toBe(false);
-      expect(api.auth.logout).toHaveBeenCalledTimes(1);
+      expect(auth.logout).toHaveBeenCalledTimes(1);
     });
 
     it('should clear state even if API call fails', async () => {
@@ -274,7 +278,7 @@ describe('authStore', () => {
 
       // Mock console.warn to verify it's called
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      api.auth.logout.mockRejectedValueOnce(new Error('Network error'));
+      auth.logout.mockRejectedValueOnce(new Error('Network error'));
 
       await authStore.logout();
 
@@ -292,7 +296,7 @@ describe('authStore', () => {
       authStore.setAuthData(mockUser, { id: 'session-1' });
 
       // Populate the personal workspace as an authenticated session would.
-      api.workspaces.getOrCreatePersonal.mockResolvedValueOnce({
+      workspaces.getOrCreatePersonal.mockResolvedValueOnce({
         id: 7,
         name: 'My Todo List',
         key: 'P1',
@@ -301,13 +305,13 @@ describe('authStore', () => {
       await workspacesStore.loadPersonalWorkspace();
       expect(get(workspacesStore).personalWorkspace?.id).toBe(7);
 
-      api.auth.logout.mockResolvedValueOnce({});
+      auth.logout.mockResolvedValueOnce({});
       await authStore.logout();
 
       expect(get(workspacesStore).personalWorkspace).toBeNull();
 
       // The next login re-fetches instead of inheriting the previous id.
-      api.workspaces.getOrCreatePersonal.mockResolvedValueOnce({
+      workspaces.getOrCreatePersonal.mockResolvedValueOnce({
         id: 9,
         name: 'Other Todo List',
         key: 'P2',
@@ -384,8 +388,8 @@ describe('authStore', () => {
     it('should update session on successful refresh', async () => {
       const mockSession = { id: 'refreshed-session', expires_at: '2025-02-01T00:00:00Z' };
 
-      api.auth.refreshSession.mockResolvedValueOnce({});
-      api.auth.getCurrentUser.mockResolvedValueOnce({
+      auth.refreshSession.mockResolvedValueOnce({});
+      auth.getCurrentUser.mockResolvedValueOnce({
         user: { id: '1' },
         session: mockSession,
       });
@@ -393,14 +397,14 @@ describe('authStore', () => {
       const result = await authStore.refreshSession(true);
 
       expect(result).toBe(true);
-      expect(api.auth.refreshSession).toHaveBeenCalledWith({ remember_me: true });
+      expect(auth.refreshSession).toHaveBeenCalledWith({ remember_me: true });
       const state = get(authStore);
       expect(state.session).toEqual(mockSession);
     });
 
     it('should return false on refresh failure', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      api.auth.refreshSession.mockRejectedValueOnce(new Error('Session invalid'));
+      auth.refreshSession.mockRejectedValueOnce(new Error('Session invalid'));
 
       const result = await authStore.refreshSession();
 
@@ -411,7 +415,7 @@ describe('authStore', () => {
 
   describe('changePassword()', () => {
     it('should return success on password change', async () => {
-      api.auth.changePassword.mockResolvedValueOnce({
+      auth.changePassword.mockResolvedValueOnce({
         message: 'Password updated successfully',
       });
 
@@ -428,7 +432,7 @@ describe('authStore', () => {
     });
 
     it('should return failure on password change error', async () => {
-      api.auth.changePassword.mockRejectedValueOnce(new Error('Current password is incorrect'));
+      auth.changePassword.mockRejectedValueOnce(new Error('Current password is incorrect'));
 
       const result = await authStore.changePassword({
         current_password: 'wrongpass',

@@ -1,16 +1,20 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    getUsers: vi.fn(),
-    assets: {
-      getSummaries: vi.fn(async () => []),
-      getAll: vi.fn(async () => ({ data: [], pagination: { total_items: 0 } })),
-    },
-    portalCustomers: { getAll: vi.fn(async () => []) },
-    customerOrganisations: { getAll: vi.fn(async () => []) },
-  },
+vi.mock('../../api/users.js', () => ({
+  getUsers: vi.fn(),
+}))
+
+vi.mock('../../api/assets.js', () => ({
+  assets: {
+        getSummaries: vi.fn(async () => []),
+        getAll: vi.fn(async () => ({ data: [], pagination: { total_items: 0 } })),
+      },
+}))
+
+vi.mock('../../api/portal.js', () => ({
+  portalCustomers: { getAll: vi.fn(async () => []) },
+  customerOrganisations: { getAll: vi.fn(async () => []) },
 }));
 
 vi.mock('../../stores/collectionEditorOptions.svelte.js', () => ({
@@ -25,6 +29,11 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 }));
 
 import ListCustomFieldCell from './ListCustomFieldCell.svelte';
+import { getUsers } from '../../api/users.js';
+import { assets } from '../../api/assets.js';
+import { customerOrganisations, portalCustomers } from '../../api/portal.js';
+
+
 
 const editorOptionsStub = {
   users: [],

@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  parseScenarioSpec,
-  flattenExamples,
-  applyExampleRow,
-  formatExampleRow,
-} from './bddSpec.js';
+import { parseScenarioSpec, flattenExamples, applyExampleRow, formatExampleRow } from './bddSpec.js';
 
 const specJson = JSON.stringify({
   feature_name: 'Login',
@@ -51,8 +46,17 @@ describe('flattenExamples', () => {
     expect(rows[0].header).toEqual(['role']);
   });
 
-  it('returns an empty list without examples', () => {
-    expect(flattenExamples({ steps: [] })).toEqual([]);
+  it('yields one implicit execution row for a plain scenario without examples', () => {
+    // The backend creates example_index 0 for plain scenarios so results have
+    // a home; the flattened view must mirror that row.
+    const rows = flattenExamples({ steps: [{ keyword: 'Given', text: 'a thing' }] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ exampleIndex: 0, blockIndex: -1, header: [], row: [] });
+  });
+
+  it('returns an empty list without a spec', () => {
+    expect(flattenExamples(null)).toEqual([]);
+    expect(flattenExamples(undefined)).toEqual([]);
   });
 });
 

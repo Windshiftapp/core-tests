@@ -655,10 +655,11 @@ func TestWSCLI_Task_Edit_TypeByName(t *testing.T) {
 	if err := json.Unmarshal(out, &current); err != nil {
 		t.Fatalf("decode: %v\nraw=%s", err, string(out))
 	}
-	configSetID := GetDefaultConfigurationSet(t, ts)
 	var wantName string
 	var wantID int
-	for name, id := range GetItemTypes(t, ts, configSetID) {
+	// Resolve against the workspace's bound types: the CLI rejects catalog
+	// types that are not available in the item's workspace.
+	for name, id := range GetWorkspaceItemTypes(t, ts, w.Alpha.ID) {
 		// A parentless item cannot be changed to the generic Sub-task type.
 		if (current.ItemTypeID == nil || id != *current.ItemTypeID) && name != "Sub-task" {
 			wantName, wantID = name, id

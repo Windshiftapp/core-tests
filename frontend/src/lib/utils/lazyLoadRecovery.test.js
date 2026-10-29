@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  findDeployedBuild,
-  hasSessionExpired,
-  LAZY_LOAD_SESSION_CHECK_TIMEOUT_MS,
-  reloadIfBuildChanged,
-  STALE_BUILD_RELOAD_KEY,
-} from './lazyLoadRecovery.js';
+import { findDeployedBuild, hasSessionExpired, LAZY_LOAD_SESSION_CHECK_TIMEOUT_MS, reloadIfBuildChanged, STALE_BUILD_RELOAD_KEY } from './lazyLoadRecovery.js';
 
 describe('hasSessionExpired', () => {
   it('identifies an unauthenticated session response', async () => {

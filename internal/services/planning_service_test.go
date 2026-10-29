@@ -5,6 +5,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"windshift/internal/database"
@@ -617,6 +618,45 @@ func TestPlanningService_ListIterations_Pagination(t *testing.T) {
 			t.Errorf("Expected total >= 5, got %d", total)
 		}
 	})
+}
+
+func TestPlanningService_ListIterations_DefaultOrderIsNewestFirst(t *testing.T) {
+	db := createPlanningTestDB(t)
+	defer db.Close()
+
+	service := NewPlanningService(db)
+	if _, err := db.Exec("DELETE FROM iterations"); err != nil {
+		t.Fatalf("Failed to clear iterations: %v", err)
+	}
+
+	insert := func(name, startDate string) int {
+		t.Helper()
+		return testutils.InsertID(t, db, `
+			INSERT INTO iterations (name, start_date, end_date, status, is_global, created_at, updated_at)
+			VALUES (?, ?, ?, 'planned', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`, name, startDate, startDate)
+	}
+
+	// Equal start dates must fall back to newest-created (highest id) instead
+	// of alphabetical name order.
+	alphaID := insert("Alpha", "2025-03-01")
+	zuluID := insert("Zulu", "2025-03-01")
+	newestID := insert("Middle", "2025-06-01")
+	oldestID := insert("Aardvark", "2025-01-01")
+
+	iterations, _, err := service.ListIterations(IterationListParams{Limit: 100, Offset: 0, IncludeGlobal: true})
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	got := make([]int, 0, len(iterations))
+	for _, iteration := range iterations {
+		got = append(got, iteration.ID)
+	}
+	want := []int{newestID, zuluID, alphaID, oldestID}
+	if !slices.Equal(got, want) {
+		t.Errorf("Expected iteration order %v, got %v", want, got)
+	}
 }
 
 func TestPlanningService_ListMilestones_ReturnsEmptySliceNotNil(t *testing.T) {

@@ -56,16 +56,17 @@ func TestEmitActionAudit_WritesRow(t *testing.T) {
 		gotResourceName string
 		gotDetails      string
 		gotSuccess      bool
+		gotSource       string
 	)
 	row := db.QueryRow(`
 		SELECT user_id, username, action_type, resource_type, resource_id,
-		       resource_name, COALESCE(details, ''), success
+		       resource_name, COALESCE(details, ''), success, source
 		FROM audit_logs
 		WHERE action_type = ?
 		ORDER BY id DESC LIMIT 1
 	`, logger.ActionAutomationCreate)
 	if err := row.Scan(&gotUserID, &gotUsername, &gotActionType, &gotResourceType,
-		&gotResourceID, &gotResourceName, &gotDetails, &gotSuccess); err != nil {
+		&gotResourceID, &gotResourceName, &gotDetails, &gotSuccess, &gotSource); err != nil {
 		t.Fatalf("query audit_logs: %v", err)
 	}
 
@@ -92,8 +93,8 @@ func TestEmitActionAudit_WritesRow(t *testing.T) {
 	if err := json.Unmarshal([]byte(gotDetails), &parsed); err != nil {
 		t.Fatalf("unmarshal details: %v (raw: %s)", err, gotDetails)
 	}
-	if parsed["source"] != SourceAIChat {
-		t.Errorf("details.source: want %q, got %v", SourceAIChat, parsed["source"])
+	if gotSource != SourceAIChat {
+		t.Errorf("source: want %q, got %q", SourceAIChat, gotSource)
 	}
 	// workspace_id round-trips through JSON as a float64.
 	if ws, ok := parsed["workspace_id"].(float64); !ok || int(ws) != 7 {
@@ -118,16 +119,17 @@ func TestAuditWrite_WritesRow(t *testing.T) {
 		gotResourceName string
 		gotDetails      string
 		gotSuccess      bool
+		gotSource       string
 	)
 	row := db.QueryRow(`
 		SELECT user_id, action_type, resource_type, resource_id,
-		       resource_name, COALESCE(details, ''), success
+		       resource_name, COALESCE(details, ''), success, source
 		FROM audit_logs
 		WHERE action_type = 'update_item'
 		ORDER BY id DESC LIMIT 1
 	`)
 	if err := row.Scan(&gotUserID, &gotActionType, &gotResourceType,
-		&gotResourceID, &gotResourceName, &gotDetails, &gotSuccess); err != nil {
+		&gotResourceID, &gotResourceName, &gotDetails, &gotSuccess, &gotSource); err != nil {
 		t.Fatalf("query audit_logs: %v", err)
 	}
 
@@ -146,12 +148,8 @@ func TestAuditWrite_WritesRow(t *testing.T) {
 	if !gotSuccess {
 		t.Errorf("success: want true, got false")
 	}
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(gotDetails), &parsed); err != nil {
-		t.Fatalf("unmarshal details: %v (raw: %s)", err, gotDetails)
-	}
-	if parsed["source"] != SourceMCP {
-		t.Errorf("details.source: want %q, got %v", SourceMCP, parsed["source"])
+	if gotSource != SourceMCP {
+		t.Errorf("source: want %q, got %q", SourceMCP, gotSource)
 	}
 }
 
@@ -174,22 +172,22 @@ func TestAuditWrite_StandardAgentAddsCorrelationWithoutToolPayloads(t *testing.T
 	}
 	env.AuditWrite(logger.ResourceItem, 848, "update_item", "Agent update")
 
-	var details string
+	var details, source string
 	if err := db.QueryRow(`
-		SELECT details FROM audit_logs
+		SELECT details, source FROM audit_logs
 		WHERE action_type = 'update_item'
 		ORDER BY id DESC LIMIT 1
-	`).Scan(&details); err != nil {
+	`).Scan(&details, &source); err != nil {
 		t.Fatal(err)
 	}
 	var parsed map[string]interface{}
 	if err := json.Unmarshal([]byte(details), &parsed); err != nil {
 		t.Fatalf("unmarshal details: %v", err)
 	}
-	if parsed["source"] != SourceStandardAgent ||
+	if source != SourceStandardAgent ||
 		int(parsed["agent_run_id"].(float64)) != 71 ||
 		int(parsed["root_initiator_user_id"].(float64)) != 12 {
-		t.Fatalf("missing Standard correlation: %v", parsed)
+		t.Fatalf("missing Standard correlation: source=%q details=%v", source, parsed)
 	}
 	for _, forbidden := range []string{"arguments", "result", "tool_arguments", "tool_result"} {
 		if _, ok := parsed[forbidden]; ok {
@@ -206,14 +204,12 @@ func TestEmitActionAudit_MCPSource(t *testing.T) {
 	env := &Env{DB: db, UserID: userID, Username: "Bob", Source: SourceMCP}
 	emitActionAudit(env, logger.ActionAutomationUpdate, 1, 9, "x")
 
-	var details string
-	if err := db.QueryRow(`SELECT details FROM audit_logs WHERE action_type = ? ORDER BY id DESC LIMIT 1`,
-		logger.ActionAutomationUpdate).Scan(&details); err != nil {
+	var source string
+	if err := db.QueryRow(`SELECT source FROM audit_logs WHERE action_type = ? ORDER BY id DESC LIMIT 1`,
+		logger.ActionAutomationUpdate).Scan(&source); err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	var parsed map[string]interface{}
-	_ = json.Unmarshal([]byte(details), &parsed)
-	if parsed["source"] != SourceMCP {
-		t.Errorf("details.source: want %q, got %v", SourceMCP, parsed["source"])
+	if source != SourceMCP {
+		t.Errorf("source: want %q, got %q", SourceMCP, source)
 	}
 }

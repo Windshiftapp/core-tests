@@ -54,7 +54,7 @@ func TestSLAConfigurationAPI(t *testing.T) {
 		"goals": []map[string]any{{
 			"position": 0, "ql_query": "1 = 1", "import_status": "native",
 			"targets": []map[string]any{{
-				"position": 0, "is_fallback": true, "target_ms": 3_600_000, "calendar_id": calendar.ID,
+				"position": 0, "target_ms": 3_600_000, "calendar_id": calendar.ID,
 			}},
 		}},
 	}
@@ -103,6 +103,87 @@ func TestSLAConfigurationAPI(t *testing.T) {
 	_ = resp.Body.Close()
 
 	resp = MakeAuthRequestWithToken(t, server, adminToken, http.MethodDelete, fmt.Sprintf("/workspaces/%d/sla/calendars/%d", workspaceID, calendar.ID), nil)
+	AssertStatusCode(t, resp, http.StatusOK)
+	_ = resp.Body.Close()
+}
+
+// TestSLAMetricRejectsMalformedNativeGoalQuery verifies WI-1574: the service
+// parses every native goal query before persisting, so a direct API caller
+// cannot save a metric that would disable workspace-wide SLA evaluation, and
+// the previously valid configuration stays usable.
+func TestSLAMetricRejectsMalformedNativeGoalQuery(t *testing.T) {
+	server, _ := StartTestServer(t, GetDBType())
+	adminToken := CreateBearerToken(t, server)
+	server.BearerToken = adminToken
+
+	workspaceID, _ := CreateTestWorkspace(t, server, "SLA Query Validation", shortKey("SQV"))
+
+	calendarPayload := map[string]any{
+		"name":     "Always open",
+		"timezone": "UTC",
+		"weekly_intervals": map[string]any{
+			"monday": []map[string]string{{"start": "00:00", "end": "24:00"}},
+		},
+	}
+	resp := MakeAuthRequestWithToken(t, server, adminToken, http.MethodPost, fmt.Sprintf("/workspaces/%d/sla/calendars", workspaceID), calendarPayload)
+	AssertStatusCode(t, resp, http.StatusCreated)
+	var calendar models.WorkingCalendar
+	DecodeJSON(t, resp, &calendar)
+	_ = resp.Body.Close()
+
+	metricPayload := func(name, query string) map[string]any {
+		return map[string]any{
+			"name":           name,
+			"display_format": "time",
+			"is_active":      true,
+			"conditions":     []map[string]any{},
+			"goals": []map[string]any{{
+				"position": 0, "ql_query": query, "import_status": "native",
+				"targets": []map[string]any{{
+					"position": 0, "target_ms": 3_600_000, "calendar_id": calendar.ID,
+				}},
+			}},
+		}
+	}
+
+	resp = MakeAuthRequestWithToken(t, server, adminToken, http.MethodPost, fmt.Sprintf("/workspaces/%d/sla/metrics", workspaceID), metricPayload("Valid metric", "priority = 1"))
+	AssertStatusCode(t, resp, http.StatusCreated)
+	var valid models.SLAMetric
+	DecodeJSON(t, resp, &valid)
+	_ = resp.Body.Close()
+
+	for _, bad := range []string{"priority = ", "(priority = 1"} {
+		resp = MakeAuthRequestWithToken(t, server, adminToken, http.MethodPost, fmt.Sprintf("/workspaces/%d/sla/metrics", workspaceID), metricPayload("Malformed "+bad, bad))
+		if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+			t.Fatalf("create with query %q = %d, want a 4xx validation error", bad, resp.StatusCode)
+		}
+		_ = resp.Body.Close()
+	}
+
+	// Updating the valid metric with a malformed query is rejected too, and the
+	// stored query is unchanged.
+	update := metricPayload("Valid metric", "priority = 1")
+	update["goals"].([]map[string]any)[0]["ql_query"] = "priority = "
+	resp = MakeAuthRequestWithToken(t, server, adminToken, http.MethodPut, fmt.Sprintf("/workspaces/%d/sla/metrics/%d", workspaceID, valid.ID), update)
+	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+		t.Fatalf("update with malformed query = %d, want a 4xx validation error", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = MakeAuthRequestWithToken(t, server, adminToken, http.MethodGet, fmt.Sprintf("/workspaces/%d/sla/metrics", workspaceID), nil)
+	AssertStatusCode(t, resp, http.StatusOK)
+	var metrics []models.SLAMetric
+	DecodeJSON(t, resp, &metrics)
+	_ = resp.Body.Close()
+	if len(metrics) != 1 || metrics[0].ID != valid.ID {
+		t.Fatalf("metrics after rejected writes = %#v, want only the valid metric", metrics)
+	}
+	if len(metrics[0].Goals) != 1 || metrics[0].Goals[0].QLQuery != "priority = 1" {
+		t.Fatalf("valid metric query changed: %#v", metrics[0].Goals)
+	}
+
+	// The workspace SLA report still compiles the remaining metric.
+	resp = MakeAuthRequestWithToken(t, server, adminToken, http.MethodGet, fmt.Sprintf("/workspaces/%d/sla/report", workspaceID), nil)
 	AssertStatusCode(t, resp, http.StatusOK)
 	_ = resp.Body.Close()
 }

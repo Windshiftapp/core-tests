@@ -33,18 +33,9 @@ interface CapturedError {
   location?: string;
 }
 
-/**
- * Suite-level allowances for requests the app deliberately answers with an
- * error status that the UI handles as an empty state. The browser still logs
- * failed requests as console errors, so without these every spec touching the
- * surface would fail on intended behavior.
- */
-const suiteLevelAllowedErrors: RegExp[] = [
-	// The item incident panel fetches on mount and the API answers 404 for
-	// "no incident"; the panel renders an empty state. Remove once the API
-	// grows an empty-state response.
-	/\/api\/items\/\d+\/incident/,
-];
+// Navigation and unload abort in-flight fetches. Browsers surface the abort as
+// a console error, but it is expected control flow, not an app defect.
+const DEFAULT_ALLOWED_ERRORS = [/AbortError: The document was unloaded/];
 
 export const test = base.extend<ErrorFixtures>({
   allowConsoleError: async ({}, use, testInfo) => {
@@ -59,8 +50,9 @@ export const test = base.extend<ErrorFixtures>({
     const errors: CapturedError[] = [];
 
     const isAllowed = (msg: string): boolean => {
+      if (DEFAULT_ALLOWED_ERRORS.some((p) => p.test(msg))) return true;
       const patterns: RegExp[] = (testInfo as any)._allowedErrorPatterns ?? [];
-      return [...suiteLevelAllowedErrors, ...patterns].some((p) => p.test(msg));
+      return patterns.some((p) => p.test(msg));
     };
 
     page.on('pageerror', (err) => {
@@ -75,8 +67,9 @@ export const test = base.extend<ErrorFixtures>({
       const loc = msg.location();
       const locStr = loc.url ? `${loc.url}:${loc.lineNumber}:${loc.columnNumber}` : undefined;
       // Chromium's 4xx/5xx resource errors put the URL in `location`, not `text`.
-      // Match against both so URL-based allowlist patterns actually fire.
-      const combined = locStr ? `${text} ${locStr}` : text;
+      // Put the URL first so allowlist patterns that pin a URL and a status
+      // (for example `.../bootstrap.*404`) match the combined string.
+      const combined = locStr ? `${locStr} ${text}` : text;
       if (isAllowed(combined)) return;
       errors.push({ type: 'console.error', message: text, location: locStr });
     });

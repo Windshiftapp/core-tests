@@ -2,7 +2,6 @@ package tests
 
 import (
 	"encoding/json"
-	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 func TestWSCLI_PageCreateAndEdit_AcceptUTF8AtMarkdownChunkBoundary(t *testing.T) {
 	ts, _ := StartTestServer(t, GetDBType())
 	CreateBearerToken(t, ts)
-	workspaceKey := DecodeV2Document[v2FixtureRecord](t, MakeV2SessionRequest(t, ts, http.MethodPost, "/workspaces", map[string]any{"name": "Page Markdown", "key": "PMD"}), http.StatusCreated).Key
+	_, workspaceKey := CreateTestWorkspace(t, ts, "Page Markdown", shortKey("PMD"))
 	content := "*" + strings.Repeat("a", 2046) + "é\n**bold text**\nlast italic line*"
 
 	t.Run("create", func(t *testing.T) {

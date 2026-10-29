@@ -9,25 +9,20 @@ import (
 	"windshift/internal/database"
 )
 
-// itemChangeSpy is a test ItemChangePublisher that records every published
-// (itemID, kind). It guards the Plan 1 (WI-483) requirement that every item
-// mutation chokepoint publishes a live-update event after commit — a write path
-// that bypasses publishing (e.g. a direct-SQL comment write) makes the relevant
+// itemChangeSpy is a test ItemChangePublisher that records every published item
+// id. It guards the Plan 1 (WI-483) requirement that every item mutation
+// chokepoint publishes a live-update event after commit — a write path that
+// bypasses publishing (e.g. a direct-SQL comment write) makes the relevant
 // assertion below fail.
 type itemChangeSpy struct {
 	mu     sync.Mutex
-	events []itemChangeRecord
+	events []int
 }
 
-type itemChangeRecord struct {
-	itemID int
-	kind   ItemChangeKind
-}
-
-func (s *itemChangeSpy) PublishItemChange(itemID int, kind ItemChangeKind) {
+func (s *itemChangeSpy) PublishItemChange(itemID int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.events = append(s.events, itemChangeRecord{itemID: itemID, kind: kind})
+	s.events = append(s.events, itemID)
 }
 
 func (s *itemChangeSpy) reset() {
@@ -36,27 +31,27 @@ func (s *itemChangeSpy) reset() {
 	s.events = nil
 }
 
-func (s *itemChangeSpy) has(itemID int, kind ItemChangeKind) bool {
+func (s *itemChangeSpy) has(itemID int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, e := range s.events {
-		if e.itemID == itemID && e.kind == kind {
+		if e == itemID {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *itemChangeSpy) snapshot() []itemChangeRecord {
+func (s *itemChangeSpy) snapshot() []int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]itemChangeRecord(nil), s.events...)
+	return append([]int(nil), s.events...)
 }
 
-func (s *itemChangeSpy) assertHas(t *testing.T, itemID int, kind ItemChangeKind) {
+func (s *itemChangeSpy) assertHas(t *testing.T, itemID int) {
 	t.Helper()
-	if !s.has(itemID, kind) {
-		t.Errorf("expected publish (item=%d, kind=%s); got %v", itemID, kind, s.snapshot())
+	if !s.has(itemID) {
+		t.Errorf("expected publish for item=%d; got %v", itemID, s.snapshot())
 	}
 }
 
@@ -111,8 +106,8 @@ func TestItemChangePublish_CreateItem_AnnouncesItemAndParent(t *testing.T) {
 		t.Fatalf("CreateItem: %v", err)
 	}
 
-	spy.assertHas(t, int(childID), ItemChangeCreated)
-	spy.assertHas(t, parentID, ItemChangeUpdated) // parent's child list must refresh
+	spy.assertHas(t, int(childID))
+	spy.assertHas(t, parentID) // parent's child list must refresh
 }
 
 func TestItemChangePublish_UpdateItem(t *testing.T) {
@@ -130,7 +125,7 @@ func TestItemChangePublish_UpdateItem(t *testing.T) {
 		t.Fatalf("UpdateItem: %v", err)
 	}
 
-	spy.assertHas(t, env.itemID, ItemChangeUpdated)
+	spy.assertHas(t, env.itemID)
 }
 
 func TestItemChangePublish_UpdateItem_ReparentNotifiesBothParents(t *testing.T) {
@@ -172,9 +167,9 @@ func TestItemChangePublish_UpdateItem_ReparentNotifiesBothParents(t *testing.T) 
 		t.Fatalf("reparent: %v", err)
 	}
 
-	spy.assertHas(t, int(childID), ItemChangeUpdated)
-	spy.assertHas(t, oldParent, ItemChangeUpdated)
-	spy.assertHas(t, newParent, ItemChangeUpdated)
+	spy.assertHas(t, int(childID))
+	spy.assertHas(t, oldParent)
+	spy.assertHas(t, newParent)
 }
 
 func TestItemChangePublish_DeleteSingle_AnnouncesItemAndParent(t *testing.T) {
@@ -196,8 +191,8 @@ func TestItemChangePublish_DeleteSingle_AnnouncesItemAndParent(t *testing.T) {
 		t.Fatalf("DeleteSingle: %v", err)
 	}
 
-	spy.assertHas(t, int(childID), ItemChangeDeleted)
-	spy.assertHas(t, parentID, ItemChangeUpdated)
+	spy.assertHas(t, int(childID))
+	spy.assertHas(t, parentID)
 }
 
 func TestItemChangePublish_DeleteCascade(t *testing.T) {
@@ -219,8 +214,8 @@ func TestItemChangePublish_DeleteCascade(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	spy.assertHas(t, int(childID), ItemChangeDeleted)
-	spy.assertHas(t, parentID, ItemChangeUpdated)
+	spy.assertHas(t, int(childID))
+	spy.assertHas(t, parentID)
 }
 
 // TestItemChangePublish_CommentLifecycle is the core regression guard the WI-483
@@ -245,19 +240,19 @@ func TestItemChangePublish_CommentLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("comment Create: %v", err)
 	}
-	spy.assertHas(t, env.itemID, ItemChangeComment)
+	spy.assertHas(t, env.itemID)
 
 	spy.reset()
 	if _, err := cs.Update(int(res.CommentID), "edited comment", env.userID); err != nil {
 		t.Fatalf("comment Update: %v", err)
 	}
-	spy.assertHas(t, env.itemID, ItemChangeComment)
+	spy.assertHas(t, env.itemID)
 
 	spy.reset()
 	if err := cs.Delete(int(res.CommentID)); err != nil {
 		t.Fatalf("comment Delete: %v", err)
 	}
-	spy.assertHas(t, env.itemID, ItemChangeComment) // item id captured before the destructive write
+	spy.assertHas(t, env.itemID) // item id captured before the destructive write
 }
 
 // TestItemChangePublish_NoopDefault verifies the process default is a no-op so
@@ -265,6 +260,6 @@ func TestItemChangePublish_CommentLifecycle(t *testing.T) {
 func TestItemChangePublish_NoopDefault(t *testing.T) {
 	SetItemChangePublisher(nil)
 	// Must not panic and must accept an ignored zero id.
-	PublishItemChange(0, ItemChangeUpdated)
-	PublishItemChange(123, ItemChangeCreated)
+	PublishItemChange(0)
+	PublishItemChange(123)
 }

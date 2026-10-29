@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/contextkeys"
 	"windshift/internal/database"
 	"windshift/internal/models"
@@ -35,7 +36,7 @@ func newPageAttachmentHandler(t *testing.T) (*AttachmentHandler, *services.PageS
 	h := &AttachmentHandler{
 		db:                    db,
 		permissionService:     perm,
-		attachmentPath:        t.TempDir(),
+		storage:               blobstore.NewLocal(t.TempDir()),
 		attachmentService:     services.NewAttachmentServiceWithPermissions(db, perm),
 		pagePermissionService: pageAuth,
 	}

@@ -101,6 +101,20 @@ var Classes = []PermissionClass{
 		},
 	},
 	{
+		Name:        "global.user.display",
+		Description: "POST /v2/users/display-batch — authenticated display read; callers without user.list receive only their own record.",
+		Expected: map[MatrixActor]int{
+			ActorAnonymous:            http.StatusUnauthorized,
+			ActorNoMembership:         http.StatusOK,
+			ActorCrossWorkspaceMember: http.StatusOK,
+			ActorWorkspaceViewer:      http.StatusOK,
+			ActorWorkspaceEditor:      http.StatusOK,
+			ActorWorkspaceAdmin:       http.StatusOK,
+			ActorWorkspaceTester:      http.StatusOK,
+			ActorSystemAdmin:          http.StatusOK,
+		},
+	},
+	{
 		Name:        "global.system.admin",
 		Description: "Instance-wide administration endpoints require the global system administrator permission.",
 		Expected: map[MatrixActor]int{

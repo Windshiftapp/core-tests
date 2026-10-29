@@ -152,6 +152,16 @@ test.describe('Custom Fields', () => {
       await customFieldsPage.verifyFieldType(data.name, FIELD_TYPE_LABELS.milestone);
     });
 
+    test('should create a multi milestone field', async () => {
+      const data = generateCustomField('multi_milestone');
+      createdFieldNames.push(data.name);
+
+      await customFieldsPage.goto();
+      await customFieldsPage.createField({ name: data.name, type: 'multi_milestone' });
+      await customFieldsPage.verifyFieldExists(data.name);
+      await customFieldsPage.verifyFieldType(data.name, FIELD_TYPE_LABELS.multi_milestone);
+    });
+
     test('should create a portal customer field', async () => {
       const data = generateCustomField('portalcustomer');
       createdFieldNames.push(data.name);

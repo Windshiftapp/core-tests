@@ -5,12 +5,10 @@ const mocks = vi.hoisted(() => ({
 	getAll: vi.fn(),
 }));
 
-vi.mock("../../api.js", () => ({
-	api: {
-		cannedResponses: {
-			getAll: mocks.getAll,
-		},
-	},
+vi.mock('../../api/configuration.js', () => ({
+  cannedResponses: {
+  			getAll: mocks.getAll,
+  		},
 }));
 
 vi.mock("../../stores/i18n.svelte.js", () => ({
@@ -23,6 +21,7 @@ vi.mock("../../stores/toasts.svelte.js", () => ({
 }));
 
 import CannedResponsePicker from "./CannedResponsePicker.svelte";
+import { cannedResponses } from '../../api/configuration.js';
 
 const responses = [
 	{ id: 1, name: "greeting", body: "Hello there", is_private: false },

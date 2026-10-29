@@ -211,6 +211,193 @@ test.describe("Custom field rendering and editing", () => {
 			}
 		}
 	});
+
+	// WI-1793: the sidebar's date branch must keep saving on change, not on
+	// blur. A refactor that routes dates through the deferred free-form path
+	// would leave the change unsaved until blur, so this waits for the PATCH
+	// before any blur happens.
+	test("date custom fields save on change in item detail", async ({
+		page,
+		request,
+	}) => {
+		const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+		const createdFieldIds: number[] = [];
+
+		const workspace = await createWorkspaceViaAPI(
+			request,
+			generateWorkspace(`cf-date-${suffix}`),
+		);
+		const screen = await createScreen(request, `E2E date screen ${suffix}`);
+		const dateField = await createField(
+			request,
+			createdFieldIds,
+			`E2E Date only ${suffix}`,
+			"date",
+		);
+		await updateScreenFields(request, screen.id, [
+			{
+				field_type: "custom",
+				field_identifier: String(dateField.id),
+				display_order: 0,
+				is_required: false,
+				field_width: "full",
+			},
+		]);
+		const configSet = await createConfigurationSet(request, {
+			name: `E2E date config ${suffix}`,
+			description: "Pins the sidebar date custom-field save contract",
+			workspace_ids: [workspace.id],
+			create_screen_id: screen.id,
+			edit_screen_id: screen.id,
+			view_screen_id: screen.id,
+		});
+		const item = await createItemViaAPI(request, workspace.id, {
+			title: `E2E date item ${suffix}`,
+			custom_field_values: { [dateField.id]: "2026-05-15" },
+		});
+
+		try {
+			const itemPage = new ItemPage(page);
+			await itemPage.gotoWorkspaceBacklog(String(workspace.id));
+			await itemPage.openItemDetailModal(item.title);
+			const dialog = page.getByTestId("item-detail");
+
+			await expect(dialog).toContainText(`E2E Date only ${suffix}`);
+			await expect(dialog).toContainText("May 15, 2026");
+
+			await dialog.getByTestId(`item-custom-field-edit-${dateField.id}`).click();
+			const input = dialog.getByTestId(`custom-field-input-${dateField.id}`);
+			await expect(input).toBeVisible();
+			await expect(input).toHaveAttribute("type", "date");
+
+			const savePromise = page.waitForResponse(
+				(res) =>
+					res.request().method() === "PATCH" &&
+					/\/api\/v2\/items\/\d+$/.test(res.url()),
+			);
+			await input.fill("2026-06-20");
+			const save = await savePromise;
+			expect(
+				save.ok(),
+				`date custom field save: ${save.status()} ${await save.text()}`,
+			).toBeTruthy();
+			await expect(input).toBeHidden({ timeout: 10000 });
+			await expect(dialog).toContainText("Jun 20, 2026");
+			await shot(page, "03-date-custom-field-saved-on-change", {
+				fullPage: true,
+			});
+
+			const refreshed = await request.get(`/api/v2/items/${item.id}`, {
+				headers: SEC_FETCH,
+			});
+			expect(refreshed.ok()).toBeTruthy();
+			const refreshedItem = (await refreshed.json()).data;
+			expect(refreshedItem.custom_field_values[String(dateField.id)]).toBe(
+				"2026-06-20",
+			);
+		} finally {
+			await request
+				.delete(`/api/configuration-sets/${configSet.id}`, {
+					headers: SEC_FETCH,
+				})
+				.catch(() => {});
+			await request
+				.delete(`/api/screens/${screen.id}`, { headers: SEC_FETCH })
+				.catch(() => {});
+			for (const fieldId of createdFieldIds.reverse()) {
+				await deleteCustomFieldViaAPI(request, fieldId).catch(() => {});
+			}
+		}
+	});
+
+	// WI-1793: the sidebar keeps one custom-field editor open at a time. Opening
+	// a second field must close the first instead of stacking editors.
+	test("opening a second custom field closes the first editor", async ({
+		page,
+		request,
+	}) => {
+		const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+		const createdFieldIds: number[] = [];
+
+		const workspace = await createWorkspaceViaAPI(
+			request,
+			generateWorkspace(`cf-single-editor-${suffix}`),
+		);
+		const screen = await createScreen(request, `E2E single editor ${suffix}`);
+		const [firstField, secondField] = await Promise.all([
+			createField(request, createdFieldIds, `E2E First ${suffix}`, "text"),
+			createField(request, createdFieldIds, `E2E Second ${suffix}`, "text"),
+		]);
+		await updateScreenFields(
+			request,
+			screen.id,
+			[firstField, secondField].map((field, index) => ({
+				field_type: "custom",
+				field_identifier: String(field.id),
+				display_order: index,
+				is_required: false,
+				field_width: "full",
+			})),
+		);
+		const configSet = await createConfigurationSet(request, {
+			name: `E2E single editor config ${suffix}`,
+			description: "Pins the sidebar's single-active custom-field editor rule",
+			workspace_ids: [workspace.id],
+			create_screen_id: screen.id,
+			edit_screen_id: screen.id,
+			view_screen_id: screen.id,
+		});
+		const item = await createItemViaAPI(request, workspace.id, {
+			title: `E2E single editor item ${suffix}`,
+			custom_field_values: {
+				[firstField.id]: "first value",
+				[secondField.id]: "second value",
+			},
+		});
+
+		try {
+			const itemPage = new ItemPage(page);
+			await itemPage.gotoWorkspaceBacklog(String(workspace.id));
+			await itemPage.openItemDetailModal(item.title);
+			const dialog = page.getByTestId("item-detail");
+
+			const firstInput = dialog.getByTestId(
+				`custom-field-input-${firstField.id}`,
+			);
+			await dialog
+				.getByTestId(`item-custom-field-edit-${firstField.id}`)
+				.click();
+			await expect(firstInput).toBeVisible();
+
+			const secondInput = dialog.getByTestId(
+				`custom-field-input-${secondField.id}`,
+			);
+			await dialog
+				.getByTestId(`item-custom-field-edit-${secondField.id}`)
+				.click();
+			await expect(secondInput).toBeVisible();
+			await expect(firstInput).toHaveCount(0);
+
+			// Escape cancels the open editor and restores the stored value.
+			await secondInput.press("Escape");
+			await expect(secondInput).toHaveCount(0);
+			await expect(
+				dialog.getByTestId(`item-custom-field-edit-${secondField.id}`),
+			).toHaveText("second value");
+		} finally {
+			await request
+				.delete(`/api/configuration-sets/${configSet.id}`, {
+					headers: SEC_FETCH,
+				})
+				.catch(() => {});
+			await request
+				.delete(`/api/screens/${screen.id}`, { headers: SEC_FETCH })
+				.catch(() => {});
+			for (const fieldId of createdFieldIds.reverse()) {
+				await deleteCustomFieldViaAPI(request, fieldId).catch(() => {});
+			}
+		}
+	});
 });
 
 async function createField(

@@ -5,6 +5,7 @@ import {
   listItemTypesViaAPI,
 } from '../fixtures/api-helpers';
 import { expect, test } from '../fixtures/errors';
+import { preferenceSave } from '../helpers/preferences';
 
 test('hides custom completed categories and remembers visibility separately for list and tree', async ({
   page,
@@ -86,7 +87,9 @@ test('hides custom completed categories and remembers visibility separately for 
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByTestId(`workspace-item-row-${open.id}`)).toContainText(open.title);
     await expect(page.getByTestId(`workspace-item-row-${done.id}`)).toHaveCount(0);
+    const saved = preferenceSave(page);
     await toggle.click();
+    await saved;
     await expect(page.getByTestId(`workspace-item-row-${done.id}`)).toContainText(done.title);
     await page.reload();
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
@@ -94,13 +97,13 @@ test('hides custom completed categories and remembers visibility separately for 
 
     await page.goto(`${base}/tree`);
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByTestId(`tree-item-${open.id}`)).toContainText(open.title);
-    await expect(page.getByTestId(`tree-item-${done.id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`tree-row-${open.id}`)).toContainText(open.title);
+    await expect(page.getByTestId(`tree-row-${done.id}`)).toHaveCount(0);
     await toggle.click();
-    await expect(page.getByTestId(`tree-item-${done.id}`)).toContainText(done.title);
+    await expect(page.getByTestId(`tree-row-${done.id}`)).toContainText(done.title);
     await toggle.click();
-    await expect(page.getByTestId(`tree-item-${done.id}`)).toHaveCount(0);
-    await expect(page.getByTestId(`tree-item-${open.id}`)).toContainText(open.title);
+    await expect(page.getByTestId(`tree-row-${done.id}`)).toHaveCount(0);
+    await expect(page.getByTestId(`tree-row-${open.id}`)).toContainText(open.title);
     await page.goto(`${base}/list`);
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await expect(page.getByTestId(`workspace-item-row-${done.id}`)).toContainText(done.title);

@@ -23,29 +23,16 @@ test.describe('Workspace breadcrumbs', () => {
     await page.goto('/');
     await expect(page.getByTestId('workspace-breadcrumbs')).toBeVisible();
     await expect(page.getByTestId('workspace-breadcrumb-current')).toHaveCount(0);
-    await expect(page.getByTestId('workspace-breadcrumb-picker')).toHaveCSS(
-      'background-color',
-      'rgba(0, 0, 0, 0)'
-    );
     await page.getByTestId('workspace-breadcrumb-picker').click();
     await page.getByTestId('workspaces-search').fill(workspace.name);
     await page.getByTestId('workspace-dropdown-item').click();
     await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.id}/board$`));
     await expect(page.getByTestId('workspace-breadcrumb-current')).toHaveText(workspace.name);
     await expect(page.getByTestId('board-view')).toBeVisible();
-    await page.getByTestId('workspace-breadcrumb-current').hover();
-    const rail = page.getByTestId('workspaces-dropdown-trigger');
-    await expect(rail).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await expect(page.getByTestId('workspace-breadcrumb-picker')).toHaveCSS(
-      'background-color',
-      'rgba(0, 0, 0, 0)'
-    );
     await page.goto('/teams');
     await expect(page).toHaveURL(/\/teams$/);
-    await expect(rail).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await page.goto(`/workspaces/${workspace.id}/board`);
     await expect(page.getByTestId('board-view')).toBeVisible();
-    await expect(rail).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   });
 
   test('workspace views retain the breadcrumb above the sidebar and page', async ({

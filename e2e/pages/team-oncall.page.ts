@@ -23,8 +23,8 @@ export class TeamOnCallPage {
     if (data.description !== undefined) {
       await this.page.fill('#schedule-description', data.description);
     }
-    // schedule-timezone is a custom Select — only set if explicitly given. Otherwise
-    // accept the auto-detected default.
+    // The timezone combobox keeps the auto-detected browser zone unless a
+    // caller explicitly sets one, so leave it untouched here.
     await this.page.locator('[data-testid="schedule-save"]').click();
     await this.page.locator('div[role="dialog"]').waitFor({ state: 'detached', timeout: 10000 });
   }

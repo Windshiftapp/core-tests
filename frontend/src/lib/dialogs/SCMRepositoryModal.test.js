@@ -5,11 +5,12 @@ const { getRepositories } = vi.hoisted(() => ({
   getRepositories: vi.fn(async () => [{ id: 9, repository_name: 'core', provider_name: 'GitHub' }]),
 }));
 
-vi.mock('../api.js', () => ({
-  api: { itemSCMLinks: { getRepositories } },
+vi.mock('../api/scm.js', () => ({
+  itemSCMLinks: { getRepositories },
 }));
 
 import SCMRepositoryModalHarness from './SCMRepositoryModalHarness.svelte';
+import { itemSCMLinks } from '../api/scm.js';
 
 afterEach(() => {
   cleanup();

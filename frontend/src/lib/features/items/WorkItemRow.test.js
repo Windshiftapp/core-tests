@@ -41,6 +41,41 @@ function renderRow(props = {}) {
   return { item, onOpenItem, onStoryPointsChange };
 }
 
+describe('WorkItemRow SLA', () => {
+  test('does not render or read SLA state on non-board rows', () => {
+    renderRow();
+
+    expect(screen.queryByTestId('work-item-sla-42')).not.toBeInTheDocument();
+  });
+});
+
+describe('WorkItemRow item type icon', () => {
+  test('renders the server-provided type icon when the workspace catalog omits the type', () => {
+    render(WorkItemRow, {
+      props: {
+        item: {
+          id: 77,
+          workspace_id: 7,
+          workspace_item_number: 20,
+          title: 'Excluded type item',
+          item_type_id: 1,
+          item_type_name: 'Initiative',
+          item_type_icon: 'Target',
+          item_type_color: '#7c3aed',
+        },
+        // The workspace catalog intentionally omits types outside the effective
+        // configuration set; the row must still render the real icon.
+        itemTypes: [{ id: 2, name: 'Epic', icon: 'Zap', color: '#2563eb' }],
+      },
+    });
+
+    const icon = screen.getByTestId('work-item-type-icon-77');
+    expect(icon.querySelector('svg')).toHaveClass('lucide-target');
+    expect(icon.querySelector('svg')).not.toHaveClass('lucide-file-text');
+    expect(icon).toHaveAttribute('title', 'Initiative');
+  });
+});
+
 describe('WorkItemRow story points', () => {
   test('does not render when the backlog screen does not expose the field', () => {
     renderRow({ showStoryPoints: false });

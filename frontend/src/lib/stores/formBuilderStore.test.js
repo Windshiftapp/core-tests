@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { requestTypes } from '../api/channels.js';
 
 const { update } = vi.hoisted(() => ({ update: vi.fn() }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    requestTypes: {
-      update,
-    },
-  },
+vi.mock('../api/channels.js', () => ({
+  requestTypes: {
+        update,
+      },
 }));
 
 const { formBuilderStore } = await import('./formBuilderStore.svelte.js');

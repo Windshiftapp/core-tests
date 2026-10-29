@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  findForbiddenEntryAssets,
-  findRootShellBudgetViolations,
-  ROOT_SHELL_BUDGET,
-} from '../../../scripts/check-entry-assets.js';
+import { findForbiddenEntryAssets, findRootShellBudgetViolations, ROOT_SHELL_BUDGET } from '../../../scripts/check-entry-assets.js';
 
 describe('findForbiddenEntryAssets', () => {
   it('accepts a core entry with optional features behind dynamic imports', () => {

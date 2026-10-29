@@ -20,19 +20,17 @@ vi.mock('./auth.svelte.js', async () => {
   };
 });
 
-// Stub the api module — permissions store calls api.permissions.* during
+// Stub the api module — permissions store calls permissions.* during
 // loadUserPermissions / loadAllPermissions; tests that exercise those paths
 // override these mocks.
-vi.mock('../api.js', () => ({
-  api: {
-    permissions: {
-      getUserPermissions: vi.fn(),
-      getAll: vi.fn(),
-    },
-  },
+vi.mock('../api/permissions.js', () => ({
+  permissions: {
+        getUserPermissions: vi.fn(),
+        getAll: vi.fn(),
+      },
 }));
 
-import { api } from '../api.js';
+import { permissions } from '../api/permissions.js';
 import { authStore } from './auth.svelte.js';
 import { isSystemAdmin, permissionStore } from './permissions.svelte.js';
 
@@ -43,6 +41,7 @@ beforeEach(() => {
   permissionStore.setHasPortals(false);
   permissionStore.setHasActivePortals(false);
   permissionStore.setManagesChannels(false);
+  permissionStore.setManagesAssetSets(false);
   permissionStore.setLogbookAvailable(false);
   vi.clearAllMocks();
 });
@@ -124,7 +123,7 @@ describe('canAccessCustomers', () => {
   test('true for non-admin with customers.manage when a portal exists', async () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
     permissionStore.setHasPortals(true);
-    api.permissions.getUserPermissions.mockResolvedValueOnce({
+    permissions.getUserPermissions.mockResolvedValueOnce({
       global_permissions: ['customers.manage'],
     });
     await permissionStore.loadUserPermissions(1);
@@ -193,10 +192,18 @@ describe('canManageAssets', () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
     expect(get(permissionStore).canManageAssets).toBe(false);
 
-    api.permissions.getUserPermissions.mockResolvedValueOnce({
+    permissions.getUserPermissions.mockResolvedValueOnce({
       global_permissions: ['asset.manage'],
     });
     await permissionStore.loadUserPermissions(1);
+    expect(get(permissionStore).canManageAssets).toBe(true);
+  });
+
+  test('a set-level administrator without asset.manage can manage assets', () => {
+    authStore.set({ currentUser: { id: 1, is_system_admin: false } });
+    expect(get(permissionStore).canManageAssets).toBe(false);
+
+    permissionStore.setManagesAssetSets(true);
     expect(get(permissionStore).canManageAssets).toBe(true);
   });
 });
@@ -236,7 +243,7 @@ describe('hasPermission / hasPermissionKey', () => {
 
   test('key checks drive access; the ID set stays empty (compact profile, WI-1444)', async () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
-    api.permissions.getUserPermissions.mockResolvedValueOnce({
+    permissions.getUserPermissions.mockResolvedValueOnce({
       global_permissions: ['workspace.edit'],
     });
     await permissionStore.loadUserPermissions(1);
@@ -251,7 +258,7 @@ describe('loadUserPermissions', () => {
   test('clears state when called with no userId', async () => {
     // Pre-seed something so we can confirm it's cleared.
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
-    api.permissions.getUserPermissions.mockResolvedValueOnce({
+    permissions.getUserPermissions.mockResolvedValueOnce({
       global_permissions: ['foo.bar'],
     });
     await permissionStore.loadUserPermissions(1);
@@ -265,7 +272,7 @@ describe('loadUserPermissions', () => {
   test('swallows API errors but leaves the store in a usable state', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
-    api.permissions.getUserPermissions.mockRejectedValueOnce(new Error('500'));
+    permissions.getUserPermissions.mockRejectedValueOnce(new Error('500'));
 
     await permissionStore.loadUserPermissions(1);
 
@@ -279,7 +286,7 @@ describe('loadUserPermissions', () => {
 
   test('folds duplicate keys into the set once', async () => {
     authStore.set({ currentUser: { id: 1, is_system_admin: false } });
-    api.permissions.getUserPermissions.mockResolvedValueOnce({
+    permissions.getUserPermissions.mockResolvedValueOnce({
       global_permissions: ['a.b', 'a.b'],
     });
     await permissionStore.loadUserPermissions(1);
@@ -292,13 +299,13 @@ describe('loadUserPermissions', () => {
 describe('loadAllPermissions', () => {
   test('no-op for non-admin user', async () => {
     await permissionStore.loadAllPermissions({ id: 1, is_system_admin: false });
-    expect(api.permissions.getAll).not.toHaveBeenCalled();
+    expect(permissions.getAll).not.toHaveBeenCalled();
     expect(get(permissionStore).permissions).toEqual([]);
   });
 
   test('loads when user is system admin', async () => {
     const all = [{ id: 1, permission_key: 'a' }];
-    api.permissions.getAll.mockResolvedValueOnce(all);
+    permissions.getAll.mockResolvedValueOnce(all);
     await permissionStore.loadAllPermissions({ id: 1, is_system_admin: true });
     expect(get(permissionStore).permissions).toEqual(all);
   });
@@ -308,18 +315,18 @@ describe('loadAllPermissions', () => {
     const pending = new Promise((resolve) => {
       resolvePermissions = resolve;
     });
-    api.permissions.getAll.mockReturnValueOnce(pending);
+    permissions.getAll.mockReturnValueOnce(pending);
     const admin = { id: 1, is_system_admin: true };
 
     const first = permissionStore.loadAllPermissions(admin);
     const second = permissionStore.loadAllPermissions(admin);
-    expect(api.permissions.getAll).toHaveBeenCalledOnce();
+    expect(permissions.getAll).toHaveBeenCalledOnce();
 
     const all = [{ id: 1, permission_key: 'a' }];
     resolvePermissions(all);
     await expect(Promise.all([first, second])).resolves.toEqual([all, all]);
     await expect(permissionStore.loadAllPermissions(admin)).resolves.toEqual(all);
-    expect(api.permissions.getAll).toHaveBeenCalledOnce();
+    expect(permissions.getAll).toHaveBeenCalledOnce();
   });
 
   test('does not restore a permission catalog after clear', async () => {
@@ -327,7 +334,7 @@ describe('loadAllPermissions', () => {
     const pending = new Promise((resolve) => {
       resolvePermissions = resolve;
     });
-    api.permissions.getAll.mockReturnValueOnce(pending);
+    permissions.getAll.mockReturnValueOnce(pending);
 
     const load = permissionStore.loadAllPermissions({ id: 1, is_system_admin: true });
     permissionStore.clear();
@@ -339,7 +346,7 @@ describe('loadAllPermissions', () => {
 
   test('records error on failure', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    api.permissions.getAll.mockRejectedValueOnce(new Error('boom'));
+    permissions.getAll.mockRejectedValueOnce(new Error('boom'));
     await permissionStore.loadAllPermissions({ id: 1, is_system_admin: true });
     expect(get(permissionStore).permissions).toEqual([]);
     expect(get(permissionStore).error).toBe('boom');

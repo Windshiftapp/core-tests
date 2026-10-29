@@ -24,17 +24,24 @@ const mocks = vi.hoisted(() => ({
   getRequestTypeFields: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    assetReports: { update: mocks.update, create: mocks.create },
-    assetSets: { getAll: mocks.getAssetSets },
-    itemTypes: { getAll: mocks.getItemTypes },
-    workspaces: { getAll: mocks.getWorkspaces },
-    requestTypes: {
-      getForChannel: mocks.getRequestTypes,
-      getFields: mocks.getRequestTypeFields,
-    },
-  },
+vi.mock('../api/channels.js', () => ({
+  assetReports: { update: mocks.update, create: mocks.create },
+  requestTypes: {
+        getForChannel: mocks.getRequestTypes,
+        getFields: mocks.getRequestTypeFields,
+      },
+}))
+
+vi.mock('../api/assets.js', () => ({
+  assetSets: { getAll: mocks.getAssetSets },
+}))
+
+vi.mock('../api/configuration.js', () => ({
+  itemTypes: { getAll: mocks.getItemTypes },
+}))
+
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: { getAll: mocks.getWorkspaces },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -42,6 +49,13 @@ vi.mock('../stores/i18n.svelte.js', () => ({
 }));
 
 import AssetReportModal from './AssetReportModal.svelte';
+import { assetReports, requestTypes } from '../api/channels.js';
+import { assetSets } from '../api/assets.js';
+import { itemTypes } from '../api/configuration.js';
+import { workspaces } from '../api/workspaces.js';
+
+
+
 
 beforeEach(() => {
   mocks.update.mockReset().mockResolvedValue({});

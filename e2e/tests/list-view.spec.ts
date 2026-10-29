@@ -171,7 +171,7 @@ test.describe('List View', () => {
   });
 
   test.describe('List Navigation', () => {
-    test('should navigate to item detail when clicking row', async ({ request }) => {
+    test('opens the item detail modal when clicking the item key', async ({ request }) => {
       const item = generateItem(0, 'click-row');
 
       await createItemViaAPI(request, Number(workspaceId), {
@@ -182,8 +182,11 @@ test.describe('List View', () => {
       await listViewPage.goto(workspaceId);
       await listViewPage.clickRow(item.title);
 
-      // Should navigate to item detail page
-      await expect(listViewPage.page).toHaveURL(/\/items\/\d+/, { timeout: 10000 });
+      // Item keys keep a real href for new tabs but open the global modal on a
+      // plain left click, so the URL stays on the list view.
+      const modal = listViewPage.page.getByTestId('item-detail-modal');
+      await expect(modal).toBeVisible({ timeout: 10000 });
+      await expect(modal.getByTestId('item-title-edit')).toHaveText(item.title);
     });
   });
 });

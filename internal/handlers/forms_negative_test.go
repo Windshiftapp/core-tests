@@ -43,10 +43,14 @@ func seedRequestTypeForChannel(t *testing.T, db database.Database, requestTypeID
 	if err := db.QueryRow(`SELECT id FROM item_types LIMIT 1`).Scan(&itemTypeID); err != nil {
 		t.Fatalf("no seeded item_type available: %v", err)
 	}
+	var workspaceID int
+	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Request type workspace', 'RTW') RETURNING id`).Scan(&workspaceID); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
 	if _, err := db.Exec(`
-		INSERT INTO request_types (id, channel_id, name, item_type_id, config)
-		VALUES (?, ?, 'Test RT', ?, '{}')
-	`, requestTypeID, channelID, itemTypeID); err != nil {
+		INSERT INTO request_types (id, channel_id, name, item_type_id, workspace_id, config)
+		VALUES (?, ?, 'Test RT', ?, ?, '{}')
+	`, requestTypeID, channelID, itemTypeID, workspaceID); err != nil {
 		t.Fatalf("seed request_type: %v", err)
 	}
 }

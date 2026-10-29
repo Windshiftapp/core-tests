@@ -110,15 +110,22 @@ test.describe('Workspace analytics', () => {
     );
   });
 
-  test('item keys in the attention table link back to the item', async ({ page }) => {
+  test('item keys in the attention table open the item', async ({ page }) => {
     await page.goto(`/workspaces/${workspaceId}/analytics`);
 
     const attention = page.getByTestId('analytics-attention-table');
     await expect(attention).toBeVisible();
 
-    const firstTitle = attention.locator('table tbody tr').first().locator('button').first();
-    await firstTitle.click();
+    // The key cell renders the shared ItemKey: a real href for new tabs that
+    // opens the global item modal on a plain left click.
+    const firstRow = attention.locator('table tbody tr').first();
+    const title = (
+      await firstRow.getByTestId(/^analytics-attention-title-/).innerText()
+    ).trim();
+    await firstRow.getByTestId(/^analytics-attention-key-/).click();
 
-    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}/items/\\d+`));
+    const modal = page.getByTestId('item-detail-modal');
+    await expect(modal).toBeVisible({ timeout: 10000 });
+    await expect(modal.getByTestId('item-title-edit')).toHaveText(title);
   });
 });

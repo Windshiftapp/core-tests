@@ -7,9 +7,11 @@ import { shot } from "../helpers/screenshot";
  *
  * Seeds a rich demo dataset through the API (helpers/readme-demo-seed.ts),
  * then visits the surfaces the README showcases and saves named captures via
- * the shared `shot()` helper. Run with:
+ * the shared `shot()` helper. Opt-in only so the demo seeding and full-page
+ * navigation stay out of the regular browser suite; run with:
  *
- *   E2E_SCREENSHOTS=1 ../core-tests/run-e2e.sh tests/readme-screenshots.spec.ts
+ *   README_SCREENSHOTS=1 E2E_SCREENSHOTS=1 \
+ *     ../core-tests/run-e2e.sh tests/readme-screenshots.spec.ts
  *
  * PNGs land in e2e/screenshots/readme-screenshots/. The app follows the OS
  * color scheme by default, so Playwright's colorScheme emulation produces the
@@ -19,7 +21,10 @@ import { shot } from "../helpers/screenshot";
  * response that populates the visible content before shooting.
  */
 
+const enabled = process.env.README_SCREENSHOTS === "1";
 const THEMES = ["light", "dark"] as const;
+
+test.skip(!enabled, "Set README_SCREENSHOTS=1 to regenerate README screenshots.");
 
 test.use({
 	viewport: { width: 1440, height: 900 },
@@ -56,14 +61,14 @@ test.describe("README screenshots", () => {
 			test("roadmap", async ({ page }) => {
 				await page.goto(`/workspaces/${state.cloudWorkspaceId}/roadmap`);
 				await expect(page.getByTestId("roadmap-settings-button")).toBeVisible();
-				await page.waitForLoadState("networkidle");
+				await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
 				await shot(page, `roadmap-${theme}`);
 			});
 
 			test("analytics", async ({ page }) => {
 				await page.goto(`/workspaces/${state.cloudWorkspaceId}/analytics`);
 				await expect(page.getByTestId("analytics-throughput-header")).toBeVisible();
-				await page.waitForLoadState("networkidle");
+				await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
 				await shot(page, `analytics-${theme}`);
 			});
 
@@ -73,14 +78,14 @@ test.describe("README screenshots", () => {
 				);
 				await page.goto(`/milestones/${state.milestoneId}`);
 				await progressLoaded;
-				await page.waitForLoadState("networkidle");
+				await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
 				await shot(page, `milestone-${theme}`);
 			});
 
 			test("knowledge page", async ({ page }) => {
 				await page.goto(`/workspaces/${state.cloudWorkspaceId}/pages/${state.pageId}`);
 				await expect(page.getByTestId("page-canvas")).toBeVisible();
-				await page.waitForLoadState("networkidle");
+				await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
 				await shot(page, `pages-${theme}`);
 			});
 
@@ -97,7 +102,7 @@ test.describe("README screenshots", () => {
 			test("test reports", async ({ page }) => {
 				await page.goto(`/workspaces/${state.cloudWorkspaceId}/tests/reports`);
 				await expect(page.getByTestId("test-reports")).toBeVisible();
-				await page.waitForLoadState("networkidle");
+				await page.waitForLoadState("networkidle", { timeout: 2000 }).catch(() => {});
 				await shot(page, `test-reports-${theme}`);
 			});
 

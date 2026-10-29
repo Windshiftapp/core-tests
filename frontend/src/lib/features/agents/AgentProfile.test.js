@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const permissionState = vi.hoisted(() => ({ admin: false }));
 
-vi.mock('../../api.js', () => ({
+vi.mock('../../api/agentBindings.js', () => ({
   agentBindings: {
     listCatalog: vi.fn(),
     listForWorkspace: vi.fn(),
@@ -19,35 +19,41 @@ vi.mock('../../api.js', () => ({
     remove: vi.fn(),
     restore: vi.fn(),
   },
-  agentRuns: {
-    listForWorkspace: vi.fn(),
-    get: vi.fn(),
-    cancel: vi.fn(),
-  },
-  agentSkills: {
-    listForWorkspace: vi.fn(),
-  },
-  api: {
-    actionCapabilities: {
-      getForWorkspace: vi.fn(),
-    },
-    runnerPools: {
-      listWorkspaceTokens: vi.fn(),
-      mintWorkspaceToken: vi.fn(),
-      revokeWorkspaceToken: vi.fn(),
-      listWorkspaceInstances: vi.fn(),
-    },
-  },
+}));
+vi.mock('../../api/agentRuns.js', () => ({
+  agentRuns: { listForWorkspace: vi.fn(), get: vi.fn(), cancel: vi.fn() },
+}));
+vi.mock('../../api/agentSkills.js', () => ({
+  agentSkills: { listForWorkspace: vi.fn() },
 }));
 
-vi.mock('../../stores', () => ({
+vi.mock('../../api/ai.js', () => ({
+  actionCapabilities: {
+        getForWorkspace: vi.fn(),
+      },
+  llmProviders: {
+        getEnabled: vi.fn(),
+      },
+  runnerPools: {
+        listWorkspaceTokens: vi.fn(),
+        mintWorkspaceToken: vi.fn(),
+        revokeWorkspaceToken: vi.fn(),
+        listWorkspaceInstances: vi.fn(),
+      },
+}));
+
+vi.mock('../../stores/workspacePermissions.svelte.js', () => ({
   workspacePermissions: {
-    canAdminWorkspace: vi.fn(() => permissionState.admin),
-  },
+      canAdminWorkspace: vi.fn(() => permissionState.admin),
+    },
 }));
 
-import { agentBindings, agentRuns, agentSkills, api } from '../../api.js';
+import { actionCapabilities, llmProviders } from '../../api/ai.js';
+import { agentBindings } from '../../api/agentBindings.js';
+import { agentRuns } from '../../api/agentRuns.js';
+import { agentSkills } from '../../api/agentSkills.js';
 import AgentProfile from './AgentProfile.svelte';
+import { runnerPools } from '../../api/ai.js';
 
 const catalogAgent = {
   id: 42,
@@ -128,7 +134,11 @@ beforeEach(() => {
   ]);
   agentRuns.get.mockResolvedValue({ id: 92, status: 'succeeded', binding_id: 42 });
   agentRuns.cancel.mockResolvedValue({ canceled: true });
-  api.actionCapabilities.getForWorkspace.mockResolvedValue([]);
+  actionCapabilities.getForWorkspace.mockResolvedValue([]);
+  llmProviders.getEnabled.mockResolvedValue([
+    { id: 9, name: 'Primary', model: 'gpt-example', is_default: true },
+    { id: 10, name: 'Backup', model: 'gpt-backup' },
+  ]);
   agentSkills.listForWorkspace.mockResolvedValue([
     {
       id: 5,
@@ -222,6 +232,37 @@ describe('AgentProfile', () => {
     expect(screen.getByText('Instructions saved as a new Draft version.')).toBeInTheDocument();
   });
 
+  it('keeps later instruction edits unsaved when the save response arrives', async () => {
+    permissionState.admin = true;
+    let resolveSave;
+    agentBindings.updateAgentConfig.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+
+    render(AgentProfile, {
+      props: { workspaceId: 7, agentId: 42, tab: 'instructions' },
+    });
+
+    const instructions = await screen.findByTestId('agent-instructions-value');
+    await fireEvent.input(instructions, { target: { value: 'Submitted text' } });
+    await fireEvent.click(screen.getByTestId('agent-instructions-save'));
+
+    // Type more while the request is pending; this text must stay unsaved.
+    await fireEvent.input(instructions, { target: { value: 'Submitted text plus more' } });
+    resolveSave({ updated: true });
+
+    await waitFor(() => expect(agentBindings.updateAgentConfig).toHaveBeenCalledTimes(1));
+    expect(agentBindings.updateAgentConfig).toHaveBeenCalledWith(7, 42, {
+      instructions: 'Submitted text',
+      skill_ids: [],
+    });
+    // The newer draft is still unsaved, so Save stays enabled.
+    await waitFor(() => expect(screen.getByTestId('agent-instructions-save')).not.toBeDisabled());
+  });
+
   it('attaches reusable knowledge through the existing profile configuration API', async () => {
     permissionState.admin = true;
 
@@ -239,6 +280,31 @@ describe('AgentProfile', () => {
       })
     );
     expect(screen.getByText('Knowledge sources saved as a new Draft version.')).toBeInTheDocument();
+  });
+
+  it('changes the profile model through the configuration API', async () => {
+    permissionState.admin = true;
+
+    render(AgentProfile, {
+      props: { workspaceId: 7, agentId: 42, tab: 'tools' },
+    });
+
+    expect(await screen.findByTestId('agent-model')).toBeInTheDocument();
+    // The current model connection is connection 9.
+    await fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+    await fireEvent.click(await screen.findByRole('option', { name: /Backup/ }));
+    await fireEvent.click(screen.getByTestId('agent-model-save'));
+
+    await waitFor(() =>
+      expect(agentBindings.updateAgentConfig).toHaveBeenCalledWith(7, 42, {
+        instructions: '',
+        skill_ids: [],
+        llm_connection_id: 10,
+      })
+    );
+    expect(
+      screen.getByText('Model changed. The profile is now a Draft and must be made Ready again.')
+    ).toBeInTheDocument();
   });
 
   it('edits Standard capabilities from the canonical tool catalog', async () => {
@@ -290,6 +356,61 @@ describe('AgentProfile', () => {
       )
     );
     expect(screen.getByText('Profile details saved as a new Draft version.')).toBeInTheDocument();
+  });
+
+  it('renders multiple readiness errors that share an error code', async () => {
+    permissionState.admin = true;
+    agentBindings.validateProfile.mockResolvedValue({
+      ready: false,
+      errors: [
+        {
+          code: 'permission_missing',
+          message: 'Grant the acting identity the action.manage permission.',
+          dependency: 'action.manage',
+        },
+        {
+          code: 'permission_missing',
+          message: 'Grant the acting identity the user.list permission.',
+          dependency: 'user.list',
+        },
+      ],
+    });
+
+    render(AgentProfile, { props: { workspaceId: 7, agentId: 42 } });
+
+    expect(
+      await screen.findByText('Grant the acting identity the action.manage permission.')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Grant the acting identity the user.list permission.')
+    ).toBeInTheDocument();
+  });
+
+  it('points administrators at workspace members when a capability permission is missing', async () => {
+    permissionState.admin = true;
+    agentBindings.validateProfile.mockResolvedValue({
+      ready: false,
+      errors: [
+        {
+          code: 'permission_missing',
+          message: 'Grant the acting identity the action.manage permission.',
+          dependency: 'action.manage',
+          hint: 'Assign this agent a workspace role that includes action.manage in Workspace settings → Members.',
+        },
+      ],
+    });
+
+    render(AgentProfile, { props: { workspaceId: 7, agentId: 42 } });
+
+    expect(
+      await screen.findByText(
+        'Assign this agent a workspace role that includes action.manage in Workspace settings → Members.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('agent-readiness-grant-permission')).toHaveAttribute(
+      'href',
+      '/workspaces/7/settings/members'
+    );
   });
 
   it('runs a private Standard test without changing readiness', async () => {

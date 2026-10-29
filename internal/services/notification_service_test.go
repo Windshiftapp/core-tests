@@ -179,49 +179,66 @@ func TestUnreadEmailBatchesReauthorizeAssetNotifications(t *testing.T) {
 			t.Errorf("close notification service: %v", err)
 		}
 	})
-	before, err := service.UnreadEmailBatches(100)
-	if err != nil {
-		t.Fatalf("email batches before revocation: %v", err)
+	const recipient = "asset-notification-recipient@example.com"
+	insertAssetNotification := func(title string) {
+		t.Helper()
+		if _, err := env.db.Exec(`
+			INSERT INTO notifications (user_id, title, message, type, timestamp, read, authorization_scope, source_type, source_id)
+			VALUES (?, ?, ?, 'info', CURRENT_TIMESTAMP, false, ?, 'asset', ?)
+		`, userID, title, title+" body", models.NotificationScopeAsset, assetID); err != nil {
+			t.Fatalf("insert asset notification %s: %v", title, err)
+		}
 	}
-	assertNotificationTitles(t, before["asset-notification-recipient@example.com"], "restricted asset", "system notice")
+	read := func() *UserNotificationBatch {
+		t.Helper()
+		batches, err := service.UnreadEmailBatches(100)
+		if err != nil {
+			t.Fatalf("email batches: %v", err)
+		}
+		return batches[recipient]
+	}
+
+	assertNotificationTitles(t, read(), "restricted asset", "system notice")
 
 	if _, err := env.db.Exec(`DELETE FROM user_asset_set_roles WHERE user_id = ? AND set_id = ?`, userID, setID); err != nil {
 		t.Fatalf("revoke asset view: %v", err)
 	}
-	after, err := service.UnreadEmailBatches(100)
-	if err != nil {
-		t.Fatalf("email batches after revocation: %v", err)
-	}
-	assertNotificationTitles(t, after["asset-notification-recipient@example.com"], "system notice")
+	// Revoking access suppresses the now-invisible asset row terminally.
+	assertNotificationTitles(t, read(), "system notice")
+	assertNotificationDeliveryState(t, env.db, "restricted asset", "suppressed")
 
+	// Restoring access does not revive an already-suppressed row, but a new
+	// notification for the same asset is delivered.
 	if _, err := env.db.Exec(`INSERT INTO user_asset_set_roles (user_id, set_id, role_id, granted_by) VALUES (?, ?, ?, ?)`, userID, setID, viewerRoleID, keeperID); err != nil {
 		t.Fatalf("restore asset view: %v", err)
 	}
+	insertAssetNotification("restricted asset again")
+	assertNotificationTitles(t, read(), "system notice", "restricted asset again")
+
+	// Moving the asset to a set the user cannot see suppresses a fresh row.
 	otherSetID := insertID("other asset set", `INSERT INTO asset_management_sets (name, created_by) VALUES ('Moved notification assets', ?) RETURNING id`, keeperID)
 	if _, err := env.db.Exec(`UPDATE assets SET set_id = ? WHERE id = ?`, otherSetID, assetID); err != nil {
 		t.Fatalf("move asset: %v", err)
 	}
-	afterMove, err := service.UnreadEmailBatches(100)
-	if err != nil {
-		t.Fatalf("email batches after asset move: %v", err)
-	}
-	assertNotificationTitles(t, afterMove["asset-notification-recipient@example.com"], "system notice")
+	insertAssetNotification("moved asset")
+	assertNotificationTitles(t, read(), "system notice")
+	assertNotificationDeliveryState(t, env.db, "moved asset", "suppressed")
+
+	// Granting the destination set makes a fresh notification visible.
 	if _, err := env.db.Exec(`INSERT INTO user_asset_set_roles (user_id, set_id, role_id, granted_by) VALUES (?, ?, ?, ?)`, userID, otherSetID, viewerRoleID, keeperID); err != nil {
 		t.Fatalf("grant moved asset view: %v", err)
 	}
-	afterMoveGrant, err := service.UnreadEmailBatches(100)
-	if err != nil {
-		t.Fatalf("email batches after moved asset grant: %v", err)
-	}
-	assertNotificationTitles(t, afterMoveGrant["asset-notification-recipient@example.com"], "restricted asset", "system notice")
+	insertAssetNotification("moved asset again")
+	assertNotificationTitles(t, read(), "system notice", "moved asset again")
+
+	// Deleting the asset suppresses a fresh notification: its provenance no
+	// longer resolves.
 	if _, err := env.db.Exec(`DELETE FROM assets WHERE id = ?`, assetID); err != nil {
 		t.Fatalf("delete asset: %v", err)
 	}
-	afterDelete, err := service.UnreadEmailBatches(100)
-	if err != nil {
-		t.Fatalf("email batches after asset deletion: %v", err)
-	}
-	assertNotificationTitles(t, afterDelete["asset-notification-recipient@example.com"], "system notice")
+	insertAssetNotification("deleted asset")
+	assertNotificationTitles(t, read(), "system notice")
+	assertNotificationDeliveryState(t, env.db, "deleted asset", "suppressed")
 }
 
 func TestUnreadEmailBatchesReauthorizeReferencedWorkspaceNotifications(t *testing.T) {
@@ -409,6 +426,17 @@ func assertNotificationTitles(t *testing.T, batch *UserNotificationBatch, want .
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("notification titles = %v, want %v", got, want)
+	}
+}
+
+func assertNotificationDeliveryState(t *testing.T, db database.Database, title, want string) {
+	t.Helper()
+	var state string
+	if err := db.QueryRow(`SELECT email_delivery_state FROM notifications WHERE title = ?`, title).Scan(&state); err != nil {
+		t.Fatalf("read delivery state for %q: %v", title, err)
+	}
+	if state != want {
+		t.Fatalf("delivery state for %q = %q, want %q", title, state, want)
 	}
 }
 

@@ -13,25 +13,53 @@ vi.mock('../router.js', async (importOriginal) => ({
   navigate: mocks.navigate,
 }));
 
-vi.mock('../api.js', () => {
+vi.mock('../api/approvalSets.js', () => {
   const emptyList = vi.fn(() => Promise.resolve([]));
   return {
-    api: {
-      approvalSets: { getAll: emptyList },
-      conditionSets: { getAll: emptyList },
-    configurationSets: {
-      create: mocks.create,
-      get: mocks.get,
-      update: mocks.update,
-    },
-      itemTypes: { getAll: emptyList },
-      notificationSettings: { getAll: emptyList },
-      priorities: { getAll: emptyList },
-      screens: { getAll: emptyList },
-      workflows: { getAll: emptyList },
-      workspaces: { getAll: emptyList },
-    },
-  };
+  approvalSets: { getAll: emptyList },
+};
+})
+
+vi.mock('../api/conditionSets.js', () => {
+  const emptyList = vi.fn(() => Promise.resolve([]));
+  return {
+  conditionSets: { getAll: emptyList },
+};
+})
+
+vi.mock('../api/configuration.js', () => {
+  const emptyList = vi.fn(() => Promise.resolve([]));
+  return {
+  configurationSets: {
+        create: mocks.create,
+        get: mocks.get,
+        update: mocks.update,
+      },
+  itemTypes: { getAll: emptyList },
+  priorities: { getAll: emptyList },
+  screens: { getAll: emptyList },
+};
+})
+
+vi.mock('../api/notifications.js', () => {
+  const emptyList = vi.fn(() => Promise.resolve([]));
+  return {
+  notificationSettings: { getAll: emptyList },
+};
+})
+
+vi.mock('../api/workflows.js', () => {
+  const emptyList = vi.fn(() => Promise.resolve([]));
+  return {
+  workflows: { getAll: emptyList },
+};
+})
+
+vi.mock('../api/workspaces.js', () => {
+  const emptyList = vi.fn(() => Promise.resolve([]));
+  return {
+  workspaces: { getAll: emptyList },
+};
 });
 
 vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
@@ -44,6 +72,17 @@ vi.mock('./LocalizedObjectFields.svelte', () => ({
 
 import ConfigurationSetDetail from './ConfigurationSetDetail.svelte';
 import { currentRoute } from '../router.js';
+import { approvalSets } from '../api/approvalSets.js';
+import { conditionSets } from '../api/conditionSets.js';
+import { configurationSets, itemTypes, priorities, screens } from '../api/configuration.js';
+import { notificationSettings } from '../api/notifications.js';
+import { workflows } from '../api/workflows.js';
+import { workspaces } from '../api/workspaces.js';
+
+
+
+
+
 
 const emptyForm = {
   name: '',

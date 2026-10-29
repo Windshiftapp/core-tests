@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"windshift/internal/testutils"
-	"windshift/internal/database"
 	"fmt"
+	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestValidateAndNormalizeCustomFieldValues_NumberAndDate(t *testing.T) {
@@ -223,4 +223,194 @@ func SanitizeCustomFieldTextValues(db database.Database, cfv map[string]any) err
 		}
 	}
 	return nil
+}
+
+func TestValidateAndNormalizeCustomFieldValues_Milestones(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	defer tdb.Close()
+	db := tdb.GetDatabase()
+
+	multiKey := insertCustomField(t, tdb, "Affected versions", "multi_milestone", "")
+	singleKey := insertCustomField(t, tdb, "Fix version", "milestone", "")
+
+	first := insertMilestone(t, tdb, "1.0")
+	second := insertMilestone(t, tdb, "2.0")
+
+	t.Run("multi normalizes ids and keeps first-seen order", func(t *testing.T) {
+		cfv := map[string]any{
+			multiKey: []any{float64(first), strconv.Itoa(second), first},
+		}
+		if err := ValidateAndNormalizeCustomFieldValues(db, cfv); err != nil {
+			t.Fatalf("ValidateAndNormalizeCustomFieldValues: %v", err)
+		}
+		want := []int{first, second}
+		if !reflect.DeepEqual(cfv[multiKey], want) {
+			t.Fatalf("normalized value = %#v, want %#v", cfv[multiKey], want)
+		}
+	})
+
+	t.Run("multi drops blank entries and clears an empty selection", func(t *testing.T) {
+		cfv := map[string]any{multiKey: []any{"", "  "}}
+		if err := ValidateAndNormalizeCustomFieldValues(db, cfv); err != nil {
+			t.Fatalf("ValidateAndNormalizeCustomFieldValues: %v", err)
+		}
+		if want := []int{}; !reflect.DeepEqual(cfv[multiKey], want) {
+			t.Fatalf("empty multi selection = %#v, want %#v", cfv[multiKey], want)
+		}
+	})
+
+	t.Run("multi rejects non-array values", func(t *testing.T) {
+		cfv := map[string]any{multiKey: first}
+		err := ValidateAndNormalizeCustomFieldValues(db, cfv)
+		validationErr, ok := err.(*ValidationError)
+		if !ok {
+			t.Fatalf("error = %T %v, want *ValidationError", err, err)
+		}
+		if validationErr.Field != "custom_field_values."+multiKey {
+			t.Fatalf("field = %q, want custom_field_values.%s", validationErr.Field, multiKey)
+		}
+		if !strings.Contains(validationErr.Message, "array") {
+			t.Fatalf("message = %q, want it to mention an array", validationErr.Message)
+		}
+	})
+
+	t.Run("multi rejects unknown milestone ids", func(t *testing.T) {
+		cfv := map[string]any{multiKey: []any{first, 999999}}
+		err := ValidateAndNormalizeCustomFieldValues(db, cfv)
+		validationErr, ok := err.(*ValidationError)
+		if !ok {
+			t.Fatalf("error = %T %v, want *ValidationError", err, err)
+		}
+		if !strings.Contains(validationErr.Message, "999999 not found") {
+			t.Fatalf("message = %q, want the missing milestone id", validationErr.Message)
+		}
+	})
+
+	t.Run("single normalizes a numeric string", func(t *testing.T) {
+		cfv := map[string]any{singleKey: strconv.Itoa(second)}
+		if err := ValidateAndNormalizeCustomFieldValues(db, cfv); err != nil {
+			t.Fatalf("ValidateAndNormalizeCustomFieldValues: %v", err)
+		}
+		if cfv[singleKey] != second {
+			t.Fatalf("normalized value = %#v, want %d", cfv[singleKey], second)
+		}
+	})
+
+	t.Run("single clears on blank", func(t *testing.T) {
+		cfv := map[string]any{singleKey: "  "}
+		if err := ValidateAndNormalizeCustomFieldValues(db, cfv); err != nil {
+			t.Fatalf("ValidateAndNormalizeCustomFieldValues: %v", err)
+		}
+		if cfv[singleKey] != nil {
+			t.Fatalf("blank single value = %#v, want nil", cfv[singleKey])
+		}
+	})
+
+	t.Run("single rejects unknown milestone ids", func(t *testing.T) {
+		cfv := map[string]any{singleKey: 999999}
+		err := ValidateAndNormalizeCustomFieldValues(db, cfv)
+		validationErr, ok := err.(*ValidationError)
+		if !ok {
+			t.Fatalf("error = %T %v, want *ValidationError", err, err)
+		}
+		if !strings.Contains(validationErr.Message, "999999 not found") {
+			t.Fatalf("message = %q, want the missing milestone id", validationErr.Message)
+		}
+	})
+}
+
+func insertMilestone(t *testing.T, tdb *testutils.TestDB, name string) int {
+	t.Helper()
+	var id int
+	err := tdb.QueryRow(`
+		INSERT INTO milestones (name, status, is_global, position)
+		VALUES (?, 'planning', TRUE, 0) RETURNING id
+	`, name).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert milestone %q: %v", name, err)
+	}
+	return id
+}
+
+// WI-1428: option ids are integers, so an accepted select/multiselect value is
+// rewritten to its canonical int id rather than left as the submitted JSON type.
+func TestValidateAndNormalizeCustomFieldValues_NormalizesOptionIDs(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	defer tdb.Close()
+	db := tdb.GetDatabase()
+
+	selectKey := insertCustomField(t, tdb, "Priority", "select",
+		`{"next_id":3,"items":[{"id":1,"label":"Low"},{"id":2,"label":"High"}]}`)
+	multiKey := insertCustomField(t, tdb, "Tags", "multiselect",
+		`{"next_id":3,"items":[{"id":1,"label":"A"},{"id":2,"label":"B"}]}`)
+
+	tests := []struct {
+		name string
+		key  string
+		raw  any
+		want any
+	}{
+		{name: "select integral JSON number becomes int", key: selectKey, raw: float64(1), want: 1},
+		{name: "select legacy numeric string becomes int", key: selectKey, raw: "2", want: 2},
+		{name: "multiselect integral JSON numbers become ints", key: multiKey, raw: []any{float64(2), 1}, want: []int{2, 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfv := map[string]any{tt.key: tt.raw}
+			if err := ValidateAndNormalizeCustomFieldValues(db, cfv); err != nil {
+				t.Fatalf("ValidateAndNormalizeCustomFieldValues: %v", err)
+			}
+			if !reflect.DeepEqual(cfv[tt.key], tt.want) {
+				t.Fatalf("normalized value = %#v (%T), want %#v (%T)", cfv[tt.key], cfv[tt.key], tt.want, tt.want)
+			}
+		})
+	}
+}
+
+// WI-1428: a fractional or non-finite JSON number must be rejected instead of
+// being truncated into an existing option id.
+func TestValidateAndNormalizeCustomFieldValues_RejectsNonIntegralOptionIDs(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	defer tdb.Close()
+	db := tdb.GetDatabase()
+
+	selectKey := insertCustomField(t, tdb, "Priority", "select",
+		`{"next_id":3,"items":[{"id":1,"label":"Low"},{"id":2,"label":"High"}]}`)
+	multiKey := insertCustomField(t, tdb, "Tags", "multiselect",
+		`{"next_id":3,"items":[{"id":1,"label":"A"},{"id":2,"label":"B"}]}`)
+	milestoneKey := insertCustomField(t, tdb, "Fix version", "milestone", "")
+	first := insertMilestone(t, tdb, "1.0")
+
+	tests := []struct {
+		name        string
+		key         string
+		raw         any
+		wantMessage string
+	}{
+		{name: "select fractional number", key: selectKey, raw: float64(1.9), wantMessage: "integer"},
+		{name: "select NaN", key: selectKey, raw: math.NaN(), wantMessage: "integer"},
+		{name: "select positive infinity", key: selectKey, raw: math.Inf(1), wantMessage: "integer"},
+		{name: "select integral but unknown id", key: selectKey, raw: float64(99), wantMessage: "option set"},
+		{name: "multiselect fractional number", key: multiKey, raw: []any{1, 2.5}, wantMessage: "integer"},
+		{name: "milestone fractional number", key: milestoneKey, raw: float64(first) + 0.5, wantMessage: "integer"},
+	}
+	for _, tt := range tests {
+		t.Run("rejects "+tt.name, func(t *testing.T) {
+			cfv := map[string]any{tt.key: tt.raw}
+			err := ValidateAndNormalizeCustomFieldValues(db, cfv)
+			if err == nil {
+				t.Fatalf("value %#v (%T) was accepted", tt.raw, tt.raw)
+			}
+			validationErr, ok := err.(*ValidationError)
+			if !ok {
+				t.Fatalf("error = %T %v, want *ValidationError", err, err)
+			}
+			if validationErr.Field != "custom_field_values."+tt.key {
+				t.Fatalf("field = %q, want custom_field_values.%s", validationErr.Field, tt.key)
+			}
+			if !strings.Contains(validationErr.Message, tt.wantMessage) {
+				t.Fatalf("message = %q, want it to contain %q", validationErr.Message, tt.wantMessage)
+			}
+		})
+	}
 }

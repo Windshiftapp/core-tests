@@ -10,11 +10,12 @@ vi.mock('../../stores/permissions.svelte.js', () => ({
   isSystemAdmin: readable(true),
 }));
 
-vi.mock('../../api.js', () => ({
-  api: { channels: {} },
+vi.mock('../../api/channels.js', () => ({
+  channels: {},
 }));
 
 import ChannelSMTPConfig from './ChannelSMTPConfig.svelte';
+import { channels } from '../../api/channels.js';
 
 describe('ChannelSMTPConfig TLS verification', () => {
   it('stores a certificate verification opt-out only in the SMTP config', async () => {
@@ -59,8 +60,47 @@ describe('ChannelSMTPConfig TLS verification', () => {
     expect(component.getConfig()).toMatchObject({
       smtp_encryption: 'none',
       smtp_username: '',
-      smtp_password: '',
+      smtp_password: null,
       smtp_skip_tls_verify: false,
     });
+  });
+
+  it('defaults to automatic SMTP authentication', () => {
+    const { component } = render(ChannelSMTPConfig, {
+      props: { channelId: 7 },
+    });
+
+    expect(document.querySelector('#smtp-auth-method')).toHaveTextContent(
+      'channel.smtpAuthAuto',
+    );
+    expect(component.getConfig().smtp_auth_method).toBe('auto');
+  });
+
+  it('hides credentials and persists none when authentication is disabled', async () => {
+    const { component } = render(ChannelSMTPConfig, {
+      props: { channelId: 7 },
+    });
+
+    expect(screen.getByTestId('smtp-username')).toBeInTheDocument();
+    expect(screen.getByTestId('smtp-password')).toBeInTheDocument();
+
+    await fireEvent.click(document.querySelector('#smtp-auth-method'));
+    await fireEvent.click(document.querySelector('[data-option-id="none"]'));
+
+    expect(screen.queryByTestId('smtp-username')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('smtp-password')).not.toBeInTheDocument();
+    expect(component.getConfig().smtp_auth_method).toBe('none');
+  });
+
+  it('persists an explicitly selected mechanism', async () => {
+    const { component } = render(ChannelSMTPConfig, {
+      props: { channelId: 7 },
+    });
+
+    await fireEvent.click(document.querySelector('#smtp-auth-method'));
+    await fireEvent.click(document.querySelector('[data-option-id="login"]'));
+
+    expect(document.querySelector('#smtp-auth-method')).toHaveTextContent('LOGIN');
+    expect(component.getConfig().smtp_auth_method).toBe('login');
   });
 });

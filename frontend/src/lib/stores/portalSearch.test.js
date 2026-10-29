@@ -1,15 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { portal } from '../api/portal.js';
 
 const mocks = vi.hoisted(() => ({ searchKnowledgeBase: vi.fn() }));
 
-vi.mock('../api.js', () => ({
-  api: { portal: { searchKnowledgeBase: mocks.searchKnowledgeBase } },
+vi.mock('../api/portal.js', () => ({
+  portal: { searchKnowledgeBase: mocks.searchKnowledgeBase },
 }));
 
-import {
-  configurePortalSearchStore,
-  portalSearchStore,
-} from './portalSearch.svelte.js';
+import { configurePortalSearchStore, portalSearchStore } from './portalSearch.svelte.js';
 
 beforeEach(() => {
   vi.clearAllMocks();

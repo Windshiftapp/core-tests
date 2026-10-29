@@ -1,22 +1,26 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    getUsers: vi.fn(),
-    getAdminUsers: vi.fn(),
-    groups: {
-      getAdminAll: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-    },
-    notificationSettings: {
-      getAll: vi.fn(),
-      getAvailableEvents: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-    },
-  },
+vi.mock('../api/users.js', () => ({
+  getUsers: vi.fn(),
+  getAdminUsers: vi.fn(),
+}))
+
+vi.mock('../api/permissions.js', () => ({
+  groups: {
+        getAdminAll: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+}))
+
+vi.mock('../api/notifications.js', () => ({
+  notificationSettings: {
+        getAll: vi.fn(),
+        getAvailableEvents: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
@@ -27,7 +31,9 @@ vi.mock('../composables/useConfirm.js', () => ({
   confirm: vi.fn(),
 }));
 
-import { api } from '../api.js';
+import { getAdminUsers, getUsers } from '../api/users.js';
+import { groups } from '../api/permissions.js';
+import { notificationSettings } from '../api/notifications.js';
 import GroupManager from './GroupManager.svelte';
 import NotificationSettings from './NotificationSettings.svelte';
 
@@ -40,15 +46,15 @@ async function openRowEdit(rowText, editText) {
 describe('settings update state preservation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.getUsers.mockResolvedValue([]);
-    api.getAdminUsers.mockResolvedValue([]);
-    api.groups.update.mockResolvedValue({});
-    api.notificationSettings.getAvailableEvents.mockResolvedValue([]);
-    api.notificationSettings.update.mockResolvedValue({});
+    getUsers.mockResolvedValue([]);
+    getAdminUsers.mockResolvedValue([]);
+    groups.update.mockResolvedValue({});
+    notificationSettings.getAvailableEvents.mockResolvedValue([]);
+    notificationSettings.update.mockResolvedValue({});
   });
 
   it('keeps an inactive group inactive when editing its details', async () => {
-    api.groups.getAdminAll.mockResolvedValue([
+    groups.getAdminAll.mockResolvedValue([
       {
         id: 41,
         name: 'Inactive Group',
@@ -63,7 +69,7 @@ describe('settings update state preservation', () => {
     await fireEvent.click(screen.getByTestId('dialog-confirm'));
 
     await waitFor(() => {
-      expect(api.groups.update).toHaveBeenCalledWith(
+      expect(groups.update).toHaveBeenCalledWith(
         41,
         expect.objectContaining({ is_active: false })
       );
@@ -71,7 +77,7 @@ describe('settings update state preservation', () => {
   });
 
   it('keeps an inactive notification setting inactive when editing its details', async () => {
-    api.notificationSettings.getAll.mockResolvedValue([
+    notificationSettings.getAll.mockResolvedValue([
       {
         id: 52,
         name: 'Inactive notifications',
@@ -88,7 +94,7 @@ describe('settings update state preservation', () => {
     await fireEvent.click(screen.getByTestId('dialog-confirm'));
 
     await waitFor(() => {
-      expect(api.notificationSettings.update).toHaveBeenCalledWith(
+      expect(notificationSettings.update).toHaveBeenCalledWith(
         52,
         expect.objectContaining({ is_active: false })
       );

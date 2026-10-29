@@ -1,14 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    approvals: {
-      forItem: vi.fn(),
-      cancel: vi.fn(),
-      decide: vi.fn(),
-    },
-  },
+vi.mock('../../api/approvals.js', () => ({
+  approvals: {
+        forItem: vi.fn(),
+        cancel: vi.fn(),
+        decide: vi.fn(),
+      },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -34,11 +32,11 @@ vi.mock('../../stores/toasts.svelte.js', () => ({
   successToast: vi.fn(),
 }));
 vi.mock('../../composables/useConfirm.js', () => ({ confirm: vi.fn() }));
-vi.mock('../../stores', () => ({
+vi.mock('../../stores/auth.svelte.js', () => ({
   authStore: { currentUser: { id: 42 } },
 }));
 
-import { api } from '../../api.js';
+import { approvals } from '../../api/approvals.js';
 import ApprovalsTimeline from './ApprovalsTimeline.svelte';
 
 const pendingRequest = {
@@ -52,7 +50,7 @@ const pendingRequest = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  api.approvals.forItem.mockResolvedValue([pendingRequest]);
+  approvals.forItem.mockResolvedValue([pendingRequest]);
 });
 
 describe('ApprovalsTimeline cancellation', () => {
@@ -64,7 +62,7 @@ describe('ApprovalsTimeline cancellation', () => {
     });
 
     expect(await screen.findByText('Approval #7')).toBeTruthy();
-    expect(api.approvals.forItem).not.toHaveBeenCalled();
+    expect(approvals.forItem).not.toHaveBeenCalled();
   });
 
   test('shows cancellation to an item editor when another user opened the request', async () => {
@@ -81,7 +79,7 @@ describe('ApprovalsTimeline cancellation', () => {
   });
 
   test('explains an empty pool when the requestor may have been excluded from self-approval', async () => {
-    api.approvals.forItem.mockResolvedValue([
+    approvals.forItem.mockResolvedValue([
       {
         ...pendingRequest,
         triggered_by_user_id: 42,
@@ -119,7 +117,7 @@ describe('ApprovalsTimeline decision visibility', () => {
         },
       ],
     }));
-    api.approvals.forItem.mockResolvedValue(requests);
+    approvals.forItem.mockResolvedValue(requests);
 
     render(ApprovalsTimeline, {
       itemId: 12,
@@ -139,7 +137,7 @@ describe('ApprovalsTimeline decision visibility', () => {
     await fireEvent.click(secondRequest.getByTestId('approval-decision-comment-submit'));
 
     await waitFor(() => {
-      expect(api.approvals.decide).toHaveBeenCalledWith(8, 'comment', 'Submit this comment');
+      expect(approvals.decide).toHaveBeenCalledWith(8, 'comment', 'Submit this comment');
       expect(
         within(screen.getByTestId('approval-request-7')).getByTestId('approval-decision-comment')
           .value

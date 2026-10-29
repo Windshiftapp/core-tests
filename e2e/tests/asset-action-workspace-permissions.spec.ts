@@ -158,17 +158,31 @@ test.describe('Asset create-item action workspace permissions (WI-652)', () => {
       await page.getByTestId('asset-submit').click();
       await expect(page.locator('#asset-title-input')).toBeHidden({ timeout: 10_000 });
 
-      await page.goto(`/workspaces/${member.workspaceId}/backlog`);
+      // The create-item action runs asynchronously after the asset commits. A
+      // backlog page loaded before the item exists has no live subscription to
+      // it, so wait for the item server-side, then assert it renders through
+      // the UI. The app holds SSE streams open, so networkidle never settles.
       await expect
         .poll(
           async () => {
-            await page.reload({ waitUntil: 'networkidle' });
-            const rows = await page.getByTestId('backlog-item').allTextContents();
-            return rows.some((row) => row.includes(allowedItemTitle));
+            const response = await member.request.get(
+              `/api/v2/items/search?q=${encodeURIComponent(allowedItemTitle)}&workspace_id=${member.workspaceId}`,
+              { headers: SEC_FETCH }
+            );
+            if (!response.ok()) return -1;
+            const body = await response.json();
+            const items = (body.data ?? body) as Array<{ title: string }>;
+            return items.filter((candidate) => candidate.title === allowedItemTitle)
+              .length;
           },
-          { timeout: 20_000 }
+          { timeout: 30_000 }
         )
-        .toBe(true);
+        .toBe(1);
+
+      await page.goto(`/workspaces/${member.workspaceId}/backlog`);
+      await expect(
+        page.getByTestId('backlog-item').filter({ hasText: allowedItemTitle })
+      ).toBeVisible({ timeout: 20_000 });
 
       await page.goto('/assets/settings');
       await page.getByTestId('asset-automations-tab').click();

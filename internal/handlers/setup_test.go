@@ -60,7 +60,7 @@ func TestSetupHandler_GetSetupStatus(t *testing.T) {
 
 			// Create handler
 			mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-			handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+			handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 			// Create request
 			req := testutils.CreateJSONRequest(t, "GET", "/api/setup/status", nil)
@@ -99,7 +99,7 @@ func TestSetupHandler_CompleteInitialSetup_Success(t *testing.T) {
 
 	// Create handler
 	mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 	// Create valid setup request
 	setupReq := models.SetupRequest{
@@ -289,7 +289,7 @@ func TestSetupHandler_CompleteInitialSetup_ValidationErrors(t *testing.T) {
 
 			// Create handler
 			mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-			handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+			handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 			// Create request
 			req := testutils.CreateJSONRequest(t, "POST", "/api/setup/complete", tt.setupReq)
@@ -316,7 +316,7 @@ func TestSetupHandler_CompleteInitialSetup_AlreadyCompleted(t *testing.T) {
 
 	// Create handler
 	mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 	// Create setup request
 	setupReq := models.SetupRequest{
@@ -351,7 +351,7 @@ func TestSetupHandler_GetModuleSettings(t *testing.T) {
 
 	// Create handler
 	mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 	// Create request
 	req := testutils.CreateJSONRequest(t, "GET", "/api/setup/modules", nil)
@@ -385,7 +385,7 @@ func TestSetupHandler_UpdateModuleSettings(t *testing.T) {
 
 	// Create handler
 	mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 	// Create update request
 	updateReq := models.ModuleSettings{
@@ -458,7 +458,7 @@ func TestSetupHandler_TransactionRollback(t *testing.T) {
 
 	// Create handler
 	mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 	// Create setup request with duplicate email
 	setupReq := models.SetupRequest{
@@ -512,7 +512,7 @@ func TestSetupHandler_InvalidJSON(t *testing.T) {
 
 	// Create handler
 	mockAuthMiddleware := mocks.CreateMockAuthMiddleware()
-	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware)
+	handler := NewSetupHandler(tdb.GetDatabase(), mocks.CreateMockSessionManager(), mockAuthMiddleware, nil)
 
 	// Create request with invalid JSON
 	req, _ := testutils.MockHTTPRequest("POST", "/api/setup/complete", nil)

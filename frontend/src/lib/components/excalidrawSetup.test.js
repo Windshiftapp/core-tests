@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, test } from 'vitest';
 
-import {
-  configureExcalidrawAssets,
-  DEFAULT_EXCALIDRAW_CANVAS_COLOR,
-  prepareExcalidrawInitialData,
-} from './excalidrawSetup.js';
+import { configureExcalidrawAssets, DEFAULT_EXCALIDRAW_CANVAS_COLOR, prepareExcalidrawInitialData } from './excalidrawSetup.js';
 
 afterEach(() => {
   delete window.__WINDSHIFT_CONTEXT_PATH__;

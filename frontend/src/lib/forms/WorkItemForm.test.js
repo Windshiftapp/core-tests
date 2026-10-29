@@ -1,15 +1,15 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    milestones: {
-      getAll: vi.fn().mockResolvedValue([]),
-    },
-    assets: {
-      getAll: vi.fn().mockResolvedValue({ assets: [], total: 0 }),
-    },
-  },
+vi.mock('../api/milestones.js', () => ({
+  milestones: { getAll: vi.fn().mockResolvedValue([]) },
+  milestoneCategories: { getAll: vi.fn().mockResolvedValue([]) },
+}));
+
+vi.mock('../api/assets.js', () => ({
+  assets: {
+        getAll: vi.fn().mockResolvedValue({ assets: [], total: 0 }),
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -27,6 +27,9 @@ vi.mock('../utils/serverClock.js', () => ({
 }));
 
 import WorkItemForm from './WorkItemForm.svelte';
+import { milestones } from '../api/milestones.js';
+import { assets } from '../api/assets.js';
+
 
 afterEach(() => {
   cleanup();
@@ -126,31 +129,6 @@ describe('milestone chip', () => {
   });
 });
 
-describe('item type chip', () => {
-  it('uses the canonical item type icon treatment for the selected type', () => {
-    const itemType = {
-      id: 7,
-      name: 'Story',
-      icon: 'BookOpen',
-      color: '#8b5cf6',
-    };
-    const store = createStore({
-      formData: { item_type_id: itemType.id },
-      availableItemTypes: [itemType],
-      selectedItemType: itemType,
-    });
-
-    render(WorkItemForm, { props: { formStore: store } });
-
-    const trigger = screen.getByTestId('create-item-type-chip');
-    const typeIcon = trigger.querySelector('[title="Story"]');
-
-    expect(typeIcon).toHaveStyle({ color: 'rgb(139, 92, 246)' });
-    expect(typeIcon.querySelector('svg')).toHaveAttribute('width', '16');
-    expect(typeIcon.style.backgroundColor).toBe('');
-  });
-});
-
 describe('date chips', () => {
   it('uses deadline wording only for the due date chip', () => {
     const store = createStore({
@@ -187,18 +165,6 @@ describe('date chips', () => {
     await fireEvent.change(input, { target: { value: '2026-09-15' } });
 
     expect(input).toBeVisible();
-  });
-});
-
-describe('muted inputs', () => {
-  it('keeps the title control transparent within the create modal', () => {
-    const store = createStore();
-
-    render(WorkItemForm, { props: { formStore: store } });
-
-    const title = document.querySelector('#work-item-title');
-    expect(title.style.backgroundColor).toBe('transparent');
-    expect(title.style.borderColor).toBe('transparent');
   });
 });
 

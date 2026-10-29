@@ -52,12 +52,16 @@ func TestCollectionRepositoryCookieAuthLifecycleAndVisibility(t *testing.T) {
 	if err := repo.Create(&publicCollection, otherID); err != nil {
 		t.Fatalf("Create public: %v", err)
 	}
+	globalPrivate := models.Collection{Name: "Global private collection", IsPrivate: true}
+	if err := repo.Create(&globalPrivate, ownerID); err != nil {
+		t.Fatalf("Create global private: %v", err)
+	}
 
 	visible, err := repo.ListVisibleModels(CollectionListFilter{UserID: ownerID})
 	if err != nil {
 		t.Fatalf("ListVisibleModels: %v", err)
 	}
-	if len(visible) != 2 {
+	if len(visible) != 3 {
 		t.Fatalf("owner-visible collections = %+v", visible)
 	}
 	visible, err = repo.ListVisibleModels(CollectionListFilter{UserID: otherID, CategoryID: &categoryID})
@@ -67,8 +71,13 @@ func TestCollectionRepositoryCookieAuthLifecycleAndVisibility(t *testing.T) {
 	if len(visible) != 1 || visible[0].ID != publicCollection.ID || visible[0].CategoryName != "Reports" {
 		t.Fatalf("category-filtered collections = %+v", visible)
 	}
-	if _, err := repo.GetVisibleModel(privateCollection.ID, otherID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("private visibility error = %v, want ErrNotFound", err)
+	// Workspace-linked collections are candidates for any caller; the service
+	// narrows them by workspace access. Global private collections stay hidden.
+	if _, err := repo.GetVisibleModel(privateCollection.ID, otherID); err != nil {
+		t.Fatalf("workspace-linked visibility error = %v, want candidate", err)
+	}
+	if _, err := repo.GetVisibleModel(globalPrivate.ID, otherID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("global private visibility error = %v, want ErrNotFound", err)
 	}
 
 	owner, err := repo.GetOwnerID(privateCollection.ID)
@@ -99,8 +108,10 @@ func TestCollectionRepositoryCookieAuthLifecycleAndVisibility(t *testing.T) {
 		t.Fatalf("updated collection = %+v", updated)
 	}
 
-	if err := repo.UpdatePublicSharing(privateCollection.ID, false, nil); err != nil {
+	if updated, err := repo.UpdatePublicSharing(privateCollection.ID, false, nil, false, "", nil); err != nil {
 		t.Fatalf("UpdatePublicSharing: %v", err)
+	} else if !updated {
+		t.Fatal("UpdatePublicSharing did not update the collection")
 	}
 	if err := repo.Delete(privateCollection.ID); err != nil {
 		t.Fatalf("Delete: %v", err)

@@ -58,17 +58,6 @@ func (s *stubInvoker) callCount() int {
 
 // newSchedulerRunsDB returns an in-memory SQLite DB with just the
 // scheduler_runs table created — enough for SchedulerRunRepository.Insert.
-// waitForCalls polls the stub until it recorded at least want calls or the
-// timeout elapses.
-func waitForCalls(stub *stubInvoker, want int) {
-	deadline := time.Now().Add(500 * time.Millisecond)
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
-	for stub.callCount() < want && time.Now().Before(deadline) {
-		<-tick.C
-	}
-}
-
 func newSchedulerRunsDB(t *testing.T) database.Database {
 	t.Helper()
 	dsn := "file:scheduler_test_" + t.Name() + "?mode=memory&cache=shared"
@@ -114,7 +103,13 @@ func TestPluginScheduleScheduler_FiresQueuedSchedules(t *testing.T) {
 	s.Start()
 	defer s.Stop()
 
-	waitForCalls(stub, 1)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if stub.callCount() >= 1 {
+			break
+		}
+		<-time.After(5 * time.Millisecond)
+	}
 
 	if got := stub.callCount(); got < 1 {
 		t.Fatalf("CallPluginFunction call count = %d, want >= 1", got)
@@ -141,7 +136,13 @@ func TestPluginScheduleScheduler_FailingFireDoesNotCrashOrBlock(t *testing.T) {
 	s.Start()
 	defer s.Stop()
 
-	waitForCalls(stub, 2)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if stub.callCount() >= 2 {
+			break
+		}
+		<-time.After(5 * time.Millisecond)
+	}
 
 	// Both queued entries must have been attempted even though the first one
 	// errored — a failing fire must not abort the tick.
@@ -172,8 +173,6 @@ func TestPluginScheduleScheduler_NoDueNoCall(t *testing.T) {
 
 	s := NewPluginScheduleSchedulerWithInterval(stub, db, 5*time.Millisecond)
 	s.Start()
-	// No observable signals a scheduler tick, so let a fixed window of ticks
-	// elapse via a channel receive before asserting nothing fired.
 	<-time.After(30 * time.Millisecond)
 	s.Stop()
 

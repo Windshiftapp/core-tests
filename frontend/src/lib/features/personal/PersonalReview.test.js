@@ -1,21 +1,22 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    reviews: {
-      getCompletedItems: vi.fn(),
-      getAll: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-    },
-    itemTypes: {
-      getAll: vi.fn(),
-    },
-  },
+vi.mock('../../api/misc.js', () => ({
+  reviews: {
+        getCompletedItems: vi.fn(),
+        getAll: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+}))
+
+vi.mock('../../api/configuration.js', () => ({
+  itemTypes: {
+        getAll: vi.fn(),
+      },
 }));
 
-vi.mock('../../stores', async () => {
+vi.mock('../../stores/auth.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   // The real uiStore is a subscribable store with methods attached; the
   // component both auto-subscribes ($uiStore.reviewFullscreen) and calls
@@ -25,11 +26,23 @@ vi.mock('../../stores', async () => {
     uiStore.update((state) => ({ ...state, reviewFullscreen: !state.reviewFullscreen }));
   return {
     authStore: {
-      subscribe: vi.fn((fn) => {
-        fn({ user: { id: 7 } });
-        return () => {};
-      }),
-    },
+          subscribe: vi.fn((fn) => {
+            fn({ user: { id: 7 } });
+            return () => {};
+          }),
+        },
+  };
+})
+
+vi.mock('../../stores/ui.svelte.js', async () => {
+  const { writable } = await import('svelte/store');
+  // The real uiStore is a subscribable store with methods attached; the
+  // component both auto-subscribes ($uiStore.reviewFullscreen) and calls
+  // uiStore.toggleReviewFullscreen().
+  const uiStore = writable({ reviewFullscreen: false });
+  uiStore.toggleReviewFullscreen = () =>
+    uiStore.update((state) => ({ ...state, reviewFullscreen: !state.reviewFullscreen }));
+  return {
     uiStore,
   };
 });
@@ -54,10 +67,14 @@ vi.mock('../../editors/LazyMilkdownEditor.svelte', async () => ({
   default: (await import('./PersonalReviewEditorStub.svelte')).default,
 }));
 
-const { api } = await import('../../api.js');
+
 const { formatDate } = await import('../../utils/dateFormatter.js');
 
 import PersonalReview from './PersonalReview.svelte';
+import { reviews } from '../../api/misc.js';
+import { itemTypes } from '../../api/configuration.js';
+
+
 
 // WI-1419: a superseded load of completed items must not overwrite the list
 // when the user has already navigated to another date. The review body is
@@ -67,14 +84,14 @@ describe('PersonalReview completed items across navigation (WI-1419)', () => {
 
   beforeEach(() => {
     localStorage.clear();
-    api.itemTypes.getAll.mockResolvedValue([]);
-    api.reviews.getAll.mockResolvedValue([]);
+    itemTypes.getAll.mockResolvedValue([]);
+    reviews.getAll.mockResolvedValue([]);
   });
 
   it("keeps the displayed date's completed items when an older load resolves late", async () => {
     // Deferred per date so the test controls resolution order.
     const pending = new Map();
-    api.reviews.getCompletedItems.mockImplementation((startDate) => {
+    reviews.getCompletedItems.mockImplementation((startDate) => {
       return new Promise((resolve) => {
         pending.set(startDate, resolve);
       });

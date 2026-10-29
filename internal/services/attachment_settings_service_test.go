@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/testutils"
 )
 
@@ -17,8 +18,8 @@ func TestAttachmentSettingsGetStatusReportsWritableDirectory(t *testing.T) {
 	t.Cleanup(func() { _ = tdb.Close() })
 
 	attachmentPath := t.TempDir()
-	service := NewAttachmentSettingsService(tdb.GetDatabase())
-	if err := service.Initialize(attachmentPath); err != nil {
+	service := NewAttachmentSettingsService(tdb.GetDatabase(), blobstore.NewLocal(attachmentPath))
+	if err := service.Initialize(); err != nil {
 		t.Fatalf("initialize attachment settings: %v", err)
 	}
 
@@ -47,8 +48,8 @@ func TestAttachmentSettingsGetStatusLogsPathProbeFailure(t *testing.T) {
 	t.Cleanup(func() { _ = tdb.Close() })
 
 	attachmentPath := filepath.Join(t.TempDir(), "missing")
-	service := NewAttachmentSettingsService(tdb.GetDatabase())
-	if err := service.Initialize(attachmentPath); err != nil {
+	service := NewAttachmentSettingsService(tdb.GetDatabase(), blobstore.NewLocal(attachmentPath))
+	if err := service.Initialize(); err != nil {
 		t.Fatalf("initialize attachment settings: %v", err)
 	}
 
@@ -66,7 +67,7 @@ func TestAttachmentSettingsGetStatusLogsPathProbeFailure(t *testing.T) {
 	}
 
 	logged := output.String()
-	if !strings.Contains(logged, "attachment storage path stat failed") {
+	if !strings.Contains(logged, "attachment storage probe failed") {
 		t.Fatalf("log output missing probe failure: %s", logged)
 	}
 	if !strings.Contains(logged, attachmentPath) {

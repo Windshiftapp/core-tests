@@ -10,23 +10,10 @@ vi.mock('../utils/serverClock.js', () => ({
   isClockDriftSignificant: vi.fn(() => false),
 }));
 
-// The 401 branch in fetchAPI dynamically imports '../stores' and calls
-// authStore.clearAuth(). Stub it so we can assert the side effect without
-// loading the entire stores barrel. The mock factory is hoisted, so the
-// clearAuth spy lives inside it — referenced via the mocked module below.
-vi.mock('../stores', () => ({
-  authStore: { clearAuth: vi.fn(), subscribe: vi.fn() },
-}));
-
-import { authStore } from '../stores';
-import {
-  ADMIN_UI_MUTATION_EVENT,
-  clearAPIRequestSessionKey,
-  fetchAllV2Pages,
-  fetchAPI,
-  fetchAPIV2,
-  setAPIRequestSessionKey,
-} from './core.js';
+// The 401 and clock-drift side effects are injected by the app shell, so this
+// suite registers its own handlers instead of mocking the stores barrel.
+import { configureAPIEventHandlers } from './core.js';
+import { ADMIN_UI_MUTATION_EVENT, clearAPIRequestSessionKey, fetchAllV2Pages, fetchAPI, fetchAPIV2, setAPIRequestSessionKey } from './core.js';
 
 // Build a Response-like mock without depending on the actual Response
 // constructor (jsdom's varies subtly across versions).
@@ -137,11 +124,7 @@ describe('fetchAPI — error mapping', () => {
           status: 400,
           statusText: 'Bad Request',
           body: JSON.stringify({
-            error: {
-              code: 'invalid_request',
-              message: 'page is out of range',
-              details: { field: 'page' },
-            },
+            error: { code: 'invalid_request', message: 'page is out of range', details: { field: 'page' } },
             request_id: 'req-v2',
           }),
         })
@@ -345,7 +328,18 @@ describe('fetchAPIV2 — canonical pagination', () => {
 });
 
 describe('fetchAPI — 401 logout side effect', () => {
-  test('calls authStore.clearAuth() when the server returns 401', async () => {
+  let onAuthExpired;
+
+  beforeEach(() => {
+    onAuthExpired = vi.fn();
+    configureAPIEventHandlers({ onAuthExpired });
+  });
+
+  afterEach(() => {
+    configureAPIEventHandlers({ onAuthExpired: null });
+  });
+
+  test('notifies the injected auth-expiry handler when the server returns 401', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve(
         makeResponse({
@@ -357,10 +351,10 @@ describe('fetchAPI — 401 logout side effect', () => {
     );
 
     await expect(fetchAPI('/items')).rejects.toThrow('no session');
-    expect(authStore.clearAuth).toHaveBeenCalledTimes(1);
+    expect(onAuthExpired).toHaveBeenCalledTimes(1);
   });
 
-  test('does not call clearAuth on non-401 errors', async () => {
+  test('does not notify the auth-expiry handler on non-401 errors', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve(
         makeResponse({
@@ -370,7 +364,7 @@ describe('fetchAPI — 401 logout side effect', () => {
       )
     );
     await expect(fetchAPI('/items')).rejects.toThrow('forbidden');
-    expect(authStore.clearAuth).not.toHaveBeenCalled();
+    expect(onAuthExpired).not.toHaveBeenCalled();
   });
 
   test('preserves a pending-auth session and exposes policy response fields', async () => {
@@ -397,10 +391,10 @@ describe('fetchAPI — 401 logout side effect', () => {
     expect(caught.passkey_required).toBe(true);
     expect(caught.policy_message).toBe('Use your passkey');
     expect(caught.body.passkey_required).toBe(true);
-    expect(authStore.clearAuth).not.toHaveBeenCalled();
+    expect(onAuthExpired).not.toHaveBeenCalled();
   });
 
-  test('does not clear auth for a legacy 401 pending-auth response', async () => {
+  test('does not expire auth for a legacy 401 pending-auth response', async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve(
         makeResponse({
@@ -414,7 +408,39 @@ describe('fetchAPI — 401 logout side effect', () => {
     );
 
     await expect(fetchAPI('/items')).rejects.toThrow('Passkey enrollment required');
-    expect(authStore.clearAuth).not.toHaveBeenCalled();
+    expect(onAuthExpired).not.toHaveBeenCalled();
+  });
+});
+
+describe('fetchAPI — server clock drift reporting', () => {
+  afterEach(() => {
+    configureAPIEventHandlers({ onClockDrift: null });
+  });
+
+  test('reports the measured offset to the injected handler once', async () => {
+    const { getClockOffset, getSampleCount, isClockDriftSignificant } = await import(
+      '../utils/serverClock.js'
+    );
+    getSampleCount.mockReturnValue(3);
+    isClockDriftSignificant.mockReturnValue(true);
+    getClockOffset.mockReturnValue(93_000);
+
+    const onClockDrift = vi.fn();
+    configureAPIEventHandlers({ onClockDrift });
+
+    global.fetch = vi.fn(() =>
+      Promise.resolve(makeResponse({ status: 200, headers: { date: 'Mon, 01 Jan 2024 00:00:00 GMT' } }))
+    );
+
+    await fetchAPI('/items');
+    await fetchAPI('/items');
+
+    expect(onClockDrift).toHaveBeenCalledTimes(1);
+    expect(onClockDrift).toHaveBeenCalledWith({ offsetMs: 93_000 });
+
+    getSampleCount.mockReturnValue(0);
+    isClockDriftSignificant.mockReturnValue(false);
+    getClockOffset.mockReturnValue(0);
   });
 });
 
@@ -471,7 +497,7 @@ describe('fetchAPI — network and timeout errors', () => {
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  test('preserves network errors in a hidden live document', async () => {
+  test('reports a genuine network failure when a live document is merely hidden', async () => {
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -480,9 +506,12 @@ describe('fetchAPI — network and timeout errors', () => {
     global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
 
     try {
+      // A hidden but live tab has not unloaded, so an offline/DNS/TLS failure
+      // must stay a NETWORK_ERROR instead of masquerading as navigation abort.
       await expect(fetchAPI('/items')).rejects.toMatchObject({
-        code: 'NETWORK_ERROR',
+        name: 'Error',
         status: 0,
+        code: 'NETWORK_ERROR',
       });
     } finally {
       Object.defineProperty(document, 'visibilityState', {
@@ -501,6 +530,19 @@ describe('fetchAPI — network and timeout errors', () => {
     } finally {
       window.dispatchEvent(new Event('pageshow'));
     }
+  });
+
+  test('reports network failures again after a BFCache restore', async () => {
+    // pagehide followed by pageshow is the back-forward cache restore path.
+    // The unload flag must be cleared so a later failure is not misreported.
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pageshow'));
+    global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+
+    await expect(fetchAPI('/items')).rejects.toMatchObject({
+      status: 0,
+      code: 'NETWORK_ERROR',
+    });
   });
 });
 
@@ -562,7 +604,9 @@ describe('fetchAPI — administration UI refresh signaling', () => {
       window.history.replaceState({}, '', '/');
     }
 
-    expect(events).toEqual([{ endpoint: '/admin/llm-connections', method: 'POST' }]);
+    expect(events).toEqual([
+      { endpoint: '/admin/llm-connections', method: 'POST' },
+    ]);
   });
 
   test('supports admin routes below a configured context path', async () => {
@@ -718,5 +762,79 @@ describe('fetchAPI — authenticated in-flight GET ownership', () => {
     ]);
 
     expect(global.fetch).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('fetchAPI — read scheduling policy', () => {
+  test('strips readPolicy before the physical fetch', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve(makeResponse({ body: '{}', headers: { 'content-type': 'application/json' } }))
+    );
+
+    await fetchAPI('/items', { readPolicy: { priority: 'foreground' } });
+
+    const [, options] = global.fetch.mock.calls[0];
+    expect(options).not.toHaveProperty('readPolicy');
+  });
+
+  test('scheduler metadata does not prevent authenticated GET sharing', async () => {
+    setAPIRequestSessionKey('session-a');
+    let resolveFetch;
+    global.fetch = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const first = fetchAPI('/catalog', { readPolicy: { priority: 'foreground' } });
+    const second = fetchAPI('/catalog', { readPolicy: { priority: 'foreground' } });
+
+    expect(first).toBe(second);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    resolveFetch(
+      makeResponse({ body: '{"items":[1]}', headers: { 'content-type': 'application/json' } })
+    );
+    await expect(Promise.all([first, second])).resolves.toEqual([{ items: [1] }, { items: [1] }]);
+  });
+
+  test('does not abort an in-flight opted-in read when the session key is first set', async () => {
+    let resolveFetch;
+    global.fetch = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    // A boot-time collection load can start before auth settles (null key).
+    const request = fetchAPI('/catalog', { readPolicy: { priority: 'foreground' } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    setAPIRequestSessionKey('auth:1:abc');
+    resolveFetch(
+      makeResponse({ body: '{"ok":true}', headers: { 'content-type': 'application/json' } })
+    );
+
+    await expect(request).resolves.toEqual({ ok: true });
+  });
+
+  test('runs an opted-in read through the shared scheduler', async () => {
+    let observedSignal = null;
+    global.fetch = vi.fn((_url, options) => {
+      observedSignal = options.signal;
+      return Promise.resolve(
+        makeResponse({ body: '{}', headers: { 'content-type': 'application/json' } })
+      );
+    });
+
+    await fetchAPI('/items', { readPolicy: { priority: 'background' } });
+    // The scheduler owns the attempt signal even when the caller has none.
+    expect(observedSignal).toBeInstanceOf(AbortSignal);
   });
 });

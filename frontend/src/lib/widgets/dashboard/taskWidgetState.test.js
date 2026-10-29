@@ -1,14 +1,16 @@
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import {
-  ROW_COUNT_OPTIONS,
-  defaultRowCount,
-  normalizeTaskResponse,
-  resolveDensity,
-  resolveRowCount,
-  rowCountToLimit,
-  shouldShowRowControls,
-} from './taskWidgetState.js';
+const mocks = vi.hoisted(() => ({ openItem: vi.fn() }));
+
+vi.mock('../../stores/itemModalStore.svelte.js', () => ({
+  itemModalStore: { open: mocks.openItem },
+}));
+
+import { defaultRowCount, normalizeTaskResponse, openTask, ROW_COUNT_OPTIONS, resolveDensity, resolveRowCount, rowCountToLimit, shouldShowRowControls } from './taskWidgetState.js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('defaultRowCount', () => {
   test('returns 6 below half width', () => {
@@ -108,5 +110,12 @@ describe('normalizeTaskResponse', () => {
   test('filters out entries without an id', () => {
     const result = normalizeTaskResponse({ data: [{ title: 'no id' }, ...items] });
     expect(result).toHaveLength(4);
+  });
+});
+
+describe('openTask', () => {
+  test('opens the unified item modal with the task and workspace ids', () => {
+    openTask({ id: 21, workspace_id: 7 });
+    expect(mocks.openItem).toHaveBeenCalledWith(21, 7);
   });
 });

@@ -1,13 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-	API_SPEC_VERSIONS,
-	filterGroups,
-	groupOperationsByTag,
-	loadSpec,
-	operationRequiredScopes,
-	resolveOperationParameters,
-} from "./openapi-store.svelte.js";
+import { API_SPEC_VERSIONS, filterGroups, groupOperationsByTag, loadSpec, operationRequiredScopes, resolveOperationParameters } from "./openapi-store.svelte.js";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -97,5 +90,12 @@ describe("API documentation versions", () => {
 		})).toEqual(["tests:read"]);
 		expect(operationRequiredScopes({ security: [{ BearerAuth: ["items:read"] }] }))
 			.toEqual(["items:read"]);
+	});
+
+	it("surfaces alternative scopes accepted by a route", () => {
+		expect(operationRequiredScopes({
+			security: [{ BearerAuth: [] }],
+			"x-required-any-scopes": ["items:read", "pages:read"],
+		})).toEqual(["items:read", "pages:read"]);
 	});
 });

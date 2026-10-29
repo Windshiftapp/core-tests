@@ -168,4 +168,66 @@ test.describe("Board chrome", () => {
 			).toBe(204);
 		}
 	});
+
+	test("chrome matches the header layout of the other collection views", async ({
+		page,
+		request,
+	}) => {
+		test.setTimeout(60_000);
+		// The board header carries grouping, sorting, and the selection toggle
+		// next to the view switcher, so it needs a wide viewport to keep all
+		// controls on one line. Below this the header wraps, which is the
+		// intended responsive behavior, not a layout drift.
+		await page.setViewportSize({ width: 1600, height: 800 });
+		await authenticateAdminRequest(request);
+
+		const suffix = `bcl${Date.now()}`;
+		const ws = await createWorkspaceViaAPI(request, generateWorkspace(suffix));
+
+		const subtitleTop = async () => {
+			await page.evaluate(() => document.fonts.ready);
+			const box = await page
+				.getByTestId("page-header-subtitle")
+				.boundingBox();
+			expect(box).not.toBeNull();
+			return Math.round(box!.y);
+		};
+
+		try {
+			await page.goto(`/workspaces/${ws.id}/board`);
+			await expect(page.getByTestId("board-view")).toBeVisible({
+				timeout: 15_000,
+			});
+			const boardTop = await subtitleTop();
+
+			// The board header starts at the same offset as the other views'.
+			for (const [view, testid] of [
+				["list", "list-view"],
+				["tree", "tree-view"],
+				["backlog", "backlog-view"],
+			] as const) {
+				await page.goto(`/workspaces/${ws.id}/${view}`);
+				await expect(page.getByTestId(testid)).toBeVisible({
+					timeout: 15_000,
+				});
+				expect(await subtitleTop()).toBe(boardTop);
+			}
+
+			// The board chrome separates itself with whitespace, not rules.
+			await page.goto(`/workspaces/${ws.id}/board`);
+			await expect(page.getByTestId("board-view")).toBeVisible({
+				timeout: 15_000,
+			});
+			for (const testid of ["board-header", "board-controls"]) {
+				const border = await page
+					.getByTestId(testid)
+					.evaluate((el) => getComputedStyle(el).borderBottomWidth);
+				expect(border).toBe("0px");
+			}
+		} finally {
+			expect(
+				(await request.delete(`/api/v2/workspaces/${ws.id}`)).status(),
+			).toBe(204);
+		}
+	});
 });

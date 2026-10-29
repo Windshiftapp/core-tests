@@ -1,4 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../api/configuration.js', () => ({
+  customFields: { getOverview: vi.fn() },
+  screens: { getAllWithFields: vi.fn(), getFields: vi.fn() },
+}));
+
+import { customFields, screens } from '../api/configuration.js';
 import { customFieldFormData, customFieldUpdatePayload, linkingFieldOptions, loadCustomFieldsOverview } from './customFieldsData.js';
 
 describe('custom field editor form data', () => {
@@ -36,25 +43,22 @@ describe('custom field editor form data', () => {
 });
 
 describe('custom fields screen request graph', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('loads every screen assignment with two bounded requests', async () => {
-    const apiClient = {
-      customFields: {
-		getOverview: vi.fn().mockResolvedValue({
-		  customFields: [{ id: 7 }],
-		  indexCounts: { items: { current: 2, max: 20 }, assets: { current: 1, max: 20 } },
-		}),
-      },
-      screens: {
-        getAllWithFields: vi.fn().mockResolvedValue([{ id: 1, fields: [{ id: 10 }] }, { id: 2 }]),
-        getFields: vi.fn(),
-      },
-    };
+    customFields.getOverview.mockResolvedValue({
+      customFields: [{ id: 7 }],
+      indexCounts: { items: { current: 2, max: 20 }, assets: { current: 1, max: 20 } },
+    });
+    screens.getAllWithFields.mockResolvedValue([{ id: 1, fields: [{ id: 10 }] }, { id: 2 }]);
 
-    const loading = loadCustomFieldsOverview(apiClient);
+    const loading = loadCustomFieldsOverview();
 
-    expect(apiClient.customFields.getOverview).toHaveBeenCalledOnce();
-    expect(apiClient.screens.getAllWithFields).toHaveBeenCalledOnce();
-    expect(apiClient.screens.getFields).not.toHaveBeenCalled();
+    expect(customFields.getOverview).toHaveBeenCalledOnce();
+    expect(screens.getAllWithFields).toHaveBeenCalledOnce();
+    expect(screens.getFields).not.toHaveBeenCalled();
     const overview = await loading;
     expect(overview.customFields).toEqual([{ id: 7 }]);
     expect(overview.indexCounts.items.current).toBe(2);
@@ -65,19 +69,13 @@ describe('custom fields screen request graph', () => {
   });
 
   it('preserves the custom field list when screen metadata fails to load', async () => {
-    const apiClient = {
-      customFields: {
-		getOverview: vi.fn().mockResolvedValue({
-		  customFields: [{ id: 7 }, { id: 8 }],
-		  indexCounts: { items: { current: 0, max: 20 }, assets: { current: 0, max: 20 } },
-		}),
-      },
-      screens: {
-        getAllWithFields: vi.fn().mockRejectedValue(new Error('orphaned screen field')),
-      },
-    };
+    customFields.getOverview.mockResolvedValue({
+      customFields: [{ id: 7 }, { id: 8 }],
+      indexCounts: { items: { current: 0, max: 20 }, assets: { current: 0, max: 20 } },
+    });
+    screens.getAllWithFields.mockRejectedValue(new Error('orphaned screen field'));
 
-    const overview = await loadCustomFieldsOverview(apiClient);
+    const overview = await loadCustomFieldsOverview();
 
     expect(overview.customFields).toEqual([{ id: 7 }, { id: 8 }]);
     expect(overview.screens).toEqual([]);

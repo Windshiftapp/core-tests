@@ -1,4 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { collections } from '../api/collections.js';
+import { statuses } from '../api/workflows.js';
 
 const mocks = vi.hoisted(() => ({
 	items: vi.fn(),
@@ -10,8 +12,15 @@ vi.mock("../router.js", () => ({
 	currentRoute: { subscribe: () => () => {} },
 	GLOBAL_COLLECTION_VIEWS: new Set(),
 }));
-vi.mock("../api.js", () => ({
-	api: { collections: { getBoardConfigurationBootstrap: async () => null } },
+vi.mock('../api/users.js', () => ({
+	userPreferences: {
+		get: vi.fn().mockResolvedValue({}),
+		update: vi.fn().mockResolvedValue({}),
+	},
+}));
+vi.mock('../api/collections.js', () => ({
+  collections: { getBoardConfigurationBootstrap: async () => null },
+  collectionCategories: { getAll: vi.fn().mockResolvedValue([]) },
 }));
 vi.mock("./workspaceDataStore.svelte.js", () => ({
 	workspaceDataStore: {
@@ -40,6 +49,7 @@ vi.mock("../features/collections/collectionService.js", () => ({
 }));
 
 const { collectionStore } = await import("./collectionContext.svelte.js");
+const { collectionPreferences } = await import("./collectionPreferences.svelte.js");
 const result = {
 	items: [{ id: 1, status_id: 8 }],
 	collectionName: "Workspace",
@@ -49,6 +59,7 @@ const result = {
 
 beforeEach(async () => {
 	localStorage.clear();
+	collectionPreferences.reset();
 	vi.clearAllMocks();
 	mocks.items.mockResolvedValue(result);
 	mocks.backlog.mockResolvedValue(result);
@@ -62,6 +73,7 @@ beforeEach(async () => {
 });
 afterAll(() => {
 	localStorage.clear();
+	collectionPreferences.reset();
 	collectionStore.destroy();
 });
 

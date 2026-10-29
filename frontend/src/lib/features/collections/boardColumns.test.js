@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  boardStatusIdForItem,
-  buildDisplayColumns,
-  PERSONAL_TASK_DONE_STATUS_ID,
-  PERSONAL_TASK_OPEN_STATUS_ID,
-  statusIdForBoardColumnMove,
-} from './boardColumns.js';
+import { boardStatusIdForItem, buildDisplayColumns, PERSONAL_TASK_DONE_STATUS_ID, PERSONAL_TASK_OPEN_STATUS_ID, sortStatusesForBoard, statusIdForBoardColumnMove } from './boardColumns.js';
 
 const columns = [
   { id: 10, name: 'Ready', status_ids: [101] },
@@ -14,6 +8,61 @@ const columns = [
   { id: 30, name: 'Shipped', status_ids: [303] },
 ];
 const personalWorkspaceIds = new Set([9]);
+
+describe('default board column ordering', () => {
+  const status = (id, name, builtinKey, isCompleted) => ({
+    id,
+    name,
+    category_builtin_key: builtinKey,
+    is_completed: isCompleted,
+  });
+
+  it('places completed categories last and custom categories before them', () => {
+    const ordered = sortStatusesForBoard([
+      status(4, 'Done', 'done', true),
+      status(3, 'UT Testing', null, false),
+      status(1, 'Open', 'to_do', false),
+      status(2, 'In Progress', 'in_progress', false),
+    ]);
+
+    expect(ordered.map((s) => s.name)).toEqual(['Open', 'In Progress', 'UT Testing', 'Done']);
+  });
+
+  it('keeps to_do before in_progress and sorts custom categories alphabetically', () => {
+    const ordered = sortStatusesForBoard([
+      status(5, 'UA Testing', null, false),
+      status(2, 'In Progress', 'in_progress', false),
+      status(4, 'UT Testing', null, false),
+      status(1, 'Open', 'to_do', false),
+    ]);
+
+    expect(ordered.map((s) => s.name)).toEqual([
+      'Open',
+      'In Progress',
+      'UA Testing',
+      'UT Testing',
+    ]);
+  });
+
+  it('reads category metadata from the nested category shape', () => {
+    const ordered = sortStatusesForBoard([
+      { id: 2, name: 'Done', category: { builtin_key: 'done', is_completed: true } },
+      { id: 1, name: 'Open', category: { builtin_key: 'to_do', is_completed: false } },
+    ]);
+
+    expect(ordered.map((s) => s.name)).toEqual(['Open', 'Done']);
+  });
+
+  it('orders completed categories after all open work', () => {
+    const ordered = sortStatusesForBoard([
+      status(6, 'Archived', 'archived', true),
+      status(5, 'Done', 'done', true),
+      status(1, 'Open', 'to_do', false),
+    ]);
+
+    expect(ordered.map((s) => s.name)).toEqual(['Open', 'Archived', 'Done']);
+  });
+});
 
 describe('personal task board status mapping', () => {
   it('places Open and Done in the board endpoint columns', () => {
@@ -49,25 +98,5 @@ describe('personal task board status mapping', () => {
     expect(statusIdForBoardColumnMove(task, columns[2], columns, personalWorkspaceIds)).toBe(
       PERSONAL_TASK_DONE_STATUS_ID
     );
-  });
-});
-
-describe('default board column order', () => {
-  it('orders statuses from nested API v2 categories as Open, In Progress, Done', () => {
-    const statuses = [
-      { id: 3, name: 'Done', category: { builtin_key: 'done', color: '#22c55e' } },
-      {
-        id: 2,
-        name: 'In Progress',
-        category: { builtin_key: 'in_progress', color: '#3b82f6' },
-      },
-      { id: 1, name: 'Open', category: { builtin_key: 'to_do', color: '#d1d5db' } },
-    ];
-
-    expect(buildDisplayColumns(null, statuses)).toEqual([
-      expect.objectContaining({ id: 1, name: 'Open', color: '#d1d5db' }),
-      expect.objectContaining({ id: 2, name: 'In Progress', color: '#3b82f6' }),
-      expect.objectContaining({ id: 3, name: 'Done', color: '#22c55e' }),
-    ]);
   });
 });

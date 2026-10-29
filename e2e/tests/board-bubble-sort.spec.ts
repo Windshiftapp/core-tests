@@ -8,6 +8,7 @@ import {
 import { createWorkspaceViaAPI } from '../fixtures/api-helpers';
 import { generateWorkspace } from '../fixtures/test-data';
 import { BoardPage } from '../pages/board.page';
+import { preferenceSave } from '../helpers/preferences';
 
 /**
  * Board "Sort by" control with Bubble Mode.
@@ -120,7 +121,9 @@ test.describe('Board Bubble Mode sort', () => {
     // Switch to Bubble Mode: newest-active rises to the top. With no activity
     // yet, last_active_at == created_at, so the most recently created is first.
     await sortTrigger.click();
+    const sortSaved = preferenceSave(page);
     await page.locator('[data-testid="board-sort-bubble"]').click();
+    await sortSaved;
     await expect(sortTrigger).toContainText('Sort: Bubble');
     await expect.poll(firstCardId).toBe(String(newest));
 

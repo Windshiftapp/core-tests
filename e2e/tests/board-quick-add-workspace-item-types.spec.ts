@@ -77,6 +77,43 @@ async function expectOnlyAllowedType(
 }
 
 test.describe("Board quick-add workspace item types", () => {
+	test("limits an unassigned workspace to the default configuration set", async ({
+		page,
+		request,
+	}) => {
+		const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+		const workspace = await createWorkspaceViaAPI(request, {
+			name: `Board default scope ${suffix}`,
+			key: `BD${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`,
+			description: "Board quick-add default item-type scoping E2E",
+		});
+		const itemTypes = (await listItemTypesViaAPI(request)) as ItemType[];
+		const initiative = itemTypes.find((type) => type.name === "Initiative");
+		const task = itemTypes.find((type) => type.name === "Task");
+		expect(initiative, "Initiative item type is seeded").toBeTruthy();
+		expect(task, "Task item type is seeded").toBeTruthy();
+
+		const board = new BoardPage(page);
+		await board.goto(String(workspace.id));
+		await board.verifyBoardVisible();
+
+		await openFirstQuickAdd(page);
+		await page.getByTestId("quick-add-workspace").click();
+		await page
+			.getByTestId(`quick-add-workspace-option-${workspace.id}`)
+			.click();
+
+		await page.getByTestId("quick-add-type").click();
+		// The seeded default set excludes Initiative, so the quick-add must not
+		// offer it even though the workspace has no explicit assignment.
+		await expect(
+			page.getByTestId(`quick-add-type-option-${initiative?.id}`),
+		).toHaveCount(0);
+		await expect(
+			page.getByTestId(`quick-add-type-option-${task?.id}`),
+		).toBeVisible();
+	});
+
 	test("limits the default collection to its workspace configuration", async ({
 		page,
 		request,

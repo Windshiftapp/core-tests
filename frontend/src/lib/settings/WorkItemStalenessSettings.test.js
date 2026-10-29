@@ -1,13 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    workItemStaleness: {
-      get: vi.fn(),
-      update: vi.fn(),
-    },
-  },
+vi.mock('../api/ai.js', () => ({
+  workItemStaleness: {
+        get: vi.fn(),
+        update: vi.fn(),
+      },
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
@@ -28,7 +26,7 @@ vi.mock('../stores/workItemStalenessSettings.svelte.js', () => ({
   },
 }));
 
-import { api } from '../api.js';
+import { workItemStaleness } from '../api/ai.js';
 import { workItemStalenessSettings } from '../stores/workItemStalenessSettings.svelte.js';
 import { successToast } from '../stores/toasts.svelte.js';
 import WorkItemStalenessSettings from './WorkItemStalenessSettings.svelte';
@@ -36,8 +34,8 @@ import WorkItemStalenessSettings from './WorkItemStalenessSettings.svelte';
 describe('WorkItemStalenessSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.workItemStaleness.get.mockResolvedValue({ stale_after_days: 30 });
-    api.workItemStaleness.update.mockResolvedValue({ stale_after_days: 45 });
+    workItemStaleness.get.mockResolvedValue({ stale_after_days: 30 });
+    workItemStaleness.update.mockResolvedValue({ stale_after_days: 45 });
   });
 
   it('loads, validates, and saves the shared threshold', async () => {
@@ -50,7 +48,7 @@ describe('WorkItemStalenessSettings', () => {
     await fireEvent.click(screen.getByTestId('work-item-staleness-save'));
 
     await waitFor(() => {
-      expect(api.workItemStaleness.update).toHaveBeenCalledWith({ stale_after_days: 45 });
+      expect(workItemStaleness.update).toHaveBeenCalledWith({ stale_after_days: 45 });
     });
     expect(workItemStalenessSettings.hydrate).toHaveBeenCalledWith({ stale_after_days: 45 });
     expect(successToast).toHaveBeenCalled();
@@ -64,6 +62,6 @@ describe('WorkItemStalenessSettings', () => {
     await fireEvent.click(screen.getByTestId('work-item-staleness-save'));
 
     expect(await screen.findByText(/between 1 and 365 days/i)).toBeInTheDocument();
-    expect(api.workItemStaleness.update).not.toHaveBeenCalled();
+    expect(workItemStaleness.update).not.toHaveBeenCalled();
   });
 });

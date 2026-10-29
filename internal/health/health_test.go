@@ -45,19 +45,19 @@ func TestReadinessHandler(t *testing.T) {
 			name:       "database available",
 			pinger:     pingerFunc(func(context.Context) error { return nil }),
 			wantStatus: http.StatusOK,
-			wantBody:   "{\"status\":\"ready\",\"database\":\"ok\"}\n",
+			wantBody:   "{\"status\":\"ready\",\"database\":\"ok\",\"attachments\":\"disabled\"}\n",
 		},
 		{
 			name:       "database unavailable",
 			pinger:     pingerFunc(func(context.Context) error { return errors.New("connection details must not leak") }),
 			wantStatus: http.StatusServiceUnavailable,
-			wantBody:   "{\"status\":\"not_ready\",\"database\":\"unavailable\"}\n",
+			wantBody:   "{\"status\":\"not_ready\",\"database\":\"unavailable\",\"attachments\":\"disabled\"}\n",
 		},
 		{
 			name:       "database not configured",
 			pinger:     nil,
 			wantStatus: http.StatusServiceUnavailable,
-			wantBody:   "{\"status\":\"not_ready\",\"database\":\"unavailable\"}\n",
+			wantBody:   "{\"status\":\"not_ready\",\"database\":\"unavailable\",\"attachments\":\"unknown\"}\n",
 		},
 	}
 

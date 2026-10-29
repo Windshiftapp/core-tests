@@ -3,6 +3,7 @@ package handlers
 import (
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/database"
 	"windshift/internal/testutils/factory"
 )
@@ -47,6 +48,11 @@ func seedTwoWorkspacesAndItems(t *testing.T, db database.Database) (foreignItemI
 	}, {
 		from: createdOwned, to: 1002,
 	}} {
+		// The fixture re-ids items, so drop the creation history that now
+		// references the old id before moving the primary key.
+		if _, err := db.Exec(`DELETE FROM item_history WHERE item_id = ?`, pin.from); err != nil {
+			t.Fatalf("clear item history for id %d: %v", pin.from, err)
+		}
 		if _, err := db.Exec(`UPDATE items SET id = ? WHERE id = ?`, pin.to, pin.from); err != nil {
 			t.Fatalf("pin item id %d: %v", pin.to, err)
 		}
@@ -70,7 +76,7 @@ func TestPublicBoardHandler_ItemBelongsToCollection_RespectsCollectionWorkspaceS
 	}
 
 	permService := newNegativeTestPermissionService(t, db)
-	handler := NewPublicBoardHandler(db, permService, t.TempDir())
+	handler := NewPublicBoardHandler(db, permService, blobstore.NewLocal(t.TempDir()))
 
 	// Sanity: the W2-owned item still belongs to its collection (positive case).
 	belongs, err := handler.itemBelongsToCollection(ownedItem, 42)

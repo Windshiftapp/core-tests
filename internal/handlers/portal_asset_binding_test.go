@@ -34,6 +34,11 @@ func TestAssetReportBindingAvailableFailsClosedOnDrift(t *testing.T) {
 		t.Fatalf("valid binding = (%v, %v), want (true, nil)", allowed, err)
 	}
 
+	// A form-mode report must pin a workspace; nil is not a valid binding.
+	allowed, err = handler.assetReportBindingAvailable(&config, "form", &itemTypeID, nil)
+	if err != nil || allowed {
+		t.Fatalf("unpinned form binding = (%v, %v), want (false, nil)", allowed, err)
+	}
 	otherWorkspaceID := workspaceID + 100
 	allowed, err = handler.assetReportBindingAvailable(&config, "form", &itemTypeID, &otherWorkspaceID)
 	if err != nil || allowed {

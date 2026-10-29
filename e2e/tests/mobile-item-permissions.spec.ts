@@ -66,14 +66,14 @@ async function openMobileItem(page: import('@playwright/test').Page, itemId: num
 }
 
 /**
- * Wait for the create page's two data sources to settle: the workspace list
- * (fetched page by page and rendered only from the fully merged list) and
- * the user's permission profile (the picker filters the list by item.create).
+ * Wait for the create page's two data sources to settle: the workspace
+ * directory (which caches only its first server page, WI-1442) and the user's
+ * permission profile (the picker filters the directory by item.create).
  * Option assertions that run before both responses have been applied by the
  * page would race the stores, so every picker test waits here first.
  */
 async function waitForCreatePickerData(page: import('@playwright/test').Page) {
-	const lastWorkspacesPage = page.waitForResponse(async (r) => {
+	const directoryPage = page.waitForResponse(async (r) => {
 		if (
 			r.request().method() !== 'GET' ||
 			!/\/api\/v2\/workspaces(\?|$)/.test(r.url()) ||
@@ -82,12 +82,9 @@ async function waitForCreatePickerData(page: import('@playwright/test').Page) {
 			return false;
 		}
 		const body = (await r.json()) as {
-			pagination?: { page?: number; total_pages?: number };
+			pagination?: { page?: number };
 		};
-		return (
-			!body.pagination ||
-			(body.pagination.page ?? 1) >= (body.pagination.total_pages ?? 1)
-		);
+		return !body.pagination || (body.pagination.page ?? 1) === 1;
 	});
 	const permissionProfile = page.waitForResponse(
 		(r) =>
@@ -95,7 +92,7 @@ async function waitForCreatePickerData(page: import('@playwright/test').Page) {
 			/\/api\/users\/\d+\/permissions$/.test(new URL(r.url()).pathname) &&
 			r.ok(),
 	);
-	await Promise.all([lastWorkspacesPage, permissionProfile]);
+	await Promise.all([directoryPage, permissionProfile]);
 }
 
 test.describe('mobile item surface vs item.edit / item.create', () => {
@@ -232,8 +229,11 @@ test.describe('mobile item surface vs item.edit / item.create', () => {
 			const workspace = await getWorkspace(request, workspaceId);
 
 			await viewer.page.setViewportSize(MOBILE_VIEWPORT);
+			// Register the response waits before navigating so a fast load cannot
+			// settle the stores before the listeners attach.
+			const pickerData = waitForCreatePickerData(viewer.page);
 			await viewer.page.goto('/m/new');
-			await waitForCreatePickerData(viewer.page);
+			await pickerData;
 
 			// The gated workspace must not be offered as a creation target.
 			const optionLabels = await workspaceOptionLabels(viewer.page);
@@ -259,8 +259,11 @@ test.describe('mobile item surface vs item.edit / item.create', () => {
 			const workspace = await getWorkspace(request, workspaceId);
 
 			await editor.page.setViewportSize(MOBILE_VIEWPORT);
+			// Register the response waits before navigating so a fast load cannot
+			// settle the stores before the listeners attach.
+			const pickerData = waitForCreatePickerData(editor.page);
 			await editor.page.goto('/m/new');
-			await waitForCreatePickerData(editor.page);
+			await pickerData;
 			const optionLabels = await workspaceOptionLabels(editor.page);
 
 			// The Editor holds item.create: the gated workspace is offered

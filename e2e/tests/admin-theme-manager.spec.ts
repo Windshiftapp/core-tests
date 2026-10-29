@@ -1,3 +1,4 @@
+import { restoreActiveTheme } from "../fixtures/api-helpers";
 import { expect, type APIRequestContext, test } from "../fixtures/context-path";
 
 /**
@@ -68,13 +69,7 @@ test.describe("Admin theme manager", () => {
 			if (createdId) {
 				await request.delete(`/api/themes/${createdId}`, { headers: SEC_FETCH });
 			}
-			if (originalActive) {
-				const restoreResponse = await request.post(
-					`/api/themes/${originalActive.id}/activate`,
-					{ headers: SEC_FETCH },
-				);
-				expect(restoreResponse.ok()).toBeTruthy();
-			}
+			await restoreActiveTheme(request, originalActive);
 		}
 	});
 });

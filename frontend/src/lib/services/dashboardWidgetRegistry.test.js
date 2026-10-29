@@ -1,11 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  buildDefaultDashboardLayout,
-  dashboardWidgetRegistry,
-  getDashboardWidgetDefaultWidth,
-  getDashboardWidgetMinWidth,
-} from './dashboardWidgetRegistry.js';
+import { buildDefaultDashboardLayout, dashboardWidgetCategories, dashboardWidgetRegistry, getDashboardWidgetDefaultWidth, getDashboardWidgetMinWidth, getDashboardWidgetsByCategory } from './dashboardWidgetRegistry.js';
 
 describe('dashboardWidgetRegistry', () => {
   test('every widget has a 12-column defaultWidth and minWidth', () => {
@@ -24,6 +19,19 @@ describe('dashboardWidgetRegistry', () => {
   test('getDashboardWidgetMinWidth returns 3 for unknown types', () => {
     expect(getDashboardWidgetMinWidth('nonexistent')).toBe(3);
   });
+
+  test('assigns every widget to a known category', () => {
+    const knownCategories = Object.values(dashboardWidgetCategories);
+    for (const w of dashboardWidgetRegistry) {
+      expect(knownCategories, `${w.type} category`).toContain(w.category);
+    }
+  });
+
+  test('groups the support overview under the support category', () => {
+    expect(
+      getDashboardWidgetsByCategory(dashboardWidgetCategories.SUPPORT).map((w) => w.type)
+    ).toContain('support-overview');
+  });
 });
 
 describe('buildDefaultDashboardLayout', () => {
@@ -33,9 +41,13 @@ describe('buildDefaultDashboardLayout', () => {
     expect(layout.grid_columns).toBe(12);
   });
 
-  test('Work section seeds personal-tasks and assigned-to-me at 6+6', () => {
+  test('Work section seeds personal, assigned and created items at 6-column widths', () => {
     const workWidgets = layout.widgets.filter((w) => w.section_id === 'default-work');
-    expect(workWidgets).toHaveLength(2);
+    expect(workWidgets.map((w) => w.type)).toEqual([
+      'personal-tasks',
+      'assigned-to-me',
+      'created-by-me',
+    ]);
     expect(workWidgets.every((w) => w.width === 6)).toBe(true);
   });
 

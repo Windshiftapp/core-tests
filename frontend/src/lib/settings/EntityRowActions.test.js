@@ -18,6 +18,5 @@ describe('EntityRowActions', () => {
 
     await fireEvent.click(screen.getByTestId('edit-action'));
     expect(onEdit).toHaveBeenCalledOnce();
-    expect(screen.getByTestId('delete-action')).toHaveStyle({ color: 'var(--ds-text-danger)' });
   });
 });

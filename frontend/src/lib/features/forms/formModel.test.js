@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildFormSteps,
-  clampFormStep,
-  initializeFormValues,
-  parseFormOptions,
-  validateFormStep,
-} from './formModel.js';
+import { buildFormSteps, clampFormStep, initializeFormValues, parseFormOptions, validateFormStep } from './formModel.js';
 
 const fields = [
   {

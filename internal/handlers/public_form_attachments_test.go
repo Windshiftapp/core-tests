@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/services"
 	"windshift/internal/testutils"
 )
@@ -84,7 +85,7 @@ func newPublicFormAttachmentFixture(t *testing.T, attachmentPath string, allowAt
 	}
 
 	handler := NewFormHandler(tdb, nil, nil, nil, nil)
-	handler.SetItemAttachmentService(services.NewItemAttachmentService(tdb, attachmentPath, nil))
+	handler.SetItemAttachmentService(services.NewItemAttachmentService(tdb, blobstore.NewLocal(attachmentPath), nil))
 	return &publicFormAttachmentFixture{
 		db:             tdb,
 		handler:        handler,

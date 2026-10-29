@@ -25,9 +25,14 @@ async function chooseMultiFilter(
 	page: Page,
 	scope: "workspace" | "status" | "priority",
 	id: number,
+	searchTerm?: string,
 ) {
 	const filter = page.getByTestId(`global-search-${scope}-filter`);
-	await filter.locator('input[type="text"]').click();
+	const input = filter.locator('input[type="text"]');
+	await input.click();
+	// The picker mounts at most 100 options, so a fixture that sorts late is
+	// not in the DOM until the query narrows the list.
+	if (searchTerm) await input.fill(searchTerm);
 	await page.getByTestId(`global-search-${scope}-option-${id}`).click();
 	await page.keyboard.press("Escape");
 }
@@ -151,7 +156,7 @@ test.describe("WI-696: critical global-search journeys", () => {
 		const query = page.getByTestId("global-search-query");
 		await query.fill(queryToken);
 		await query.press("Enter");
-		await chooseMultiFilter(page, "workspace", workspace.id);
+		await chooseMultiFilter(page, "workspace", workspace.id, workspace.name);
 		await chooseMultiFilter(page, "status", openStatus.id);
 		await chooseMultiFilter(page, "priority", highPriority.id);
 

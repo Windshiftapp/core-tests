@@ -1,0 +1,306 @@
+{
+	"baseline": {
+		"core_tests_commit": "9cf434b",
+		"playwright_total_tests": 564,
+		"playwright_total_files": 143,
+		"request_only_spec_files": 36,
+		"post_migration_playwright_tests": 386,
+		"post_migration_playwright_files": 107,
+		"migrated_playwright_tests": 178,
+		"note": "Live inventory on 2026-07-22. The page-113 review counted at least 40 before later browser conversions and suite changes."
+	},
+	"migrations": [
+		{
+			"spec": "tests/action-credentials.spec.ts",
+			"go_coverage": [
+				"internal/handlers/action_credentials_test.go",
+				"internal/services/action_credential_service_test.go"
+			]
+		},
+		{
+			"spec": "tests/action-templates-close-subtasks.spec.ts",
+			"go_coverage": ["tests/action_template_runtime_test.go"]
+		},
+		{
+			"spec": "tests/ai-features.spec.ts",
+			"go_coverage": [
+				"tests/ai_features_config_test.go",
+				"tests/permission_global_test.go"
+			]
+		},
+		{
+			"spec": "tests/api-token-live-revocation.spec.ts",
+			"go_coverage": [
+				"internal/auth/tokens_revocation_test.go",
+				"tests/api_token_scope_test.go"
+			]
+		},
+		{
+			"spec": "tests/approvals-portal.spec.ts",
+			"go_coverage": [
+				"internal/services/approval_channel_security_test.go",
+				"internal/services/approval_service_test.go",
+				"tests/permission_portal_test.go"
+			]
+		},
+		{
+			"spec": "tests/approvals.spec.ts",
+			"go_coverage": [
+				"internal/services/approval_service_test.go",
+				"tests/mcp_approvals_test.go",
+				"tests/condition_transitions_test.go"
+			]
+		},
+		{
+			"spec": "tests/asset-action-graph.spec.ts",
+			"go_coverage": [
+				"tests/action_surface_convergence_test.go",
+				"internal/services/action_node_executor_test.go",
+				"internal/services/action_security_test.go"
+			]
+		},
+		{
+			"spec": "tests/asset-csv-import.spec.ts",
+			"go_coverage": [
+				"internal/services/asset_import_required_fields_test.go",
+				"internal/services/asset_custom_field_sanitize_test.go"
+			]
+		},
+		{
+			"spec": "tests/assets-lifecycle.spec.ts",
+			"go_coverage": [
+				"internal/services/asset_service_test.go",
+				"internal/cql/asset_cql_test.go",
+				"tests/v1_assets_test.go"
+			]
+		},
+		{
+			"spec": "tests/attachments-roles.spec.ts",
+			"go_coverage": [
+				"internal/handlers/attachment_test.go",
+				"internal/services/attachment_service_test.go",
+				"tests/permission_matrix_test.go"
+			]
+		},
+		{
+			"spec": "tests/audit-security-events.spec.ts",
+			"go_coverage": [
+				"internal/handlers/audit_log_test.go",
+				"internal/logger/audit_test.go",
+				"internal/handlers/scim_audit_test.go"
+			]
+		},
+		{
+			"spec": "tests/comments-roles.spec.ts",
+			"go_coverage": [
+				"internal/services/comment_write_chokepoint_test.go",
+				"internal/services/comment_service_test.go",
+				"tests/permission_matrix_test.go"
+			]
+		},
+		{
+			"spec": "tests/condition-sets.spec.ts",
+			"go_coverage": [
+				"tests/condition_transitions_test.go",
+				"internal/handlers/workflow_components_test.go"
+			]
+		},
+		{
+			"spec": "tests/email-smtp.spec.ts",
+			"go_coverage": [
+				"internal/smtp/notification_sender_test.go",
+				"tests/email_channel_test.go"
+			]
+		},
+		{
+			"spec": "tests/item-links-roles.spec.ts",
+			"go_coverage": [
+				"internal/services/item_link_orchestration_test.go",
+				"internal/services/item_link_referenced_access_test.go",
+				"tests/item_links_test.go"
+			]
+		},
+		{
+			"spec": "tests/item-types.spec.ts",
+			"go_coverage": [
+				"internal/services/items_creation_fields_test.go",
+				"internal/services/item_application_service_test.go"
+			]
+		},
+		{
+			"spec": "tests/items-roles.spec.ts",
+			"go_coverage": [
+				"internal/services/item_application_service_test.go",
+				"internal/services/item_crud_service_test.go",
+				"tests/permission_matrix_test.go"
+			]
+		},
+		{
+			"spec": "tests/iterations-roles.spec.ts",
+			"go_coverage": [
+				"tests/planning_surface_convergence_test.go",
+				"internal/services/planning_scope_security_test.go",
+				"tests/permission_workspace_test.go"
+			]
+		},
+		{
+			"spec": "tests/mentions.spec.ts",
+			"go_coverage": [
+				"internal/services/mention_service_test.go",
+				"internal/services/binding_mention_trigger_test.go",
+				"internal/services/comment_agent_mention_test.go"
+			]
+		},
+		{
+			"spec": "tests/milestones-roles.spec.ts",
+			"go_coverage": [
+				"tests/planning_surface_convergence_test.go",
+				"internal/services/planning_scope_security_test.go",
+				"tests/permission_workspace_test.go"
+			]
+		},
+		{
+			"spec": "tests/permissions-cross-workspace.spec.ts",
+			"go_coverage": [
+				"tests/permission_isolation_test.go",
+				"tests/permission_workspace_test.go",
+				"internal/services/item_application_service_test.go"
+			]
+		},
+		{
+			"spec": "tests/permissions-customer-organisations.spec.ts",
+			"go_coverage": [
+				"internal/handlers/portal_customers_org_tickets_test.go",
+				"internal/services/portal_service_test.go",
+				"tests/time_project_surface_convergence_test.go"
+			]
+		},
+		{
+			"spec": "tests/portal-attachments-permissions.spec.ts",
+			"go_coverage": [
+				"internal/handlers/attachment_test.go",
+				"internal/services/attachment_service_test.go",
+				"internal/handlers/portal_visibility_test.go",
+				"tests/permission_portal_test.go"
+			]
+		},
+		{
+			"spec": "tests/portal-asset-reports-visibility.spec.ts",
+			"go_coverage": [
+				"internal/handlers/portal_visibility_test.go",
+				"internal/handlers/portal_asset_binding_test.go",
+				"internal/handlers/portal_bootstrap_test.go",
+				"internal/repository/asset_report_repository_test.go",
+				"tests/permission_portal_test.go"
+			]
+		},
+		{
+			"spec": "tests/recurrences.spec.ts",
+			"go_coverage": [
+				"internal/services/recurrence_service_test.go",
+				"tests/recurrence_cross_surface_test.go"
+			]
+		},
+		{
+			"spec": "tests/runner-pools.spec.ts",
+			"go_coverage": [
+				"internal/handlers/runner_control_security_test.go",
+				"internal/handlers/runner_install_test.go",
+				"internal/services/runner_registry_test.go",
+				"internal/repository/agent_run_pool_security_test.go"
+			]
+		},
+		{
+			"spec": "tests/scm-tag-milestones.spec.ts",
+			"go_coverage": [
+				"internal/scm/milestone_attach_test.go",
+				"internal/scm/milestone_attach_core_regression_test.go",
+				"internal/repository/milestone_attach_repository_test.go"
+			]
+		},
+		{
+			"spec": "tests/screens-core-fields.spec.ts",
+			"go_coverage": [
+				"internal/handlers/screens_test.go",
+				"internal/handlers/screens_bulk_test.go"
+			]
+		},
+		{
+			"spec": "tests/sso-providers.spec.ts",
+			"go_coverage": [
+				"internal/sso/security_test/handlers_test.go",
+				"internal/handlers/sso_redirect_uri_test.go",
+				"internal/handlers/sso_native_redirect_test.go"
+			]
+		},
+		{
+			"spec": "tests/time-tracking-roles.spec.ts",
+			"go_coverage": [
+				"tests/time_worklog_surface_convergence_test.go",
+				"internal/services/time_permission_masking_test.go",
+				"tests/permission_workspace_test.go"
+			]
+		},
+		{
+			"spec": "tests/transactional-emails.spec.ts",
+			"go_coverage": [
+				"internal/smtp/notification_sender_test.go",
+				"internal/services/notification_event_emission_test.go",
+				"tests/email_channel_test.go"
+			]
+		},
+		{
+			"spec": "tests/watchers-roles.spec.ts",
+			"go_coverage": [
+				"internal/repository/item_repository_test.go",
+				"internal/services/comment_service_test.go",
+				"internal/services/notification_service_test.go"
+			]
+		},
+		{
+			"spec": "tests/workflow-transition-edits-with-approvals.spec.ts",
+			"go_coverage": [
+				"internal/services/approval_service_test.go",
+				"internal/services/workflow_service_test.go",
+				"tests/condition_transitions_test.go"
+			]
+		},
+		{
+			"spec": "tests/workflows-and-transitions.spec.ts",
+			"go_coverage": [
+				"internal/services/workflow_service_test.go",
+				"internal/services/transition_matrix_service_test.go",
+				"tests/item_transition_test.go",
+				"tests/workflow_test.go"
+			]
+		},
+		{
+			"spec": "tests/workspace-settings-roles.spec.ts",
+			"go_coverage": [
+				"internal/handlers/workspaces_settings_test.go",
+				"internal/services/workspace_service_test.go",
+				"tests/permission_workspace_test.go"
+			]
+		},
+		{
+			"spec": "tests/attachment-lifecycle-permissions.spec.ts",
+			"go_coverage": ["tests/e2e_security_contracts_test.go"]
+		},
+		{
+			"spec": "tests/attachments-idor.spec.ts",
+			"go_coverage": ["tests/e2e_security_contracts_test.go"]
+		},
+		{
+			"spec": "tests/object-id-authorization.spec.ts",
+			"go_coverage": ["tests/e2e_security_contracts_test.go"]
+		},
+		{
+			"spec": "tests/search-picker-permissions.spec.ts",
+			"go_coverage": ["tests/e2e_security_contracts_test.go"]
+		},
+		{
+			"spec": "tests/wi46-workspace-background-leak.spec.ts",
+			"go_coverage": ["tests/e2e_security_contracts_test.go"]
+		}
+	]
+}

@@ -244,9 +244,9 @@ func TestMCP_Timer_StartStop(t *testing.T) {
 		t.Fatalf("start_timer started=false: %+v", started)
 	}
 
-	// No observable signals the running timer's age, so only the non-negative
-	// duration contract is asserted here; the 1-second rounding depends on
-	// wall-clock time and would require sleeping.
+	// Sleep just long enough for the duration to round to >= 1 second.
+	<-time.After(1100 * time.Millisecond)
+
 	var stopped struct {
 		Stopped         bool  `json:"stopped"`
 		DurationSeconds int64 `json:"duration_seconds"`
@@ -255,7 +255,7 @@ func TestMCP_Timer_StartStop(t *testing.T) {
 	if !stopped.Stopped {
 		t.Fatalf("stop_timer returned stopped=false: %+v", stopped)
 	}
-	if stopped.DurationSeconds < 0 {
-		t.Fatalf("stop_timer duration=%ds (want non-negative)", stopped.DurationSeconds)
+	if stopped.DurationSeconds < 1 {
+		t.Fatalf("stop_timer duration=%ds (want >=1)", stopped.DurationSeconds)
 	}
 }

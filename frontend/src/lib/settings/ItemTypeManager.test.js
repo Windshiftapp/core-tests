@@ -2,23 +2,24 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { writable } from "svelte/store";
 
-vi.mock("../api.js", () => ({
-	api: {
-		itemTypes: {
-			getAll: vi.fn(),
-			create: vi.fn(),
-			update: vi.fn(),
-			delete: vi.fn(),
-		},
-		hierarchyLevels: {
-			getAll: vi.fn(),
-		},
-		objectTranslations: {
-			list: vi.fn(),
-			upsert: vi.fn(),
-			delete: vi.fn(),
-		},
-	},
+vi.mock('../api/configuration.js', () => ({
+  itemTypes: {
+  			getAll: vi.fn(),
+  			create: vi.fn(),
+  			update: vi.fn(),
+  			delete: vi.fn(),
+  		},
+  hierarchyLevels: {
+  			getAll: vi.fn(),
+  		},
+}))
+
+vi.mock('../api/objectTranslations.js', () => ({
+  objectTranslations: {
+  			list: vi.fn(),
+  			upsert: vi.fn(),
+  			delete: vi.fn(),
+  		},
 }));
 
 vi.mock("../stores/i18n.svelte.js", () => ({
@@ -49,17 +50,18 @@ vi.mock("../composables/useConfirm.js", () => ({
 	confirm: vi.fn(),
 }));
 
-import { api } from "../api.js";
+import { hierarchyLevels, itemTypes } from '../api/configuration.js';
+import { objectTranslations } from '../api/objectTranslations.js';
 import { errorToast } from "../stores/toasts.svelte.js";
 import ItemTypeManager from "./ItemTypeManager.svelte";
 
 describe("ItemTypeManager save errors", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		api.itemTypes.getAll.mockResolvedValue([]);
-		api.hierarchyLevels.getAll.mockResolvedValue([{ level: 3, name: "Task" }]);
-		api.objectTranslations.list.mockResolvedValue([]);
-		api.objectTranslations.upsert.mockResolvedValue({
+		itemTypes.getAll.mockResolvedValue([]);
+		hierarchyLevels.getAll.mockResolvedValue([{ level: 3, name: "Task" }]);
+		objectTranslations.list.mockResolvedValue([]);
+		objectTranslations.upsert.mockResolvedValue({
 			object_type: "item_type",
 			object_id: 42,
 			field: "name",
@@ -70,7 +72,7 @@ describe("ItemTypeManager save errors", () => {
 	});
 
 	it("shows a toast above the open create modal when saving fails", async () => {
-		api.itemTypes.create.mockRejectedValue(
+		itemTypes.create.mockRejectedValue(
 			new Error("Item type with this name already exists"),
 		);
 
@@ -102,12 +104,12 @@ describe("ItemTypeManager save errors", () => {
 		await fireEvent.click(screen.getByTestId("dialog-confirm"));
 
 		expect(errorToast).toHaveBeenCalledWith("settings.itemTypes.nameRequired");
-		expect(api.itemTypes.create).not.toHaveBeenCalled();
+		expect(itemTypes.create).not.toHaveBeenCalled();
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
 	});
 
 	it("renames a custom item type through the active-locale override", async () => {
-		api.itemTypes.getAll.mockResolvedValue([
+		itemTypes.getAll.mockResolvedValue([
 			{
 				id: 42,
 				name: "Custom item type",
@@ -121,7 +123,7 @@ describe("ItemTypeManager save errors", () => {
 				is_default: false,
 			},
 		]);
-		api.itemTypes.update.mockResolvedValue({});
+		itemTypes.update.mockResolvedValue({});
 
 		render(ItemTypeManager);
 
@@ -137,7 +139,7 @@ describe("ItemTypeManager save errors", () => {
 		await fireEvent.click(screen.getByTestId("dialog-confirm"));
 
 		await waitFor(() => {
-			expect(api.objectTranslations.upsert).toHaveBeenCalledWith(
+			expect(objectTranslations.upsert).toHaveBeenCalledWith(
 				"item_type",
 				42,
 				"name",
@@ -145,7 +147,7 @@ describe("ItemTypeManager save errors", () => {
 				"Benutzerdefinierter Vorgangstyp",
 			);
 		});
-		expect(api.itemTypes.update).toHaveBeenCalledWith(
+		expect(itemTypes.update).toHaveBeenCalledWith(
 			42,
 			expect.objectContaining({ name: "Custom item type" }),
 		);

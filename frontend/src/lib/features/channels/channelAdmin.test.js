@@ -1,21 +1,19 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("../../api.js", () => ({
-	api: {
-		channels: {
-			update: vi.fn(),
-			updateConfig: vi.fn(),
-			toggle: vi.fn(),
-		},
-	},
+vi.mock('../../api/channels.js', () => ({
+  channels: {
+  			getAll: vi.fn(),
+  			update: vi.fn(),
+  			updateConfig: vi.fn(),
+  			toggle: vi.fn(),
+  		},
+  channelIntakes: {
+  			list: vi.fn(),
+  		},
 }));
 
-import { api } from "../../api.js";
-import {
-	parseChannelConfig,
-	prepareFormChannelForWorkspace,
-	saveChannelSettings,
-} from "./channelAdmin.js";
+import { channelIntakes, channels } from '../../api/channels.js';
+import { loadPortalConnectedMailboxes, parseChannelConfig, prepareFormChannelForWorkspace, saveChannelSettings } from "./channelAdmin.js";
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -57,15 +55,54 @@ describe("saveChannelSettings", () => {
 			configRef: null,
 		});
 
-		expect(api.channels.update).toHaveBeenCalledOnce();
-		expect(api.channels.toggle).not.toHaveBeenCalled();
+		expect(channels.update).toHaveBeenCalledOnce();
+		expect(channels.toggle).not.toHaveBeenCalled();
+	});
+});
+
+describe("loadPortalConnectedMailboxes", () => {
+	test("includes mailboxes whose intake targets the portal", async () => {
+		channels.getAll.mockResolvedValue([
+			{ id: 1, name: "Support", config: "{}" },
+			{ id: 2, name: "Sales", config: "{}" },
+		]);
+		channelIntakes.list.mockImplementation((channelId) =>
+			Promise.resolve(
+				channelId === 1
+					? [{ portal_channel_id: 9, workspace_id: 2 }]
+					: [{ portal_channel_id: null, workspace_id: 9 }],
+			),
+		);
+
+		const linked = await loadPortalConnectedMailboxes(9);
+
+		expect(linked.map((channel) => channel.id)).toEqual([1]);
+	});
+
+	test("ignores the legacy email_connected_portal_id key and consults intakes", async () => {
+		channels.getAll.mockResolvedValue([
+			{ id: 1, name: "Legacy", config: '{"email_connected_portal_id":9}' },
+		]);
+		channelIntakes.list.mockResolvedValue([]);
+
+		const linked = await loadPortalConnectedMailboxes(9);
+
+		expect(linked).toEqual([]);
+		expect(channelIntakes.list).toHaveBeenCalledWith(1);
+	});
+
+	test("skips a mailbox whose intake list cannot be read", async () => {
+		channels.getAll.mockResolvedValue([{ id: 1, name: "Support", config: "{}" }]);
+		channelIntakes.list.mockRejectedValue(new Error("forbidden"));
+
+		await expect(loadPortalConnectedMailboxes(9)).resolves.toEqual([]);
 	});
 });
 
 describe("prepareFormChannelForWorkspace", () => {
 	test("adds the form workspace and enables the channel before form creation", async () => {
-		api.channels.updateConfig.mockResolvedValue({ success: true });
-		api.channels.toggle.mockResolvedValue({ status: "enabled" });
+		channels.updateConfig.mockResolvedValue({ success: true });
+		channels.toggle.mockResolvedValue({ status: "enabled" });
 
 		const result = await prepareFormChannelForWorkspace({
 			channel: { id: 7, status: "disabled" },
@@ -73,10 +110,10 @@ describe("prepareFormChannelForWorkspace", () => {
 			workspaceId: 42,
 		});
 
-		expect(api.channels.updateConfig).toHaveBeenCalledWith(7, {
+		expect(channels.updateConfig).toHaveBeenCalledWith(7, {
 			form_workspace_ids: [42],
 		});
-		expect(api.channels.toggle).toHaveBeenCalledWith(7);
+		expect(channels.toggle).toHaveBeenCalledWith(7);
 		expect(result).toEqual({ workspaceIds: [42], status: "enabled" });
 	});
 
@@ -89,8 +126,8 @@ describe("prepareFormChannelForWorkspace", () => {
 			workspaceId: 42,
 		});
 
-		expect(api.channels.updateConfig).not.toHaveBeenCalled();
-		expect(api.channels.toggle).not.toHaveBeenCalled();
+		expect(channels.updateConfig).not.toHaveBeenCalled();
+		expect(channels.toggle).not.toHaveBeenCalled();
 		expect(result).toEqual({ workspaceIds, status: "enabled" });
 	});
 });

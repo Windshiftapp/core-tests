@@ -9,7 +9,7 @@ describe('QLBuilder.tryParseToBuilder', () => {
 
   test('recognizes workspace, status, priority, and title clauses', () => {
     const r = QLBuilder.tryParseToBuilder(
-      'workspaceKey = "ALPHA" AND status_id IN (1, 2) AND priority_id = 3 AND title ~ "foo"'
+      'workspaceKey = "ALPHA" AND status_id IN (1, 2) AND priority_id = 3 AND (title ~ "foo" OR description ~ "foo" OR key = "foo")'
     );
     expect(r).toEqual({
       workspaces: ['ALPHA'],
@@ -19,6 +19,38 @@ describe('QLBuilder.tryParseToBuilder', () => {
       dynamicFields: [],
       dropped: false,
     });
+  });
+
+  test('flags a title-only search as lossy because the builder search is broader', () => {
+    const r = QLBuilder.tryParseToBuilder('title ~ "foo"');
+    expect(r.search).toBe('foo');
+    expect(r.dropped).toBe(true);
+  });
+
+  test('flags repeated built-in predicates that collapse into an IN union', () => {
+    const equality = QLBuilder.tryParseToBuilder('status_id = 1 AND status_id = 2');
+    expect(equality.statuses).toEqual([1, 2]);
+    expect(equality.dropped).toBe(true);
+
+    const intersections = QLBuilder.tryParseToBuilder(
+      'status_id IN (1, 2) AND status_id IN (2, 3)'
+    );
+    expect(intersections.statuses).toEqual([1, 2, 2, 3]);
+    expect(intersections.dropped).toBe(true);
+  });
+
+  test('recovers a builder-generated search query losslessly', () => {
+    const query = QLBuilder.buildQuery({
+      workspaces: [],
+      statuses: [],
+      priorities: [],
+      search: 'foo',
+      dynamicFields: [],
+    });
+    const parsed = QLBuilder.tryParseToBuilder(query);
+    expect(parsed.search).toBe('foo');
+    expect(parsed.dropped).toBe(false);
+    expect(QLBuilder.buildQuery(parsed)).toBe(query);
   });
 
   test('builds workspace filters with stable workspace keys', () => {

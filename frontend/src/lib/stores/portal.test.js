@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { assetReports, channels, requestTypes } from '../api/channels.js';
+import { assetSets } from '../api/assets.js';
+import { portal } from '../api/portal.js';
+
+
 
 const mocks = vi.hoisted(() => ({
   auth: {
@@ -25,26 +30,30 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    assetReports: mocks.assetReports,
-    assetSets: mocks.assetSets,
-    portal: mocks.portal,
-    channels: mocks.channels,
-    requestTypes: mocks.requestTypes,
-  },
+vi.mock('../api/channels.js', () => ({
+  assetReports: mocks.assetReports,
+  channels: mocks.channels,
+  requestTypes: mocks.requestTypes,
+}))
+
+vi.mock('../api/assets.js', () => ({
+  assetSets: mocks.assetSets,
+}))
+
+vi.mock('../api/portal.js', () => ({
+  portal: mocks.portal,
 }));
 
 vi.mock('../router.js', () => ({
   navigate: vi.fn(),
 }));
 
-vi.mock('../stores', () => ({
+vi.mock('../stores/auth.svelte.js', () => ({
   authStore: {
-    get isAuthenticated() {
-      return mocks.auth.internal;
+      get isAuthenticated() {
+        return mocks.auth.internal;
+      },
     },
-  },
 }));
 
 vi.mock('./portalAuth.svelte.js', () => ({

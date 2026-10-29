@@ -3,9 +3,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ updateUserRegionalSettings: vi.fn() }));
 
-vi.mock('../api.js', () => ({ api: { updateUserRegionalSettings: mocks.updateUserRegionalSettings } }));
+vi.mock('../api/users.js', () => ({
+  updateUserRegionalSettings: mocks.updateUserRegionalSettings,
+}));
 
-vi.mock('../stores', () => ({ authStore: { patchCurrentUser: vi.fn() } }));
+vi.mock('../stores/auth.svelte.js', () => ({
+  authStore: { patchCurrentUser: vi.fn() },
+}));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
   i18n: { locale: 'en', setLocale: vi.fn() },
@@ -27,6 +31,7 @@ beforeAll(() => {
 });
 
 import ProfileRegionalSettingsTab from './ProfileRegionalSettingsTab.svelte';
+import { updateUserRegionalSettings } from '../api/users.js';
 
 afterEach(() => {
   cleanup();

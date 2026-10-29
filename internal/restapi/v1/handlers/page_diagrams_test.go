@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/models"
 	"windshift/internal/restapi"
 	"windshift/internal/services"
@@ -30,7 +31,7 @@ func TestPageDiagramHandler_CRUDAndOwnership(t *testing.T) {
 	pageApplication := services.NewPageApplicationService(pageService, pageAuth)
 	diagramService := services.NewPageDiagramService(
 		tdb.GetDatabase(),
-		t.TempDir(),
+		blobstore.NewLocal(t.TempDir()),
 		pageApplication,
 		pageAuth,
 		permissions,

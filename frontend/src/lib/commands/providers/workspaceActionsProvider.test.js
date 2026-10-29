@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const permissionState = vi.hoisted(() => ({ admin: false }));
 
-vi.mock('../../stores', () => ({
+vi.mock('../../stores/workspacePermissions.svelte.js', () => ({
   workspacePermissions: {
-    canAdminWorkspace: vi.fn(() => permissionState.admin),
-    canViewTests: vi.fn(() => false),
-  },
+      canAdminWorkspace: vi.fn(() => permissionState.admin),
+      canViewTests: vi.fn(() => false),
+    },
 }));
 
 import { workspaceActionsProvider } from './workspaceActionsProvider.js';

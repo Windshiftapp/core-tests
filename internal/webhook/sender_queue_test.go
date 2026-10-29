@@ -225,10 +225,8 @@ func TestDispatchHydratesPayloadOnceForMatchingDestinations(t *testing.T) {
 
 	sender.DispatchEvent("item.updated", &models.Item{ID: 42, WorkspaceID: 7})
 	deadline := time.Now().Add(2 * time.Second)
-	tick := time.NewTicker(time.Millisecond)
-	defer tick.Stop()
 	for sender.Stats().Processed < 1 && time.Now().Before(deadline) {
-		<-tick.C
+		<-time.After(time.Millisecond)
 	}
 
 	stats := sender.Stats()
@@ -267,15 +265,10 @@ func TestDeliveryConcurrencyIsBoundedPerDestination(t *testing.T) {
 		}()
 	}
 	deadline := time.Now().Add(time.Second)
-	tick := time.NewTicker(time.Millisecond)
-	defer tick.Stop()
 	for dispatcher.active.Load() < destinationConcurrency && time.Now().Before(deadline) {
-		<-tick.C
+		<-time.After(time.Millisecond)
 	}
-	// Give late dispatches a few ticks to overshoot before asserting the cap.
-	for i := 0; i < 5; i++ {
-		<-tick.C
-	}
+	<-time.After(10 * time.Millisecond)
 	if maximum := dispatcher.maximum.Load(); maximum != destinationConcurrency {
 		t.Fatalf("maximum destination concurrency = %d, want %d", maximum, destinationConcurrency)
 	}

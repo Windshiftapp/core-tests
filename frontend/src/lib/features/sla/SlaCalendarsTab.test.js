@@ -1,15 +1,13 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    sla: {
-      getAvailableCalendars: vi.fn(),
-      createCalendar: vi.fn(),
-      updateCalendar: vi.fn(),
-      deleteCalendar: vi.fn(),
-    },
-  },
+vi.mock('../../api/sla.js', () => ({
+  sla: {
+        getAvailableCalendars: vi.fn(),
+        createCalendar: vi.fn(),
+        updateCalendar: vi.fn(),
+        deleteCalendar: vi.fn(),
+      },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -25,7 +23,7 @@ vi.mock('../../composables/useConfirm.js', () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
-import { api } from '../../api.js';
+import { sla } from '../../api/sla.js';
 import SlaCalendarsTab from './SlaCalendarsTab.svelte';
 
 const calendars = [
@@ -36,13 +34,13 @@ const calendars = [
 describe('SlaCalendarsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.sla.getAvailableCalendars.mockResolvedValue(calendars);
+    sla.getAvailableCalendars.mockResolvedValue(calendars);
   });
 
   it('lists workspace-owned and team-shared calendars for the workspace', async () => {
     render(SlaCalendarsTab, { workspaceId: 5 });
 
-    await waitFor(() => expect(api.sla.getAvailableCalendars).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(sla.getAvailableCalendars).toHaveBeenCalledWith(5));
 
     expect(await screen.findByTestId('sla-calendar-row-1')).toBeTruthy();
     expect(screen.getByTestId('sla-calendar-row-2')).toBeTruthy();
@@ -52,10 +50,10 @@ describe('SlaCalendarsTab', () => {
 
   it('loads the calendar list when the workspace changes', async () => {
     const { rerender } = render(SlaCalendarsTab, { workspaceId: 5 });
-    await waitFor(() => expect(api.sla.getAvailableCalendars).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(sla.getAvailableCalendars).toHaveBeenCalledWith(5));
 
-    api.sla.getAvailableCalendars.mockClear();
+    sla.getAvailableCalendars.mockClear();
     await rerender({ workspaceId: 9 });
-    await waitFor(() => expect(api.sla.getAvailableCalendars).toHaveBeenCalledWith(9));
+    await waitFor(() => expect(sla.getAvailableCalendars).toHaveBeenCalledWith(9));
   });
 });

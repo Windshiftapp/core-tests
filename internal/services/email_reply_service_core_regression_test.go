@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -26,7 +27,10 @@ type blockingThreadedSender struct {
 
 func (*blockingThreadedSender) IsSMTPConfigured() bool { return true }
 
-func (s *blockingThreadedSender) SendThreadedEmail(smtp.ThreadedEmailParams) error {
+func (s *blockingThreadedSender) SendThreadedEmail(p smtp.ThreadedEmailParams) error {
+	return s.SendThreadedEmailContext(context.Background(), p)
+}
+func (s *blockingThreadedSender) SendThreadedEmailContext(_ context.Context, _ smtp.ThreadedEmailParams) error {
 	s.sends.Add(1)
 	s.once.Do(func() { close(s.started) })
 	<-s.release
@@ -39,7 +43,10 @@ func (*blockingThreadedSender) RenderEmail(string, interface{}) (string, string,
 
 func (s *retryingThreadedSender) IsSMTPConfigured() bool { return true }
 
-func (s *retryingThreadedSender) SendThreadedEmail(smtp.ThreadedEmailParams) error {
+func (s *retryingThreadedSender) SendThreadedEmail(p smtp.ThreadedEmailParams) error {
+	return s.SendThreadedEmailContext(context.Background(), p)
+}
+func (s *retryingThreadedSender) SendThreadedEmailContext(_ context.Context, _ smtp.ThreadedEmailParams) error {
 	s.sends++
 	if s.fail {
 		return errors.New("temporary SMTP failure")
@@ -88,7 +95,7 @@ func TestEmailReplyOutboxRetriesTransientFailure(t *testing.T) {
 
 	sender := &retryingThreadedSender{fail: true}
 	service := NewEmailReplyService(db, sender)
-	delivered, err := service.ProcessPendingReplies(10)
+	delivered, err := service.ProcessPendingReplies(context.Background(), 10)
 	if err == nil || delivered != 0 {
 		t.Fatalf("first processing = (%d, %v), want (0, error)", delivered, err)
 	}
@@ -104,7 +111,7 @@ func TestEmailReplyOutboxRetriesTransientFailure(t *testing.T) {
 		t.Fatalf("make reply due: %v", err)
 	}
 	sender.fail = false
-	delivered, err = service.ProcessPendingReplies(10)
+	delivered, err = service.ProcessPendingReplies(context.Background(), 10)
 	if err != nil || delivered != 1 {
 		t.Fatalf("retry processing = (%d, %v), want (1, nil)", delivered, err)
 	}
@@ -157,7 +164,7 @@ func TestEmailReplyOutboxLeasePreventsCrossInstanceDuplicateSend(t *testing.T) {
 	second := NewEmailReplyService(db, sender)
 	firstResult := make(chan error, 1)
 	go func() {
-		_, processErr := first.ProcessPendingReplies(10)
+		_, processErr := first.ProcessPendingReplies(context.Background(), 10)
 		firstResult <- processErr
 	}()
 	select {
@@ -167,7 +174,7 @@ func TestEmailReplyOutboxLeasePreventsCrossInstanceDuplicateSend(t *testing.T) {
 		t.Fatal("first outbox worker did not reach SMTP send")
 	}
 
-	delivered, err := second.ProcessPendingReplies(10)
+	delivered, err := second.ProcessPendingReplies(context.Background(), 10)
 	if err != nil || delivered != 0 {
 		t.Fatalf("second instance processing = (%d, %v), want no claimed row", delivered, err)
 	}
@@ -177,5 +184,57 @@ func TestEmailReplyOutboxLeasePreventsCrossInstanceDuplicateSend(t *testing.T) {
 	}
 	if got := sender.sends.Load(); got != 1 {
 		t.Fatalf("SMTP sends = %d, want exactly 1", got)
+	}
+}
+
+// TestProcessPendingRepliesHonorsCancelledContext covers the bug hunt finding
+// that reply retries blocked digests and shutdown: a cancelled scheduler
+// context must stop the outbox loop before it sends.
+func TestProcessPendingRepliesHonorsCancelledContext(t *testing.T) {
+	db, err := database.NewSQLiteDB(filepath.Join(t.TempDir(), "reply-cancel.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.Initialize(); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	var workspaceID, channelID, itemID, commentID int
+	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Test', 'TST') RETURNING id`).Scan(&workspaceID); err != nil {
+		t.Fatalf("insert workspace: %v", err)
+	}
+	if err := db.QueryRow(`INSERT INTO channels (name, type, direction) VALUES ('Email', 'email', 'inbound') RETURNING id`).Scan(&channelID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+	itemID64, err := CreateItem(db, ItemCreationParams{WorkspaceID: workspaceID, Title: "Item"})
+	if err != nil {
+		t.Fatalf("insert item: %v", err)
+	}
+	itemID = int(itemID64)
+	if err := db.QueryRow(`INSERT INTO comments (item_id, content) VALUES (?, 'Reply') RETURNING id`, itemID).Scan(&commentID); err != nil {
+		t.Fatalf("insert comment: %v", err)
+	}
+	if _, err := db.ExecWrite(`
+		INSERT INTO email_reply_outbox (
+			comment_id, channel_id, item_id, to_email, subject, html_body,
+			text_body, message_id, references_json, from_email, next_attempt_at
+		) VALUES (?, ?, ?, 'customer@example.com', 'Re: Item', 'html', 'text',
+		          '<reply@example.com>', '[]', 'team@example.com', CURRENT_TIMESTAMP)
+	`, commentID, channelID, itemID); err != nil {
+		t.Fatalf("insert outbox row: %v", err)
+	}
+
+	sender := &retryingThreadedSender{}
+	service := NewEmailReplyService(db, sender)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	delivered, err := service.ProcessPendingReplies(ctx, 10)
+	if err == nil || delivered != 0 {
+		t.Fatalf("cancelled processing = (%d, %v), want (0, error)", delivered, err)
+	}
+	if sender.sends != 0 {
+		t.Fatalf("sent %d emails after cancellation, want 0", sender.sends)
 	}
 }

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { items } from '../api/items.js';
 
-vi.mock('../api.js', () => ({
-  api: { items: { getBacklog: vi.fn() } },
+
+vi.mock('../api/items.js', () => ({
+  items: { getBacklog: vi.fn() },
 }));
 
-const { api } = await import('../api.js');
+
 const { backlogStore } = await import('./backlogStore.svelte.js');
 
 function deferred() {
@@ -24,7 +26,7 @@ describe('BacklogStore request lifecycle', () => {
   it('keeps the active workspace count when an older request resolves last', async () => {
     const first = deferred();
     const second = deferred();
-    api.items.getBacklog.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    items.getBacklog.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 
     const firstLoad = backlogStore.load(1);
     const secondLoad = backlogStore.load(2);
@@ -40,7 +42,7 @@ describe('BacklogStore request lifecycle', () => {
 
   it('does not overwrite a component-provided count with an older request', async () => {
     const pending = deferred();
-    api.items.getBacklog.mockReturnValueOnce(pending.promise);
+    items.getBacklog.mockReturnValueOnce(pending.promise);
 
     const load = backlogStore.load(1);
     backlogStore.setCount(1, 7);

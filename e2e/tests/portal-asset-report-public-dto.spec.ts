@@ -18,11 +18,11 @@ test('anonymous bootstrap hides reports and a portal customer receives the safe 
   const customerEmail = `${slug}@windshift.test`;
   const workspace = await createWorkspaceViaAPI(request, generateWorkspace(`safe-report-${stamp}`));
 
-  const itemTypesResponse = await request.get('/api/item-types', {
+  const itemTypesResponse = await request.get('/api/v2/item-types', {
     headers: SEC_FETCH,
   });
   expect(itemTypesResponse.ok()).toBeTruthy();
-  const itemTypes = await itemTypesResponse.json();
+  const itemTypes = (await itemTypesResponse.json()).data;
   const itemTypeID = itemTypes[0]?.id;
   expect(itemTypeID).toBeGreaterThan(0);
 
@@ -54,12 +54,12 @@ test('anonymous bootstrap hides reports and a portal customer receives the safe 
     `configure portal workspace: ${await initialConfigResponse.text()}`
   ).toBeTruthy();
 
-  const assetSetResponse = await request.post('/api/asset-sets', {
+  const assetSetResponse = await request.post('/api/v2/asset-sets', {
     headers: SEC_FETCH,
     data: { name: `Safe report assets ${stamp}` },
   });
   expect(assetSetResponse.ok(), `create asset set: ${await assetSetResponse.text()}`).toBeTruthy();
-  const assetSet = await assetSetResponse.json();
+  const assetSet = (await assetSetResponse.json()).data;
 
   const reportResponse = await request.post(`/api/channels/${channel.id}/asset-reports`, {
     headers: SEC_FETCH,
@@ -166,9 +166,6 @@ test('anonymous bootstrap hides reports and a portal customer receives the safe 
     submit_button_text: 'Run guest report',
   });
 
-  await expect(page.locator('#portal-login-title')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#portal-login-title')).toBeHidden();
   await page.locator(`#portal-asset-form-${report.id}`).click();
   await expect(page.locator('#portal-asset-report-form')).toBeVisible();
   await expect(page.getByTestId('portal-asset-report-form-submit')).toContainText(

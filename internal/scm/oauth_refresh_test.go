@@ -142,45 +142,15 @@ func TestGiteaRefreshToken_HappyPath(t *testing.T) {
 	}
 }
 
-func TestRefreshLockKey_DistinguishesPrincipals(t *testing.T) {
-	cases := []struct {
-		name string
-		a    *ProviderCredentials
-		b    *ProviderCredentials
-		conn int
-		same bool
-	}{
-		{
-			name: "same user same connection",
-			a:    &ProviderCredentials{AuthSource: "user", UserID: 7},
-			b:    &ProviderCredentials{AuthSource: "user", UserID: 7},
-			conn: 12,
-			same: true,
-		},
-		{
-			name: "different users same connection",
-			a:    &ProviderCredentials{AuthSource: "user", UserID: 7},
-			b:    &ProviderCredentials{AuthSource: "user", UserID: 8},
-			conn: 12,
-			same: false,
-		},
-		{
-			name: "user vs workspace are distinct even with overlapping IDs",
-			a:    &ProviderCredentials{AuthSource: "user", UserID: 12},
-			b:    &ProviderCredentials{AuthSource: "workspace"},
-			conn: 12,
-			same: false,
-		},
+func TestRefreshLockKeyFor_SerializesOneConnection(t *testing.T) {
+	// The OAuth callback stores one grant at both the user and workspace
+	// levels, so a refresh of either level rotates the shared refresh token.
+	// Both copies must share a lock so they cannot refresh concurrently.
+	if refreshLockKeyFor(12) != refreshLockKeyFor(12) {
+		t.Fatal("same connection must share a refresh lock")
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			ka := refreshLockKeyFor(c.a, c.conn)
-			kb := refreshLockKeyFor(c.b, c.conn)
-			eq := ka == kb
-			if eq != c.same {
-				t.Fatalf("keys equal=%v, want %v (a=%+v b=%+v)", eq, c.same, ka, kb)
-			}
-		})
+	if refreshLockKeyFor(12) == refreshLockKeyFor(13) {
+		t.Fatal("different connections must not share a refresh lock")
 	}
 }
 

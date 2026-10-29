@@ -2,26 +2,30 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { writable } from 'svelte/store';
 
-vi.mock('../api.js', () => ({
-  api: {
-    themes: {
-      getAll: vi.fn(),
-      getActive: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      activate: vi.fn(),
-      delete: vi.fn(),
-    },
-    attachments: {
-      upload: vi.fn(),
-    },
-    objectTranslations: {
-      list: vi.fn().mockResolvedValue([]),
-      resolve: vi.fn().mockResolvedValue([]),
-      upsert: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    },
-  },
+vi.mock('../api/admin.js', () => ({
+  themes: {
+        getAll: vi.fn(),
+        getActive: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        activate: vi.fn(),
+        delete: vi.fn(),
+      },
+}))
+
+vi.mock('../api/misc.js', () => ({
+  attachments: {
+        upload: vi.fn(),
+      },
+}))
+
+vi.mock('../api/objectTranslations.js', () => ({
+  objectTranslations: {
+        list: vi.fn().mockResolvedValue([]),
+        resolve: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -36,9 +40,14 @@ vi.mock('../stores/permissions.svelte.js', () => ({
   isSystemAdmin: writable(true),
 }));
 
-import { api } from '../api.js';
+import { attachments } from '../api/misc.js';
+import { themes } from '../api/admin.js';
 import { attachmentStatus } from '../stores/attachmentStatus.svelte.js';
 import ThemeManager from './ThemeManager.svelte';
+
+
+import { objectTranslations } from '../api/objectTranslations.js';
+
 
 const editableTheme = {
   id: 7,
@@ -55,7 +64,7 @@ const editableTheme = {
 };
 
 function uploadPayload() {
-  const upload = api.attachments.upload.mock.calls.at(-1)?.[0];
+  const upload = attachments.upload.mock.calls.at(-1)?.[0];
   expect(upload).toBeInstanceOf(FormData);
   return {
     entityType: upload.get('entity_type'),
@@ -67,15 +76,15 @@ describe('ThemeManager logo upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     attachmentStatus.hydrate({ enabled: true, writable: true });
-    api.themes.getAll.mockResolvedValue([editableTheme]);
-    api.themes.getActive.mockResolvedValue(editableTheme);
-    api.themes.update.mockImplementation((_id, data) =>
+    themes.getAll.mockResolvedValue([editableTheme]);
+    themes.getActive.mockResolvedValue(editableTheme);
+    themes.update.mockImplementation((_id, data) =>
       Promise.resolve({ ...editableTheme, ...data })
     );
   });
 
   it('uploads a logo on edit and persists its URL with the theme', async () => {
-    api.attachments.upload.mockResolvedValue({ success: true, logo_url: '/api/portal-assets/31' });
+    attachments.upload.mockResolvedValue({ success: true, logo_url: '/api/portal-assets/31' });
 
     render(ThemeManager);
 
@@ -87,7 +96,7 @@ describe('ThemeManager logo upload', () => {
     await fireEvent.change(fileInput, { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(api.attachments.upload).toHaveBeenCalledTimes(1);
+      expect(attachments.upload).toHaveBeenCalledTimes(1);
     });
     expect(uploadPayload().entityType).toBe('theme_logo');
     expect(screen.getByAltText('Current logo')).toHaveAttribute(
@@ -100,7 +109,7 @@ describe('ThemeManager logo upload', () => {
     );
 
     await waitFor(() => {
-      expect(api.themes.update).toHaveBeenCalledWith(
+      expect(themes.update).toHaveBeenCalledWith(
         7,
         expect.objectContaining({ logo_url: '/api/portal-assets/31' })
       );
@@ -108,7 +117,7 @@ describe('ThemeManager logo upload', () => {
   });
 
   it('uploads a dark mode logo on edit and persists it independently', async () => {
-    api.attachments.upload.mockResolvedValue({ success: true, logo_url: '/api/portal-assets/41' });
+    attachments.upload.mockResolvedValue({ success: true, logo_url: '/api/portal-assets/41' });
 
     render(ThemeManager);
     await screen.findByText('Acme');
@@ -120,7 +129,7 @@ describe('ThemeManager logo upload', () => {
     await fireEvent.change(fileInputs[1], { target: { files: [file] } });
 
     await waitFor(() => {
-      expect(api.attachments.upload).toHaveBeenCalledTimes(1);
+      expect(attachments.upload).toHaveBeenCalledTimes(1);
     });
     expect(uploadPayload().entityType).toBe('theme_logo');
     expect(screen.getByAltText('Current logo')).toHaveAttribute(
@@ -133,7 +142,7 @@ describe('ThemeManager logo upload', () => {
     );
 
     await waitFor(() => {
-      expect(api.themes.update).toHaveBeenCalledWith(
+      expect(themes.update).toHaveBeenCalledWith(
         7,
         expect.objectContaining({ logo_url_dark: '/api/portal-assets/41', logo_url: '' })
       );
@@ -141,7 +150,7 @@ describe('ThemeManager logo upload', () => {
   });
 
   it('removes the logo before saving so the theme row is cleared', async () => {
-    api.themes.getAll.mockResolvedValue([{ ...editableTheme, logo_url: '/api/portal-assets/31' }]);
+    themes.getAll.mockResolvedValue([{ ...editableTheme, logo_url: '/api/portal-assets/31' }]);
 
     render(ThemeManager);
     await screen.findByText('Acme');
@@ -160,7 +169,7 @@ describe('ThemeManager logo upload', () => {
     );
 
     await waitFor(() => {
-      expect(api.themes.update).toHaveBeenCalledWith(
+      expect(themes.update).toHaveBeenCalledWith(
         7,
         expect.objectContaining({ logo_url: '' })
       );

@@ -13,9 +13,29 @@ func TestWorkspaceServiceGetItemTypesReturnsUniqueHierarchyOrder(t *testing.T) {
 	}
 	data := tdb.SeedTestData(t)
 
+	// New workspaces bind a subset of the global item-type catalog to their
+	// configuration set, so the workspace listing is the bound set rather than
+	// every seeded item type.
 	var catalogCount int
-	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_types`).Scan(&catalogCount); err != nil {
-		t.Fatalf("count item types: %v", err)
+	if err := tdb.QueryRow(`
+		SELECT COUNT(*)
+		FROM item_types it
+		WHERE EXISTS (
+			SELECT 1
+			FROM configuration_set_item_types csit
+			WHERE csit.configuration_set_id = (
+				SELECT COALESCE(wcs.configuration_set_id,
+					(SELECT id FROM configuration_sets WHERE is_default = true ORDER BY id LIMIT 1))
+				FROM workspaces w
+				LEFT JOIN workspace_configuration_sets wcs ON wcs.workspace_id = w.id
+				WHERE w.id = ?
+			)
+			AND csit.item_type_id = it.id
+		)`, data.WorkspaceID).Scan(&catalogCount); err != nil {
+		t.Fatalf("count workspace item types: %v", err)
+	}
+	if catalogCount == 0 {
+		t.Fatal("seed bound no item types to the workspace")
 	}
 
 	got, err := NewWorkspaceService(tdb.DB).GetItemTypes(data.WorkspaceID)
@@ -23,7 +43,7 @@ func TestWorkspaceServiceGetItemTypesReturnsUniqueHierarchyOrder(t *testing.T) {
 		t.Fatalf("GetItemTypes: %v", err)
 	}
 	if len(got) != catalogCount {
-		t.Fatalf("item type count = %d, want complete catalog of %d", len(got), catalogCount)
+		t.Fatalf("item type count = %d, want complete workspace catalog of %d", len(got), catalogCount)
 	}
 
 	seen := make(map[int]struct{}, len(got))

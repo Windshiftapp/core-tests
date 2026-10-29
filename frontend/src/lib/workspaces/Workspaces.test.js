@@ -7,12 +7,10 @@ const mocks = vi.hoisted(() => ({
   storeRemove: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    workspaces: {
-      getAll: mocks.getAll,
-    },
-  },
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: {
+        getAll: mocks.getAll,
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -26,17 +24,23 @@ vi.mock('../stores/i18n.svelte.js', () => ({
     })[key] ?? key,
 }));
 
-vi.mock('../stores', async () => {
+vi.mock('../stores/workspaces.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   return {
     workspacesStore: {
-      subscribe: writable([]).subscribe,
-      load: mocks.storeLoad,
-      remove: mocks.storeRemove,
-    },
+          subscribe: writable([]).subscribe,
+          load: mocks.storeLoad,
+          remove: mocks.storeRemove,
+        },
+  };
+})
+
+vi.mock('../stores/permissions.svelte.js', async () => {
+  const { writable } = await import('svelte/store');
+  return {
     permissionStore: {
-      subscribe: writable({ userPermissionKeys: new Set(['workspace.create']) }).subscribe,
-    },
+          subscribe: writable({ userPermissionKeys: new Set(['workspace.create']) }).subscribe,
+        },
     isSystemAdmin: writable(false),
   };
 });
@@ -50,6 +54,7 @@ vi.mock('../utils/keyboardShortcuts.js', () => ({
 }));
 
 import Workspaces from './Workspaces.svelte';
+import { workspaces } from '../api/workspaces.js';
 
 function workspaceRow(id, isRestricted) {
   return {

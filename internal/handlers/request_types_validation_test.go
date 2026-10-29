@@ -33,12 +33,19 @@ func newRequestTypeValidationFixture(t *testing.T) (*RequestTypeHandler, int, in
 		t.Fatalf("create validation channel: %v", err)
 	}
 
+	var workspaceID int
+	if err := db.QueryRow(`
+		INSERT INTO workspaces (name, key) VALUES ('Validation workspace', 'VALW') RETURNING id
+	`).Scan(&workspaceID); err != nil {
+		t.Fatalf("create validation workspace: %v", err)
+	}
+
 	var requestTypeID int
 	if err := db.QueryRow(`
-		INSERT INTO request_types (channel_id, name, item_type_id, config)
-		VALUES (?, 'Existing request type', ?, '{}')
+		INSERT INTO request_types (channel_id, name, item_type_id, workspace_id, config)
+		VALUES (?, 'Existing request type', ?, ?, '{}')
 		RETURNING id
-	`, channelID, itemTypeID).Scan(&requestTypeID); err != nil {
+	`, channelID, itemTypeID, workspaceID).Scan(&requestTypeID); err != nil {
 		t.Fatalf("create existing request type: %v", err)
 	}
 
@@ -93,24 +100,16 @@ func TestRequestTypeHandler_CreateAndUpdate_ValidateSharedBasics(t *testing.T) {
 			handle:   handler.Update,
 			method:   http.MethodPut,
 			path:     fmt.Sprintf("/api/channels/%d/request-types/%d", channelID, requestTypeID),
-			body:     `{"item_type_id":1}`,
+			body:     `{"name":"","item_type_id":1}`,
 			expected: "Request type name is required",
 		},
 		{
-			name:     "update requires item type",
-			handle:   handler.Update,
-			method:   http.MethodPut,
-			path:     fmt.Sprintf("/api/channels/%d/request-types/%d", channelID, requestTypeID),
-			body:     `{"name":"Updated support"}`,
-			expected: "Item type ID is required",
-		},
-		{
-			name:     "update rejects unknown item type",
+			name:     "update rejects an item type change",
 			handle:   handler.Update,
 			method:   http.MethodPut,
 			path:     fmt.Sprintf("/api/channels/%d/request-types/%d", channelID, requestTypeID),
 			body:     `{"name":"Updated support","item_type_id":999999999}`,
-			expected: "Item type not found",
+			expected: "Request type item type cannot be changed after creation",
 		},
 	}
 

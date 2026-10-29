@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	conditionFieldScope,
-	stripConditionScope,
-	scopeConditionFieldName,
-	backendFieldName,
-} from '../../../../src/lib/features/actions/shared/fieldNameMapping.js';
+import { conditionFieldScope, stripConditionScope, scopeConditionFieldName, backendFieldName } from '../../../../src/lib/features/actions/shared/fieldNameMapping.js';
 
 // The condition scope prefix is what lets an automation evaluate a field
 // against the trigger item's parent (GH #267).

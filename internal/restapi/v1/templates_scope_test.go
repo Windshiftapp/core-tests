@@ -29,7 +29,7 @@ var templateRouteScopes = []struct {
 // documented item-templates scope: an unrelated scope is rejected (403), the
 // documented scope is admitted (200).
 func TestV1TemplateRoutes_ScopeGate(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	sentinel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -56,7 +56,7 @@ func TestV1TemplateRoutes_ScopeGate(t *testing.T) {
 // TestV1TemplateRoutes_WriteImpliesRead pins that item-templates:write
 // satisfies item-templates:read (write actions read current state first).
 func TestV1TemplateRoutes_WriteImpliesRead(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	sentinel := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

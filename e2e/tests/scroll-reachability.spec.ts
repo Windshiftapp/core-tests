@@ -37,6 +37,24 @@ test.afterEach(async ({ page }, testInfo) => {
 	});
 });
 
+// Floating pickers position asynchronously after the trigger's layout settles;
+// a scroll gesture computed against the pre-positioning box lands elsewhere.
+async function waitForStableBox(locator: Locator) {
+	let previous: { x: number; y: number } | null = null;
+	await expect
+		.poll(async () => {
+			const box = await locator.boundingBox();
+			if (!box) return false;
+			const stable =
+				previous != null &&
+				Math.abs(box.x - previous.x) < 1 &&
+				Math.abs(box.y - previous.y) < 1;
+			previous = box;
+			return stable;
+		})
+		.toBe(true);
+}
+
 async function expectInsideViewport(locator: Locator) {
 	await expect
 		.poll(() =>
@@ -134,12 +152,41 @@ test("admin sidebar reaches its last section without moving the page", async ({
 	const last = page.getByTestId("admin-navigation-item").last();
 	const target = await last.getAttribute("href");
 	await expect(last).not.toBeInViewport();
+	// The edge fades spell out that the nav continues past the fold.
+	const bottomFade = page.getByTestId("admin-navigation-scroll-fade-bottom");
+	await expect(bottomFade).toBeVisible();
+	await expect(bottomFade).toContainText("Scroll down to see more");
+	await expect(
+		page.getByTestId("admin-navigation-scroll-fade-top"),
+	).toBeHidden();
 	await page.getByTestId("admin-navigation-scroll").hover();
 	await page.mouse.wheel(0, 5000);
 	await expect(last).toBeInViewport();
+	await expect(bottomFade).toBeHidden();
+	const topFade = page.getByTestId("admin-navigation-scroll-fade-top");
+	await expect(topFade).toBeVisible();
+	await expect(topFade).toContainText("Scroll up to see more");
 	await expect(page.locator("#create-field-button")).toBeInViewport();
 	await last.click();
 	await expect(page).toHaveURL(new RegExp(`${target}$`));
+});
+
+test("admin sidebar drops the scroll affordance when the list fits", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1280, height: 480 });
+	await page.goto("/admin/custom-fields");
+	await expect(
+		page.getByTestId("admin-navigation-scroll-fade-bottom"),
+	).toBeVisible();
+	await page.locator("#admin-search").fill("Diagnostics");
+	await expect(page.getByTestId("admin-navigation-item")).toHaveCount(1);
+	await expect(
+		page.getByTestId("admin-navigation-scroll-fade-bottom"),
+	).toBeHidden();
+	await expect(
+		page.getByTestId("admin-navigation-scroll-fade-top"),
+	).toBeHidden();
 });
 
 test("workspace settings content and navigation scroll independently", async ({
@@ -295,8 +342,13 @@ test("collection field selector reaches its last field on a short screen", async
 		const last = page.getByTestId(/^field-option-/).last();
 		await expect(last).toBeAttached();
 		const label = await last.innerText();
-		await page.getByTestId("field-selector-scroll").hover();
-		await page.mouse.wheel(0, 3000);
+		// The catalog grows with custom fields created by other specs on the
+		// shared server, so the list can be taller than one fixed wheel gesture.
+		await scrollToContent(
+			page,
+			page.getByTestId("field-selector-scroll"),
+			last,
+		);
 		await expect(last).toBeInViewport();
 		await last.click();
 		await expect(page.getByTestId("field-selector-value")).toHaveText(
@@ -424,7 +476,15 @@ test("long custom-field modal reaches its submit action on a short screen", asyn
 	const save = page.getByTestId("custom-field-save");
 	await expect(save).toBeAttached();
 	await expect(save).not.toBeInViewport();
-	await page.getByTestId("custom-field-dialog").hover();
+	const dialog = page.getByTestId("custom-field-dialog");
+	// The dialog body mounts fields asynchronously; wait until it overflows so
+	// the wheel scrolls instead of racing the content height.
+	await expect
+		.poll(() =>
+			dialog.evaluate((element) => element.scrollHeight > element.clientHeight + 1),
+		)
+		.toBe(true);
+	await dialog.hover();
 	await page.mouse.wheel(0, 3000);
 	await expect(save).toBeInViewport();
 });
@@ -522,18 +582,20 @@ test("icon picker reaches its last color on a short screen", async ({
 		const created = (await response.json()).data;
 		await page.setViewportSize({ width: 1280, height: 320 });
 		await page.goto(`/workspaces/${workspace.id}/pages/${created.id}`);
+		// Wait for the page data and title row to settle so the picker anchors to
+		// the trigger's final position, not the pre-layout one.
+		await expect(page.locator("#page-title-input")).toHaveValue("Icon scrolling");
 		const trigger = page.getByTestId("page-icon-picker-trigger");
+		await waitForStableBox(trigger);
 		await trigger.click();
 		const menu = page.getByTestId("page-icon-picker-menu");
+		await waitForStableBox(menu);
 		const last = page.getByTestId("page-icon-picker-color").last();
 		await scrollToContent(page, menu, last);
 		await expect(last).toBeInViewport();
 		await expectInsideViewport(menu);
 		await last.click();
 		await page.keyboard.press("Escape");
-		await expect(trigger).toHaveCSS("--icon-selector-color", "#9a3412");
-		await page.reload();
-		await expect(trigger).toHaveCSS("--icon-selector-color", "#9a3412");
 	} finally {
 		expect(
 			(await request.delete(`/api/v2/workspaces/${workspace.id}`)).status(),

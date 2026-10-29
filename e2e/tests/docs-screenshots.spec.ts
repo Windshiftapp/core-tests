@@ -307,17 +307,17 @@ async function seedPortals(request: APIRequestContext) {
     gradient: 'sunset',
   });
 
-  const support = await createSimpleRequestType(request, helpCenter.channelId, {
+  const support = await createSimpleRequestType(request, helpCenter, {
     name: 'Get support',
     description: 'Ask the team for help with setup, access, or product behavior.',
   });
-  const feedback = await createSimpleRequestType(request, helpCenter.channelId, {
+  const feedback = await createSimpleRequestType(request, helpCenter, {
     name: 'Share feedback',
     description: 'Send product feedback or suggest an improvement.',
   });
   await attachRequestTypesToSection(request, helpCenter, [support.id, feedback.id]);
 
-  const partnerRequest = await createSimpleRequestType(request, partnerPortal.channelId, {
+  const partnerRequest = await createSimpleRequestType(request, partnerPortal, {
     name: 'Request partner assistance',
     description: 'Coordinate implementation or migration work with a partner.',
   });

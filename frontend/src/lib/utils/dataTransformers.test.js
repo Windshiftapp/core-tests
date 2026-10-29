@@ -1,12 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  ALL_INCOMING_EDGE_TYPE,
-  allIncomingEdgesToTransitions,
-  createAllIncomingEdge,
-  edgesToTransitions,
-  isAllIncomingEdge,
-  transitionsToEdges,
-} from './dataTransformers.js';
+import { ALL_INCOMING_EDGE_TYPE, allIncomingEdgesToTransitions, createAllIncomingEdge, edgesToTransitions, isAllIncomingEdge, transitionsToEdges } from './dataTransformers.js';
 
 describe('transitionsToEdges', () => {
   test('renders regular transitions as edges', () => {

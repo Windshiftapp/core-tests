@@ -131,11 +131,11 @@ export async function attachRequestTypesToSection(
  */
 export async function createSimpleRequestType(
   request: APIRequestContext,
-  channelId: number,
+  channel: PortalChannelHandle,
   opts: { name: string }
 ): Promise<RequestTypeHandle> {
-  const rt = await createRequestType(request, channelId, opts.name);
-  await setRequestTypeFields(request, channelId, rt.id, [
+  const rt = await createRequestType(request, channel.channelId, channel.workspaceId, opts.name);
+  await setRequestTypeFields(request, channel.channelId, rt.id, [
     { field_identifier: 'title', field_type: 'default', display_order: 0, is_required: true, step_number: 1 },
     { field_identifier: 'description', field_type: 'default', display_order: 1, is_required: false, step_number: 1 },
   ]);
@@ -153,11 +153,11 @@ export async function createSimpleRequestType(
  */
 export async function createTwoStepRequestType(
   request: APIRequestContext,
-  channelId: number,
+  channel: PortalChannelHandle,
   opts: { name: string }
 ): Promise<RequestTypeHandle> {
-  const rt = await createRequestType(request, channelId, opts.name);
-  await setRequestTypeFields(request, channelId, rt.id, [
+  const rt = await createRequestType(request, channel.channelId, channel.workspaceId, opts.name);
+  await setRequestTypeFields(request, channel.channelId, rt.id, [
     { field_identifier: 'title', field_type: 'default', display_order: 0, is_required: true, step_number: 1 },
     { field_identifier: 'description', field_type: 'default', display_order: 1, is_required: false, step_number: 2 },
   ]);
@@ -167,16 +167,19 @@ export async function createTwoStepRequestType(
 async function createRequestType(
   request: APIRequestContext,
   channelId: number,
+  workspaceId: number,
   name: string
 ): Promise<RequestTypeHandle> {
   const resp = await request.post(`/api/channels/${channelId}/request-types`, {
     headers: SEC_FETCH,
     data: {
       name,
-      // item_type_id=1 is the seeded default item type. Same convention
-      // approvals.spec.ts and portal-asset-reports-visibility.spec.ts use.
+      // Request types require an explicit workspace now that the implicit
+      // channel fallback is gone (WI-1695). item_type_id=1 is the seeded
+      // default item type, matching the other portal specs.
       item_type_id: 1,
       is_active: true,
+      workspace_id: workspaceId,
     },
   });
   expect(resp.ok(), `create request type: ${resp.status()} ${await resp.text()}`).toBeTruthy();
@@ -255,4 +258,66 @@ export async function signInViaMagicLink(page: Page, opts: SignInOptions): Promi
   // Wait for either terminal state by waiting on a network response to the
   // verify endpoint, then settle on the portal home.
   await page.waitForURL(/\/portal\/[^/]+(\?|$|#)/, { timeout: 10000 });
+}
+
+export interface PortalCustomerHandle {
+  id: number;
+  name: string;
+  email: string;
+}
+
+/**
+ * Create a portal customer and, when given, assign it to a customer
+ * organisation. Used by the organisation request-sharing spec to seed the
+ * requester and the colleague in the same organisation.
+ */
+export async function createPortalCustomer(
+  request: APIRequestContext,
+  opts: { name: string; email: string; organisationId?: number }
+): Promise<PortalCustomerHandle> {
+  const resp = await request.post('/api/portal-customers', {
+    headers: SEC_FETCH,
+    data: { name: opts.name, email: opts.email },
+  });
+  expect(resp.ok(), `create portal customer: ${resp.status()} ${await resp.text()}`).toBeTruthy();
+  const customer = await resp.json();
+
+  if (opts.organisationId) {
+    const assign = await request.put(`/api/portal-customers/${customer.id}/organisation`, {
+      headers: SEC_FETCH,
+      data: { customer_organisation_id: opts.organisationId },
+    });
+    expect(
+      assign.ok(),
+      `assign portal customer to organisation: ${assign.status()} ${await assign.text()}`
+    ).toBeTruthy();
+  }
+
+  return { id: customer.id, name: opts.name, email: opts.email };
+}
+
+/**
+ * Configure an organisation's portal request-sharing policy (WI-1139).
+ */
+export async function setOrganisationRequestSharing(
+  request: APIRequestContext,
+  organisationId: number,
+  opts: {
+    request_sharing: 'disabled' | 'requester_choice' | 'automatic';
+    request_sharing_audience?: 'organisation' | 'roles';
+    visible_role_ids?: number[];
+  }
+): Promise<void> {
+  const resp = await request.put(`/api/customer-organisations/${organisationId}/request-sharing`, {
+    headers: SEC_FETCH,
+    data: {
+      request_sharing: opts.request_sharing,
+      request_sharing_audience: opts.request_sharing_audience ?? 'organisation',
+      visible_role_ids: opts.visible_role_ids ?? [],
+    },
+  });
+  expect(
+    resp.ok(),
+    `set organisation request sharing: ${resp.status()} ${await resp.text()}`
+  ).toBeTruthy();
 }

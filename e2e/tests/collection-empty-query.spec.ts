@@ -5,6 +5,7 @@ import {
   createWorkspaceViaAPI,
 } from '../fixtures/api-helpers';
 import { expect, test } from '../fixtures/errors';
+import { preferenceSave } from '../helpers/preferences';
 
 test('empty collections can page past fifty items and keep items when completion filtering is disabled', async ({
   page,
@@ -70,7 +71,9 @@ test('empty collections can page past fifty items and keep items when completion
       .not.toEqual(firstPageIds);
     await expect(rows.first()).toBeVisible();
     const toggle = page.getByTestId('collection-hide-completed');
+    const saved = preferenceSave(page);
     await toggle.click();
+    await saved;
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await expect(rows).toHaveCount(50);
     await expect(page.getByTestId('pagination-previous')).toBeDisabled();

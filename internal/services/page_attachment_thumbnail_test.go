@@ -5,16 +5,15 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// pngHeaderWithDimensions writes a PNG whose IHDR declares the given
+// pngHeaderWithDimensions returns a PNG whose IHDR declares the given
 // dimensions without any pixel data, enough for a DecodeConfig-based guard.
-func pngHeaderWithDimensions(t *testing.T, dir string, width, height uint32) string {
+func pngHeaderWithDimensions(t *testing.T, width, height uint32) []byte {
 	t.Helper()
 	buf := bytes.NewBuffer([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A})
 	chunk := make([]byte, 4+4+13)
@@ -27,21 +26,16 @@ func pngHeaderWithDimensions(t *testing.T, dir string, width, height uint32) str
 	crc := crc32.ChecksumIEEE(chunk[4:])
 	buf.Write(chunk)
 	buf.Write([]byte{byte(crc >> 24), byte(crc >> 16), byte(crc >> 8), byte(crc)})
-	path := filepath.Join(dir, "bomb.png")
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
-		t.Fatalf("write bomb header: %v", err)
-	}
-	return path
+	return buf.Bytes()
 }
 
 // TestGenerateAttachmentThumbnailRejectsPixelBomb pins the pixel-bomb guard:
-// a file declaring oversized dimensions is rejected before image.Decode can
+// bytes declaring oversized dimensions are rejected before image.Decode can
 // allocate memory proportional to those dimensions.
 func TestGenerateAttachmentThumbnailRejectsPixelBomb(t *testing.T) {
-	dir := t.TempDir()
-	bombPath := pngHeaderWithDimensions(t, dir, 60_000, 60_000)
+	data := pngHeaderWithDimensions(t, 60_000, 60_000)
 
-	_, err := generateAttachmentThumbnail(bombPath, "bomb.png")
+	_, err := GenerateAttachmentThumbnailJPEG(data)
 	if err == nil {
 		t.Fatal("thumbnail generation accepted a 3.6 gigapixel header")
 	}
@@ -51,23 +45,22 @@ func TestGenerateAttachmentThumbnailRejectsPixelBomb(t *testing.T) {
 }
 
 func TestGenerateAttachmentThumbnailCreatesThumbnailForSmallImage(t *testing.T) {
-	dir := t.TempDir()
 	img := image.NewRGBA(image.Rect(0, 0, 8, 6))
 	img.Set(1, 1, color.RGBA{R: 255})
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, img); err != nil {
 		t.Fatalf("encode png: %v", err)
 	}
-	path := filepath.Join(dir, "small.png")
-	if err := os.WriteFile(path, encoded.Bytes(), 0o600); err != nil {
-		t.Fatalf("write png: %v", err)
-	}
 
-	thumbPath, err := generateAttachmentThumbnail(path, "small.png")
+	thumb, err := GenerateAttachmentThumbnailJPEG(encoded.Bytes())
 	if err != nil {
-		t.Fatalf("generateAttachmentThumbnail: %v", err)
+		t.Fatalf("GenerateAttachmentThumbnailJPEG: %v", err)
 	}
-	if _, err := os.Stat(thumbPath); err != nil {
-		t.Fatalf("thumbnail missing: %v", err)
+	decoded, err := jpeg.Decode(bytes.NewReader(thumb))
+	if err != nil {
+		t.Fatalf("thumbnail is not a decodable JPEG: %v", err)
+	}
+	if got, want := decoded.Bounds().Dx(), 200; got != want {
+		t.Fatalf("thumbnail width = %d, want %d", got, want)
 	}
 }

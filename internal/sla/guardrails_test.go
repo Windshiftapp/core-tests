@@ -87,7 +87,7 @@ func TestIrrelevantChangeIssuesAtMostOneQuery(t *testing.T) {
 		},
 		[]models.SLAGoal{{
 			Position: 0, QLQuery: "priority = 'SLA High'", ImportStatus: "native",
-			Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: fixture.calendarID}},
+			Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}},
 		}},
 	)
 

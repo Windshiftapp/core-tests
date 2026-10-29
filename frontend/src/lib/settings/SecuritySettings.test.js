@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   updateSecuritySettings: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
+vi.mock('../api/agentSecurity.js', () => ({
   agentSecurity: {
     getSettings: vi.fn().mockResolvedValue({ allow_centralized_service_users: false }),
     updateSettings: vi.fn(),
@@ -15,10 +15,9 @@ vi.mock('../api.js', () => ({
     addAllowlist: vi.fn(),
     removeAllowlist: vi.fn(),
   },
-  api: {
-    getUsers: vi.fn().mockResolvedValue([]),
-    workspaces: { getAll: vi.fn().mockResolvedValue([]) },
-  },
+}));
+
+vi.mock('../api/admin.js', () => ({
   getSecuritySettings: mocks.getSecuritySettings,
   updateSecuritySettings: mocks.updateSecuritySettings,
   authPolicy: {
@@ -27,6 +26,14 @@ vi.mock('../api.js', () => ({
     getStats: vi.fn().mockResolvedValue(null),
     getAffected: vi.fn().mockResolvedValue([]),
   },
+}));
+
+vi.mock('../api/users.js', () => ({
+  getUsers: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: { getAll: vi.fn().mockResolvedValue([]) },
 }));
 
 vi.mock('../stores/i18n.svelte.js', async (importOriginal) => {
@@ -49,6 +56,9 @@ vi.mock('../stores/toasts.svelte.js', () => ({
 }));
 
 import SecuritySettings from './SecuritySettings.svelte';
+import { getUsers } from '../api/users.js';
+import { workspaces } from '../api/workspaces.js';
+
 
 function authPolicyConfig(ssoConfigured) {
   return {

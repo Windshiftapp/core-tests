@@ -1,9 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
-
-const readJson = (path) => JSON.parse(readFileSync(resolve(process.cwd(), path), 'utf8'));
+import { parseMermaidToExcalidrawElements } from './mermaidConversion.js';
 
 class TestCSSStyleSheet {
   cssRules = [];
@@ -18,40 +14,38 @@ class TestCSSStyleSheet {
   }
 }
 
-describe('Mermaid dependency alignment', () => {
-  it('uses a patched Mermaid 11 release without forcing Excalidraw back to Mermaid 10', () => {
-    const packageJson = readJson('package.json');
-    const packageLock = readJson('package-lock.json');
-    const resolvedMermaid = packageLock.packages['node_modules/mermaid'];
+// Mermaid measures rendered SVG geometry, which jsdom does not implement.
+// Stub the layout APIs and CSSOM for the duration of the callback.
+async function withMermaidDomStubs(fn) {
+  const originalCSSStyleSheet = globalThis.CSSStyleSheet;
+  const getBBox = Object.getOwnPropertyDescriptor(SVGElement.prototype, 'getBBox');
+  const getComputedTextLength = Object.getOwnPropertyDescriptor(
+    SVGElement.prototype,
+    'getComputedTextLength'
+  );
 
-    expect(packageJson.dependencies.mermaid).toBe('^11.16.1');
-    expect(packageJson.overrides.mermaid).toBeUndefined();
-    expect(packageJson.overrides['@excalidraw/mermaid-to-excalidraw'].mermaid).toBeUndefined();
-    expect(resolvedMermaid.version).toBe('11.16.1');
-    expect(
-      packageLock.packages['node_modules/@excalidraw/mermaid-to-excalidraw'].dependencies.mermaid
-    ).toBe('^11.12.1');
+  globalThis.CSSStyleSheet = TestCSSStyleSheet;
+  Object.defineProperty(SVGElement.prototype, 'getBBox', {
+    configurable: true,
+    value: () => ({ x: 0, y: 0, width: 100, height: 20 }),
+  });
+  Object.defineProperty(SVGElement.prototype, 'getComputedTextLength', {
+    configurable: true,
+    value: () => 100,
   });
 
+  try {
+    return await fn();
+  } finally {
+    globalThis.CSSStyleSheet = originalCSSStyleSheet;
+    restoreProperty(SVGElement.prototype, 'getBBox', getBBox);
+    restoreProperty(SVGElement.prototype, 'getComputedTextLength', getComputedTextLength);
+  }
+}
+
+describe('Mermaid dependency alignment', () => {
   it('renders ordinary diagrams while strict mode neutralizes executable label markup', async () => {
-    const originalCSSStyleSheet = globalThis.CSSStyleSheet;
-    const getBBox = Object.getOwnPropertyDescriptor(SVGElement.prototype, 'getBBox');
-    const getComputedTextLength = Object.getOwnPropertyDescriptor(
-      SVGElement.prototype,
-      'getComputedTextLength'
-    );
-
-    globalThis.CSSStyleSheet = TestCSSStyleSheet;
-    Object.defineProperty(SVGElement.prototype, 'getBBox', {
-      configurable: true,
-      value: () => ({ x: 0, y: 0, width: 100, height: 20 }),
-    });
-    Object.defineProperty(SVGElement.prototype, 'getComputedTextLength', {
-      configurable: true,
-      value: () => 100,
-    });
-
-    try {
+    await withMermaidDomStubs(async () => {
       const { default: mermaid } = await import('mermaid');
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
 
@@ -75,11 +69,35 @@ describe('Mermaid dependency alignment', () => {
       const { parseMermaidToExcalidraw } = await import('@excalidraw/mermaid-to-excalidraw');
       const excalidrawScene = await parseMermaidToExcalidraw('flowchart TD\nA[Hello] --> B[World]');
       expect(excalidrawScene.elements.length).toBeGreaterThan(0);
-    } finally {
-      globalThis.CSSStyleSheet = originalCSSStyleSheet;
-      restoreProperty(SVGElement.prototype, 'getBBox', getBBox);
-      restoreProperty(SVGElement.prototype, 'getComputedTextLength', getComputedTextLength);
-    }
+    });
+  });
+
+  it('converts flowchart subgraphs into editable elements instead of a fallback image', async () => {
+    await withMermaidDomStubs(async () => {
+      // Mermaid >= 11.14 prefixes rendered element ids with the render id. The
+      // converter looks subgraphs up by their bare id, so without the id fix it
+      // throws "SubGraph element not found" and returns a single static image.
+      const source = [
+        'flowchart LR',
+        '  subgraph Control',
+        '    Fleet[Fleet controller<br/>inventory]',
+        '  end',
+        '  subgraph Nodes',
+        '    ActiveA[Active tenant stack]',
+        '  end',
+        '  Fleet --> ActiveA',
+      ].join('\n');
+
+      const scene = await parseMermaidToExcalidrawElements(source);
+
+      expect(scene.elements.length).toBeGreaterThan(1);
+      expect(scene.elements.filter((element) => element.type === 'image')).toHaveLength(0);
+      const texts = scene.elements.flatMap((element) =>
+        [element.text, element.label?.text].filter((text) => typeof text === 'string')
+      );
+      expect(texts).toContain('Fleet controller\ninventory');
+      expect(texts).toContain('Active tenant stack');
+    });
   });
 });
 

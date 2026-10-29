@@ -10,10 +10,8 @@ const mocks = vi.hoisted(() => ({
 	preview: vi.fn(),
 }));
 
-vi.mock("../api.js", () => ({
-	api: {
-		cannedResponses: mocks,
-	},
+vi.mock('../api/configuration.js', () => ({
+  cannedResponses: mocks,
 }));
 
 vi.mock("../stores/i18n.svelte.js", () => ({
@@ -26,6 +24,7 @@ vi.mock("../stores/toasts.svelte.js", () => ({
 }));
 
 import WorkspaceCannedResponses from "./WorkspaceCannedResponses.svelte";
+import { cannedResponses } from '../api/configuration.js';
 
 const existing = {
 	id: 11,

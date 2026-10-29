@@ -108,8 +108,22 @@ test.describe('Channel manager journey', () => {
 
     const user = await browserForUser(browser, manager);
     try {
+      await user.page.goto('/');
+      await user.page.getByTestId('user-avatar-trigger').click();
+      await expect(user.page.getByTestId('delegated-admin-menu-item')).toBeVisible();
+      await user.page.keyboard.press('Escape');
+
+      // The command palette exposes the same delegated management surface.
+      await user.page.locator('#global-search-button').click();
+      const paletteInput = user.page.getByTestId('command-palette-input');
+      await expect(paletteInput).toBeVisible();
+      await paletteInput.fill('channels');
+      await expect(user.page.getByTestId('command-palette-option-manage-channels')).toBeVisible();
+      await user.page.keyboard.press('Escape');
+
       await user.page.goto('/manage/channels');
-      await expect(user.page.locator('#nav-channel-management')).toBeVisible();
+      await expect(user.page.getByTestId('delegated-admin-shell')).toBeVisible();
+      await expect(user.page.locator('#delegated-admin-nav-channels')).toBeVisible();
       await expect(user.page.getByTestId(`manager-channel-row-${managed.channelId}`)).toBeVisible();
       await expect(user.page.getByTestId(`manager-channel-row-${unowned.channelId}`)).toHaveCount(0);
       for (const channelID of defaultChannelIDs) {
@@ -158,7 +172,7 @@ test.describe('Channel manager journey', () => {
     }
   });
 
-  test('user who manages no channels does not see the Channels navigation entry', async ({
+  test('user who manages no channels gets no delegated admin entry or surface', async ({
     request,
     browser,
   }) => {
@@ -167,6 +181,10 @@ test.describe('Channel manager journey', () => {
     try {
       await user.page.goto('/');
       await expect(user.page.locator('#nav-channel-management')).toHaveCount(0);
+      await user.page.getByTestId('user-avatar-trigger').click();
+      await expect(user.page.getByTestId('delegated-admin-menu-item')).toHaveCount(0);
+      await user.page.goto('/manage');
+      await expect(user.page.getByTestId('unauthorized-access')).toBeVisible();
     } finally {
       await user.context.close();
     }
@@ -193,7 +211,7 @@ test.describe('Channel manager journey', () => {
     const user = await browserForUser(browser, manager);
     try {
       await user.page.goto('/manage/channels');
-      await expect(user.page.locator('#nav-channel-management')).toBeVisible();
+      await expect(user.page.locator('#delegated-admin-nav-channels')).toBeVisible();
       await user.page.getByTestId(`manager-channel-row-${managed.channelId}`).click();
       await expect(user.page).toHaveURL(new RegExp(`/admin/channels/${managed.channelId}/portal$`));
       await expect(user.page.getByTestId('channel-tab-settings')).toBeVisible();

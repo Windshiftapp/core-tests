@@ -3,11 +3,13 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
 	"testing"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/repository"
 	"windshift/internal/testutils"
 )
@@ -37,7 +39,7 @@ func newPageDiagramTestHarness(t *testing.T) pageDiagramTestHarness {
 		actor:        AuditActor{UserID: data.UserID, Username: "testuser", Source: "test"},
 		workspaceID:  data.WorkspaceID,
 		pages:        pages,
-		pageDiagrams: NewPageDiagramService(tdb.GetDatabase(), t.TempDir(), pages, pageAuth, permissions),
+		pageDiagrams: NewPageDiagramService(tdb.GetDatabase(), blobstore.NewLocal(t.TempDir()), pages, pageAuth, permissions),
 	}
 }
 
@@ -51,7 +53,7 @@ func (h pageDiagramTestHarness) createPage(t *testing.T, title, content string) 
 	if err != nil {
 		t.Fatalf("create page: %v", err)
 	}
-	diagram, err := h.pageDiagrams.Create(h.actor, CreatePageDiagramInput{
+	diagram, err := h.pageDiagrams.Create(context.Background(), h.actor, CreatePageDiagramInput{
 		PageID:              page.ID,
 		Name:                "Flow",
 		Mermaid:             "graph TD; A-->B",
@@ -83,7 +85,7 @@ func TestPageDiagramService_CreateListGetAndUpdate(t *testing.T) {
 		t.Fatalf("page content = %q, want %q", page.Content, "# Intro\n\n"+wantFence)
 	}
 
-	listed, err := h.pageDiagrams.List(h.actor, page.ID)
+	listed, err := h.pageDiagrams.List(context.Background(), h.actor, page.ID)
 	if err != nil {
 		t.Fatalf("list diagrams: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestPageDiagramService_CreateListGetAndUpdate(t *testing.T) {
 		listed[0].Kind != DiagramKindMermaid {
 		t.Fatalf("listed diagrams = %+v", listed)
 	}
-	fetched, err := h.pageDiagrams.Get(h.actor, page.ID, diagram.AttachmentID)
+	fetched, err := h.pageDiagrams.Get(context.Background(), h.actor, page.ID, diagram.AttachmentID)
 	if err != nil {
 		t.Fatalf("get diagram: %v", err)
 	}
@@ -104,7 +106,7 @@ func TestPageDiagramService_CreateListGetAndUpdate(t *testing.T) {
 	}
 
 	scene := json.RawMessage(`{"elements":[{"id":"one","type":"rectangle"}],"appState":{},"files":{}}`)
-	updated, err := h.pageDiagrams.Update(h.actor, UpdatePageDiagramInput{
+	updated, err := h.pageDiagrams.Update(context.Background(), h.actor, UpdatePageDiagramInput{
 		PageID:              page.ID,
 		AttachmentID:        diagram.AttachmentID,
 		Excalidraw:          scene,
@@ -150,7 +152,7 @@ func TestPageDiagramService_CreateListGetAndUpdate(t *testing.T) {
 		len(matchingPageDiagramBlocks(restored.Content, updated.AttachmentID)) != 0 {
 		t.Fatalf("restored page did not point to older attachment: %q", restored.Content)
 	}
-	restoredDiagram, err := h.pageDiagrams.Get(h.actor, restored.ID, diagram.AttachmentID)
+	restoredDiagram, err := h.pageDiagrams.Get(context.Background(), h.actor, restored.ID, diagram.AttachmentID)
 	if err != nil {
 		t.Fatalf("older diagram did not remain readable after restore: %v", err)
 	}
@@ -182,7 +184,7 @@ func TestPageDiagramService_StaleMutationCleansNewAttachment(t *testing.T) {
 	if err := h.tdb.QueryRow(`SELECT COUNT(*) FROM attachments WHERE entity_type = 'page' AND item_id = ?`, page.ID).Scan(&before); err != nil {
 		t.Fatalf("count attachments before stale create: %v", err)
 	}
-	_, err = h.pageDiagrams.Create(h.actor, CreatePageDiagramInput{
+	_, err = h.pageDiagrams.Create(context.Background(), h.actor, CreatePageDiagramInput{
 		PageID:              page.ID,
 		Name:                "Stale",
 		Mermaid:             "graph TD; A-->B",
@@ -223,7 +225,7 @@ func TestPageDiagramService_RejectsDuplicateAndCrossPageReferences(t *testing.T)
 	if err != nil {
 		t.Fatalf("duplicate reference: %v", err)
 	}
-	_, err = h.pageDiagrams.Update(h.actor, UpdatePageDiagramInput{
+	_, err = h.pageDiagrams.Update(context.Background(), h.actor, UpdatePageDiagramInput{
 		PageID:              owner.ID,
 		AttachmentID:        diagram.AttachmentID,
 		Mermaid:             "graph TD; B-->C",
@@ -241,14 +243,14 @@ func TestPageDiagramService_RejectsDuplicateAndCrossPageReferences(t *testing.T)
 	if err != nil {
 		t.Fatalf("create other page: %v", err)
 	}
-	listed, err := h.pageDiagrams.List(h.actor, other.ID)
+	listed, err := h.pageDiagrams.List(context.Background(), h.actor, other.ID)
 	if err != nil {
 		t.Fatalf("list cross-page reference: %v", err)
 	}
 	if len(listed) != 0 {
 		t.Fatalf("cross-page reference leaked diagram: %+v", listed)
 	}
-	if _, err := h.pageDiagrams.Get(h.actor, other.ID, diagram.AttachmentID); !errors.Is(err, ErrPageDiagramNotFound) {
+	if _, err := h.pageDiagrams.Get(context.Background(), h.actor, other.ID, diagram.AttachmentID); !errors.Is(err, ErrPageDiagramNotFound) {
 		t.Fatalf("cross-page get error = %v, want ErrPageDiagramNotFound", err)
 	}
 }
@@ -276,10 +278,10 @@ func TestPageDiagramService_EnforcesPageViewAndEdit(t *testing.T) {
 		t.Fatalf("assign viewer role: %v", err)
 	}
 	viewer := AuditActor{UserID: viewerID, Username: "diagram_viewer", Source: "test"}
-	if _, err := h.pageDiagrams.Get(viewer, diagram.PageID, diagram.AttachmentID); err != nil {
+	if _, err := h.pageDiagrams.Get(context.Background(), viewer, diagram.PageID, diagram.AttachmentID); err != nil {
 		t.Fatalf("viewer get diagram: %v", err)
 	}
-	_, err := h.pageDiagrams.Update(viewer, UpdatePageDiagramInput{
+	_, err := h.pageDiagrams.Update(context.Background(), viewer, UpdatePageDiagramInput{
 		PageID:       diagram.PageID,
 		AttachmentID: diagram.AttachmentID,
 		Mermaid:      "graph TD; B-->C",

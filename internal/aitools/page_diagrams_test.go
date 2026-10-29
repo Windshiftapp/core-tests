@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"windshift/internal/auth"
+	"windshift/internal/blobstore"
 	"windshift/internal/logger"
 	"windshift/internal/services"
 	"windshift/internal/testutils"
@@ -28,7 +29,7 @@ func TestPageDiagramTools_RegistrationLifecycleAuthorizationAndAudit(t *testing.
 	pageApplication := services.NewPageApplicationService(pageService, pageAuth)
 	pageDiagrams := services.NewPageDiagramService(
 		tdb.GetDatabase(),
-		t.TempDir(),
+		blobstore.NewLocal(t.TempDir()),
 		pageApplication,
 		pageAuth,
 		permissions,
@@ -139,7 +140,7 @@ func TestPageDiagramTools_RegistrationLifecycleAuthorizationAndAudit(t *testing.
 		t.Fatalf("audit action/details = %q/%s", action, details)
 	}
 
-	humanUpdated, err := pageDiagrams.Update(services.AuditActor{
+	humanUpdated, err := pageDiagrams.Update(context.Background(), services.AuditActor{
 		UserID:   data.UserID,
 		Username: "testuser",
 		Source:   "cookie",

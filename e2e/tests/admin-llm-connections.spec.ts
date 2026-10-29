@@ -61,7 +61,15 @@ test.describe("Admin LLM connections", () => {
 				.getByTestId("picker-option-list")
 				.locator('[data-option-id="claude-haiku-4-5-20251001"]')
 				.click();
+			// Synchronize on the create response before listing; the admin list is
+			// not guaranteed to have refreshed when the click resolves.
+			const createdResponse = page.waitForResponse(
+				(response) =>
+					response.request().method() === "POST" &&
+					response.url().includes("/api/admin/llm-connections"),
+			);
 			await page.getByTestId("entity-form-confirm").click();
+			expect((await createdResponse).ok()).toBeTruthy();
 
 			const created = (await listConnections(request)).find((conn) => conn.name === name);
 			expect(created, "created connection persisted").toBeDefined();

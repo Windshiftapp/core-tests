@@ -22,7 +22,7 @@ export class ItemPage {
 	readonly parentSelect = 'select[name="parent"], [name="parent_id"]';
 	readonly saveButton = "#create-modal-submit";
 	readonly cancelButton = 'button:has-text("Cancel"), button:has-text("Close")';
-	readonly itemRow = '.item-row, tr, [data-testid="item-row"]';
+	readonly itemRow = '.item-row, tr, [data-testid="item-row"], [data-testid="backlog-item"]';
 	readonly itemCard = '.item-card, [data-testid="item-card"]';
 	readonly itemKey = '.item-key, [data-testid="item-key"]';
 	readonly editButton = 'button:has-text("Edit"), [aria-label="Edit"]';
@@ -167,14 +167,14 @@ export class ItemPage {
 	 */
 	async editTitleInline(newTitle: string) {
 		const dialog = this.page.locator('[role="dialog"]');
-		const titleButton = dialog.locator("button.title-button");
+		const titleButton = dialog.getByTestId("item-title-edit");
 		await titleButton.click();
-		const titleInput = dialog.locator('input[type="text"]').first();
+		const titleInput = dialog.getByTestId("item-title-input");
 		await titleInput.fill(newTitle);
 		await titleInput.press("Enter");
 		// Edit commits when the input is replaced by the button showing the new title
 		await titleInput.waitFor({ state: "detached", timeout: 10000 });
-		await expect(dialog.locator("button.title-button")).toContainText(
+		await expect(dialog.getByTestId("item-title-edit")).toContainText(
 			newTitle,
 			{ timeout: 5000 },
 		);

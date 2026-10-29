@@ -34,4 +34,12 @@ test.describe("Admin diagnostics", () => {
 			await expect(region.getByTestId("diagnostics-section-error")).toHaveCount(0);
 		});
 	}
+
+	test("llm health renders daily briefing generation coverage", async ({ page }) => {
+		await page.goto("/admin/diagnostics?subtab=llm-health");
+		await expect(page.getByTestId("diagnostics-llm-health")).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByTestId("briefing-health")).toBeVisible();
+		await expect(page.getByTestId("briefing-coverage")).toBeVisible();
+		await expect(page.getByTestId("diagnostics-llm-health").getByTestId("diagnostics-section-error")).toHaveCount(0);
+	});
 });

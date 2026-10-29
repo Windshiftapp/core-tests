@@ -3,8 +3,8 @@ import { describe, expect, test, vi } from 'vitest';
 
 // Mock api + i18n consistently with the main renderer test file. The two
 // test files run in isolation so duplicating the mock setup is fine.
-vi.mock('../../api.js', () => ({
-  api: { getUsers: vi.fn() },
+vi.mock('../../api/users.js', () => ({
+  getUsers: vi.fn(),
 }));
 vi.mock('../../stores/i18n.svelte.js', () => ({
   t: (key, params) => (params?.field ? `setField:${params.field}` : key),
@@ -12,6 +12,7 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 }));
 
 import CustomFieldRenderer from './CustomFieldRenderer.svelte';
+import { getUsers } from '../../api/users.js';
 
 function renderReadonly(props) {
   return render(CustomFieldRenderer, {

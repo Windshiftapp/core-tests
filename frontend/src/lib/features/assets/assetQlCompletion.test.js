@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  applyQlSuggestion,
-  buildQlSuggestions,
-  getQlCompletionContext,
-} from '../../utils/qlCompletion.js';
+import { applyQlSuggestion, buildQlSuggestions, getQlCompletionContext } from '../../utils/qlCompletion.js';
 import { buildAssetQlCatalog } from './assetQlCompletion.js';
 
 describe('asset QL completion', () => {

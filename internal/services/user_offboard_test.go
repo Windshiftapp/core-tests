@@ -338,10 +338,12 @@ func TestOffboardUser_RemovesPortalRequestDrafts(t *testing.T) {
 		INSERT INTO channels (name, type, direction) VALUES ('offboard-portal', 'portal', 'inbound')
 	`)
 	channelID := offboardCount(t, db, `SELECT id FROM channels WHERE name = 'offboard-portal'`)
+	offboardExec(t, db, `INSERT INTO workspaces (name, key) VALUES ('offboard-workspace', 'OFFW')`)
+	workspaceID := offboardCount(t, db, `SELECT id FROM workspaces WHERE key = 'OFFW'`)
 	offboardExec(t, db, `
-		INSERT INTO request_types (channel_id, name, item_type_id)
-		VALUES (?, 'offboard-request', ?)
-	`, channelID, itemTypeID)
+		INSERT INTO request_types (channel_id, name, item_type_id, workspace_id)
+		VALUES (?, 'offboard-request', ?, ?)
+	`, channelID, itemTypeID, workspaceID)
 	requestTypeID := offboardCount(t, db, `SELECT id FROM request_types WHERE name = 'offboard-request'`)
 	offboardExec(t, db, `
 		INSERT INTO portal_request_drafts (channel_id, request_type_id, user_id, title, description)

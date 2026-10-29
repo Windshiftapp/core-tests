@@ -8,15 +8,15 @@ const authState = vi.hoisted(() => ({
   user: { id: 42, timezone: 'Europe/Berlin', language: 'ko' },
 }));
 
-vi.mock('../stores', () => ({
+vi.mock('../stores/auth.svelte.js', () => ({
   authStore: {
-    get currentUser() {
-      return authState.user;
+      get currentUser() {
+        return authState.user;
+      },
+      patchCurrentUser(updates) {
+        authState.user = { ...authState.user, ...updates };
+      },
     },
-    patchCurrentUser(updates) {
-      authState.user = { ...authState.user, ...updates };
-    },
-  },
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
@@ -35,13 +35,11 @@ vi.mock('../router.js', async () => {
 
 // Only the regional-settings endpoint is under test; the real reactive i18n
 // store and locale catalogs stay live so language switches are observable.
-vi.mock('../api.js', () => ({
-  api: {
-    updateUserRegionalSettings: vi.fn(),
-  },
+vi.mock('../api/users.js', () => ({
+  updateUserRegionalSettings: vi.fn(),
 }));
 
-import { api } from '../api.js';
+import { updateUserRegionalSettings } from '../api/users.js';
 import { errorToast } from '../stores/toasts.svelte.js';
 import { i18n, SUPPORTED_LOCALES, t } from '../stores/i18n.svelte.js';
 import MobileSettingsView from './MobileSettingsView.svelte';
@@ -53,7 +51,7 @@ async function switchLocale(locale) {
 
 beforeEach(async () => {
   authState.user = { id: 42, timezone: 'Europe/Berlin', language: 'ko' };
-  api.updateUserRegionalSettings.mockReset().mockResolvedValue({ language: 'ru', timezone: 'Europe/Berlin' });
+  updateUserRegionalSettings.mockReset().mockResolvedValue({ language: 'ru', timezone: 'Europe/Berlin' });
   await switchLocale('ko');
 });
 
@@ -88,7 +86,7 @@ describe('MobileSettingsView language switching', () => {
       expect(screen.getByTestId('mobile-header-title')).toHaveTextContent('Настройки'),
     );
 
-    expect(api.updateUserRegionalSettings).toHaveBeenCalledWith(42, {
+    expect(updateUserRegionalSettings).toHaveBeenCalledWith(42, {
       timezone: 'Europe/Berlin',
       language: 'ru',
     });
@@ -98,7 +96,7 @@ describe('MobileSettingsView language switching', () => {
   });
 
   test('keeps the previous language and surfaces a toast when the save fails', async () => {
-    api.updateUserRegionalSettings.mockRejectedValue(new Error('network down'));
+    updateUserRegionalSettings.mockRejectedValue(new Error('network down'));
     render(MobileSettingsView);
 
     await fireEvent.click(screen.getByTestId('mobile-settings-language'));
@@ -116,7 +114,7 @@ describe('MobileSettingsView language switching', () => {
     await fireEvent.click(screen.getByTestId('mobile-settings-language'));
     await fireEvent.click(screen.getByRole('option', { name: '한국어' }));
 
-    expect(api.updateUserRegionalSettings).not.toHaveBeenCalled();
+    expect(updateUserRegionalSettings).not.toHaveBeenCalled();
     expect(i18n.locale).toBe('ko');
   });
 });

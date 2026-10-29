@@ -16,8 +16,12 @@ test('maps a personal task to board endpoints and opens its dedicated modal', as
     `load personal workspace failed (${personalWorkspaceResponse.status()})`
   ).toBeTruthy();
   const personalWorkspace = await personalWorkspaceResponse.json();
+  // Pin the status to the "Board start" column. A personal task's implicit
+  // initial status depends on workflow resolution and is not part of what this
+  // test verifies.
   const item = await createItemViaAPI(request, personalWorkspace.id, {
     title: `Personal board task ${stamp}`,
+    status_id: 2,
   });
   const collection = await createCollectionViaAPI(request, {
     name: `Personal board ${stamp}`,

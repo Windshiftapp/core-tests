@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"windshift/internal/auth"
+	"windshift/internal/blobstore"
 	"windshift/internal/middleware"
 	"windshift/internal/testutils"
 )
@@ -95,7 +96,7 @@ func TestPublicSubmissionSurfacesRejectInvalidVirtualSelect(t *testing.T) {
 				request.SetPathValue("slug", "virtual-portal")
 				session := &auth.Session{UserID: userID}
 				request = request.WithContext(context.WithValue(request.Context(), middleware.ContextKeySession, session))
-				NewPortalHandler(db, nil, nil, nil, "").SubmitToPortal(recorder, request)
+				NewPortalHandler(db, nil, nil, nil, blobstore.Disabled()).SubmitToPortal(recorder, request)
 			},
 		},
 	}

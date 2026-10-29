@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"windshift/internal/auth"
+	"windshift/internal/blobstore"
 	"windshift/internal/database"
 	"windshift/internal/middleware"
 	"windshift/internal/models"
@@ -58,7 +59,7 @@ func authenticatedPortalBootstrapRequest() *http.Request {
 
 func TestAuthenticatedPortalBootstrapComposesShellCatalogs(t *testing.T) {
 	db, channelID, _ := setupPortalBootstrapTest(t)
-	handler := NewPortalHandler(db, nil, nil, nil, "")
+	handler := NewPortalHandler(db, nil, nil, nil, blobstore.Disabled())
 	request := authenticatedPortalBootstrapRequest()
 	recorder := httptest.NewRecorder()
 
@@ -105,7 +106,7 @@ func TestAuthenticatedPortalBootstrapAssetReportsUseExactSafeContract(t *testing
 		t.Fatalf("insert asset report: %v", err)
 	}
 
-	handler := NewPortalHandler(db, nil, nil, nil, "")
+	handler := NewPortalHandler(db, nil, nil, nil, blobstore.Disabled())
 	request := authenticatedPortalBootstrapRequest()
 	recorder := httptest.NewRecorder()
 	handler.GetBootstrap(recorder, request)
@@ -139,7 +140,7 @@ func TestPortalUserBootstrapUsesValidatedInternalContext(t *testing.T) {
 	user := &models.User{ID: userID, Email: "portal-user@example.test", FirstName: "Portal", LastName: "User"}
 	session := &auth.Session{UserID: userID, User: user}
 
-	handler := NewPortalHandler(db, nil, nil, nil, "")
+	handler := NewPortalHandler(db, nil, nil, nil, blobstore.Disabled())
 	request := httptest.NewRequest(http.MethodGet, "/api/portal/support/user-bootstrap", nil)
 	request.SetPathValue("slug", "support")
 	request = request.WithContext(context.WithValue(request.Context(), middleware.ContextKeySession, session))
@@ -164,7 +165,7 @@ func TestPortalUserBootstrapUsesValidatedInternalContext(t *testing.T) {
 
 func TestPortalUserBootstrapReturnsAnonymousSnapshotWithoutSession(t *testing.T) {
 	db, _, _ := setupPortalBootstrapTest(t)
-	handler := NewPortalHandler(db, nil, nil, nil, "")
+	handler := NewPortalHandler(db, nil, nil, nil, blobstore.Disabled())
 	request := httptest.NewRequest(http.MethodGet, "/api/portal/support/user-bootstrap", nil)
 	request.SetPathValue("slug", "support")
 	recorder := httptest.NewRecorder()

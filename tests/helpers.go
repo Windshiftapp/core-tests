@@ -133,6 +133,14 @@ func extractPgDBName(dsn string) string {
 // This uses an in-process server for faster, more reliable tests.
 func StartTestServer(t *testing.T, dbType string) (ts *TestServer, cleanup func()) {
 	t.Helper()
+	return StartTestServerWithConfig(t, dbType, nil)
+}
+
+// StartTestServerWithConfig starts an in-process server like StartTestServer,
+// but runs mutate on the resolved config before the server is created. It lets
+// a test exercise config-driven server behavior without touching env vars.
+func StartTestServerWithConfig(t *testing.T, dbType string, mutate func(*server.Config)) (ts *TestServer, cleanup func()) {
+	t.Helper()
 
 	// Generate unique database name
 	timestamp := time.Now().UnixNano()
@@ -203,6 +211,10 @@ func StartTestServer(t *testing.T, dbType string) (ts *TestServer, cleanup func(
 		cfg.DB.SQLitePath = dbPath
 	case "postgres":
 		cfg.DB.PostgresConn = dbPath
+	}
+
+	if mutate != nil {
+		mutate(&cfg)
 	}
 
 	// Create the in-process server
@@ -980,6 +992,37 @@ func GetItemTypes(t *testing.T, testServer *TestServer, configSetID int) map[str
 	return itemTypeMap
 }
 
+// GetWorkspaceItemTypes retrieves the item types bound to a workspace's
+// configuration set, matching what the CLI resolves --type names against.
+func GetWorkspaceItemTypes(t *testing.T, testServer *TestServer, workspaceID int) map[string]int {
+	t.Helper()
+
+	resp := MakeAuthRequest(t, testServer, http.MethodGet, fmt.Sprintf("/v2/workspaces/%d/item-types", workspaceID), nil)
+	defer resp.Body.Close()
+
+	AssertStatusCode(t, resp, http.StatusOK)
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
+	var document struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(bodyBytes, &document); err != nil {
+		t.Fatalf("Failed to decode workspace item types: %v\nResponse: %s", err, string(bodyBytes))
+	}
+
+	itemTypeMap := make(map[string]int)
+	for _, it := range document.Data {
+		if name, ok := it["name"].(string); ok {
+			if id, ok := it["id"].(float64); ok {
+				itemTypeMap[name] = int(id)
+			}
+		}
+	}
+
+	return itemTypeMap
+}
+
 // RequireItemTypeID returns the ID of a named item type or fails the test.
 // Callers creating parentless items must select a regular type explicitly:
 // choosing the first entry of a map is nondeterministic and can select the
@@ -1355,6 +1398,14 @@ func CreateTestItem(t *testing.T, testServer *TestServer, workspaceID int, title
 	if itemTypeID == 0 {
 		t.Fatal("No item types found")
 	}
+
+	return CreateTestItemWithType(t, testServer, workspaceID, title, itemTypeID)
+}
+
+// CreateTestItemWithType creates an item with an explicit item type through
+// the production API, so hierarchy placement rules apply.
+func CreateTestItemWithType(t *testing.T, testServer *TestServer, workspaceID int, title string, itemTypeID int) int {
+	t.Helper()
 
 	itemData := map[string]interface{}{
 		"title":        title,
@@ -1907,6 +1958,7 @@ func SetupPortalChannel(t *testing.T, testServer *TestServer, workspaceID int) (
 		"name":         "General Request",
 		"description":  "General request type",
 		"item_type_id": itemTypeID,
+		"workspace_id": workspaceID,
 		"icon":         "Circle",
 		"color":        "#666666",
 		"is_active":    true,

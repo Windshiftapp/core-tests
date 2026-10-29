@@ -256,6 +256,9 @@ func TestPermissionServiceBasicOperations(t *testing.T) {
 			t.Error("User should not be admin initially")
 		}
 
+		// Wait for cache to expire (TTL is 1 second in test config)
+		<-time.After(1200 * time.Millisecond)
+
 		// Grant system admin permission to user
 		_, err = db.Exec(`
 			INSERT INTO user_global_permissions (user_id, permission_id, granted_by, granted_at)
@@ -265,22 +268,10 @@ func TestPermissionServiceBasicOperations(t *testing.T) {
 			t.Fatalf("Failed to grant system admin permission: %v", err)
 		}
 
-		// Poll until the check returns the fresh value, which proves the
-		// cached entry expired (TTL is 1 second in test config).
-		tick := time.NewTicker(100 * time.Millisecond)
-		defer tick.Stop()
-		deadline := time.Now().Add(5 * time.Second)
-		var isAdminAfter bool
-		for {
-			var err error
-			isAdminAfter, err = permService.IsSystemAdmin(userID)
-			if err != nil {
-				t.Fatalf("Error checking system admin after cache expiry: %v", err)
-			}
-			if isAdminAfter || time.Now().After(deadline) {
-				break
-			}
-			<-tick.C
+		// Check again - should get updated value since cache expired
+		isAdminAfter, err := permService.IsSystemAdmin(userID)
+		if err != nil {
+			t.Fatalf("Error checking system admin after cache expiry: %v", err)
 		}
 		if !isAdminAfter {
 			t.Error("User should be admin after cache expiry and permission grant")

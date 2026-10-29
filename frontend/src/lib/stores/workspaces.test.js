@@ -2,19 +2,17 @@ import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Mock the api module before importing the store — the store calls
-// api.workspaces.* at runtime.
-vi.mock('../api.js', () => ({
-  api: {
-    workspaces: {
-      get: vi.fn(),
-      getAll: vi.fn(),
-      getPage: vi.fn(),
-      getOrCreatePersonal: vi.fn(),
-    },
-  },
+// workspaces.* at runtime.
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: {
+        get: vi.fn(),
+        getAll: vi.fn(),
+        getPage: vi.fn(),
+        getOrCreatePersonal: vi.fn(),
+      },
 }));
 
-import { api } from '../api.js';
+import { workspaces } from '../api/workspaces.js';
 import { currentWorkspace, workspacesStore } from './workspaces.svelte.js';
 
 function deferred() {
@@ -49,22 +47,22 @@ describe('currentWorkspace.load', () => {
 
     currentWorkspace.hydrate(workspace);
 
-    expect(api.workspaces.get).not.toHaveBeenCalled();
+    expect(workspaces.get).not.toHaveBeenCalled();
     expect(get(currentWorkspace)).toEqual(workspace);
   });
 
   test('fetches the workspace and stores it', async () => {
     const ws = { id: 1, name: 'Alpha' };
-    api.workspaces.get.mockResolvedValueOnce(ws);
+    workspaces.get.mockResolvedValueOnce(ws);
 
     await currentWorkspace.load(1);
 
-    expect(api.workspaces.get).toHaveBeenCalledWith(1);
+    expect(workspaces.get).toHaveBeenCalledWith(1);
     expect(get(currentWorkspace)).toEqual(ws);
   });
 
   test('clears state when called without an id', async () => {
-    api.workspaces.get.mockResolvedValueOnce({ id: 1 });
+    workspaces.get.mockResolvedValueOnce({ id: 1 });
     await currentWorkspace.load(1);
 
     await currentWorkspace.load(null);
@@ -73,26 +71,26 @@ describe('currentWorkspace.load', () => {
   });
 
   test('deduplicates back-to-back calls with the same id', async () => {
-    api.workspaces.get.mockResolvedValueOnce({ id: 1 });
+    workspaces.get.mockResolvedValueOnce({ id: 1 });
     await currentWorkspace.load(1);
     await currentWorkspace.load(1);
-    expect(api.workspaces.get).toHaveBeenCalledTimes(1);
+    expect(workspaces.get).toHaveBeenCalledTimes(1);
   });
 
   test('reloads when the id changes', async () => {
-    api.workspaces.get
+    workspaces.get
       .mockResolvedValueOnce({ id: 1, name: 'A' })
       .mockResolvedValueOnce({ id: 2, name: 'B' });
     await currentWorkspace.load(1);
     await currentWorkspace.load(2);
-    expect(api.workspaces.get).toHaveBeenCalledTimes(2);
+    expect(workspaces.get).toHaveBeenCalledTimes(2);
     expect(get(currentWorkspace)).toEqual({ id: 2, name: 'B' });
   });
 
   test('does not let a slower previous workspace replace the current route', async () => {
     const first = deferred();
     const second = deferred();
-    api.workspaces.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    workspaces.get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 
     const firstLoad = currentWorkspace.load(1);
     const secondLoad = currentWorkspace.load(2);
@@ -107,7 +105,7 @@ describe('currentWorkspace.load', () => {
 
   test('on API failure: clears state and logs', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.workspaces.get.mockRejectedValueOnce(new Error('500'));
+    workspaces.get.mockRejectedValueOnce(new Error('500'));
     await currentWorkspace.load(7);
     expect(get(currentWorkspace)).toBeNull();
     expect(errSpy).toHaveBeenCalled();
@@ -115,21 +113,21 @@ describe('currentWorkspace.load', () => {
 
   test('after a failed load, retrying with the same id re-fetches (no stale dedupe)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.workspaces.get.mockRejectedValueOnce(new Error('500'));
+    workspaces.get.mockRejectedValueOnce(new Error('500'));
     await currentWorkspace.load(7);
     expect(errSpy).toHaveBeenCalled();
 
     // lastWorkspaceId is only set on a successful fetch, so the second call
     // with the same id retries instead of being deduped against the failed one.
-    api.workspaces.get.mockResolvedValueOnce({ id: 7 });
+    workspaces.get.mockResolvedValueOnce({ id: 7 });
     await currentWorkspace.load(7);
-    expect(api.workspaces.get).toHaveBeenCalledTimes(2);
+    expect(workspaces.get).toHaveBeenCalledTimes(2);
     expect(get(currentWorkspace)).toEqual({ id: 7 });
   });
 
   test('can return to the previous workspace after a different workspace fails to load', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.workspaces.get
+    workspaces.get
       .mockResolvedValueOnce({ id: 1, name: 'A' })
       .mockRejectedValueOnce(new Error('workspace B unavailable'))
       .mockResolvedValueOnce({ id: 1, name: 'A reloaded' });
@@ -141,14 +139,14 @@ describe('currentWorkspace.load', () => {
 
     await currentWorkspace.load(1);
 
-    expect(api.workspaces.get).toHaveBeenCalledTimes(3);
+    expect(workspaces.get).toHaveBeenCalledTimes(3);
     expect(get(currentWorkspace)).toEqual({ id: 1, name: 'A reloaded' });
   });
 });
 
 describe('currentWorkspace.patch', () => {
   test('merges partial updates onto the current workspace', async () => {
-    api.workspaces.get.mockResolvedValueOnce({ id: 1, name: 'A', key: 'AAA' });
+    workspaces.get.mockResolvedValueOnce({ id: 1, name: 'A', key: 'AAA' });
     await currentWorkspace.load(1);
     currentWorkspace.patch({ name: 'A renamed' });
     expect(get(currentWorkspace)).toEqual({ id: 1, name: 'A renamed', key: 'AAA' });
@@ -162,7 +160,7 @@ describe('currentWorkspace.patch', () => {
 
 describe('currentWorkspace.clear', () => {
   test('resets the workspace AND the dedupe cache so a subsequent load fetches', async () => {
-    api.workspaces.get
+    workspaces.get
       .mockResolvedValueOnce({ id: 1, name: 'A' })
       .mockResolvedValueOnce({ id: 1, name: 'A reloaded' });
 
@@ -170,13 +168,13 @@ describe('currentWorkspace.clear', () => {
     currentWorkspace.clear();
     await currentWorkspace.load(1);
 
-    expect(api.workspaces.get).toHaveBeenCalledTimes(2);
+    expect(workspaces.get).toHaveBeenCalledTimes(2);
     expect(get(currentWorkspace)).toEqual({ id: 1, name: 'A reloaded' });
   });
 
   test('does not restore a workspace from a request that resolves after clear', async () => {
     const pending = deferred();
-    api.workspaces.get.mockReturnValueOnce(pending.promise);
+    workspaces.get.mockReturnValueOnce(pending.promise);
 
     const load = currentWorkspace.load(1);
     currentWorkspace.clear();
@@ -189,14 +187,14 @@ describe('currentWorkspace.clear', () => {
 
 describe('workspacesStore.load', () => {
   test('fetches only the first directory page and records the total', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(
+    workspaces.getPage.mockResolvedValueOnce(
       pageDocument([{ id: 1, name: 'A' }, { id: 2, name: 'B', is_personal: true }], 7500)
     );
 
     await workspacesStore.load();
 
-    expect(api.workspaces.getPage).toHaveBeenCalledWith({ page: 1, page_size: 200 });
-    expect(api.workspaces.getAll).not.toHaveBeenCalled();
+    expect(workspaces.getPage).toHaveBeenCalledWith({ page: 1, page_size: 200 });
+    expect(workspaces.getAll).not.toHaveBeenCalled();
     const state = get(workspacesStore);
     expect(state.workspaces).toHaveLength(2);
     expect(state.total).toBe(7500);
@@ -206,7 +204,7 @@ describe('workspacesStore.load', () => {
   });
 
   test('is not truncated when the cache covers the whole directory', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 1, name: 'A' }]));
+    workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 1, name: 'A' }]));
 
     await workspacesStore.load();
 
@@ -214,7 +212,7 @@ describe('workspacesStore.load', () => {
   });
 
   test('falls back to empty array when API returns null', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(null);
+    workspaces.getPage.mockResolvedValueOnce(null);
     await workspacesStore.load();
     expect(get(workspacesStore).workspaces).toEqual([]);
     expect(get(workspacesStore).loaded).toBe(true);
@@ -222,7 +220,7 @@ describe('workspacesStore.load', () => {
 
   test('on API failure: empty list, total reset, loaded=true, error logged', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.workspaces.getPage.mockRejectedValueOnce(new Error('500'));
+    workspaces.getPage.mockRejectedValueOnce(new Error('500'));
     await workspacesStore.load();
     expect(get(workspacesStore).workspaces).toEqual([]);
     expect(get(workspacesStore).total).toBe(0);
@@ -233,47 +231,47 @@ describe('workspacesStore.load', () => {
 
   test('shares an in-flight list request and reuses the loaded catalog', async () => {
     const pending = deferred();
-    api.workspaces.getPage.mockReturnValueOnce(pending.promise);
+    workspaces.getPage.mockReturnValueOnce(pending.promise);
 
     const first = workspacesStore.load();
     const second = workspacesStore.load();
-    expect(api.workspaces.getPage).toHaveBeenCalledOnce();
+    expect(workspaces.getPage).toHaveBeenCalledOnce();
 
     const all = [{ id: 1, name: 'Shared' }];
     pending.resolve(pageDocument(all));
     await expect(Promise.all([first, second])).resolves.toEqual([all, all]);
     await expect(workspacesStore.load()).resolves.toEqual(all);
-    expect(api.workspaces.getPage).toHaveBeenCalledOnce();
+    expect(workspaces.getPage).toHaveBeenCalledOnce();
   });
 });
 
 describe('workspacesStore.searchWorkspaces', () => {
   test('searches server-side and returns matches with the match total', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(
+    workspaces.getPage.mockResolvedValueOnce(
       pageDocument([{ id: 5, name: 'Platform' }], 3)
     );
 
     const result = await workspacesStore.searchWorkspaces('plat');
 
-    expect(api.workspaces.getPage).toHaveBeenCalledWith({ page: 1, page_size: 25, search: 'plat' });
+    expect(workspaces.getPage).toHaveBeenCalledWith({ page: 1, page_size: 25, search: 'plat' });
     expect(result).toEqual({ workspaces: [{ id: 5, name: 'Platform' }], total: 3 });
   });
 
   test('trims the query and forwards an explicit limit', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(pageDocument([]));
+    workspaces.getPage.mockResolvedValueOnce(pageDocument([]));
 
     await workspacesStore.searchWorkspaces('  web  ', { limit: 10 });
 
-    expect(api.workspaces.getPage).toHaveBeenCalledWith({ page: 1, page_size: 10, search: 'web' });
+    expect(workspaces.getPage).toHaveBeenCalledWith({ page: 1, page_size: 10, search: 'web' });
   });
 
   test('shares one request for identical concurrent queries', async () => {
     const pending = deferred();
-    api.workspaces.getPage.mockReturnValueOnce(pending.promise);
+    workspaces.getPage.mockReturnValueOnce(pending.promise);
 
     const first = workspacesStore.searchWorkspaces('web');
     const second = workspacesStore.searchWorkspaces('web');
-    expect(api.workspaces.getPage).toHaveBeenCalledOnce();
+    expect(workspaces.getPage).toHaveBeenCalledOnce();
 
     pending.resolve(pageDocument([{ id: 1 }], 1));
     await expect(first).resolves.toEqual({ workspaces: [{ id: 1 }], total: 1 });
@@ -283,7 +281,7 @@ describe('workspacesStore.searchWorkspaces', () => {
   test('a newer query supersedes an in-flight older one', async () => {
     const first = deferred();
     const second = deferred();
-    api.workspaces.getPage
+    workspaces.getPage
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
 
@@ -303,10 +301,10 @@ describe('workspacesStore.searchWorkspaces', () => {
 
   test('does not leak a superseded request as the shared in-flight promise', async () => {
     const pending = deferred();
-    api.workspaces.getPage.mockReturnValueOnce(pending.promise);
+    workspaces.getPage.mockReturnValueOnce(pending.promise);
     const firstSearch = workspacesStore.searchWorkspaces('old');
 
-    api.workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 9 }], 4));
+    workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 9 }], 4));
     const secondSearch = workspacesStore.searchWorkspaces('new');
     await secondSearch;
 
@@ -314,14 +312,14 @@ describe('workspacesStore.searchWorkspaces', () => {
     await firstSearch;
 
     // After both settle, a fresh query issues a new request.
-    api.workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 3 }], 1));
+    workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 3 }], 1));
     await workspacesStore.searchWorkspaces('fresh');
-    expect(api.workspaces.getPage).toHaveBeenCalledTimes(3);
+    expect(workspaces.getPage).toHaveBeenCalledTimes(3);
   });
 
   test('returns empty results and logs on API failure', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.workspaces.getPage.mockRejectedValueOnce(new Error('500'));
+    workspaces.getPage.mockRejectedValueOnce(new Error('500'));
 
     const result = await workspacesStore.searchWorkspaces('web');
 
@@ -332,7 +330,7 @@ describe('workspacesStore.searchWorkspaces', () => {
 
 describe('workspacesStore — regularWorkspaces derived', () => {
   test('filters out personal workspaces', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(
+    workspaces.getPage.mockResolvedValueOnce(
       pageDocument([
         { id: 1, name: 'A', is_personal: false },
         { id: 2, name: 'B', is_personal: true },
@@ -349,7 +347,7 @@ describe('workspacesStore — regularWorkspaces derived', () => {
 describe('workspacesStore.loadPersonalWorkspace', () => {
   test('stores and returns the personal workspace', async () => {
     const personal = { id: 99, is_personal: true };
-    api.workspaces.getOrCreatePersonal.mockResolvedValueOnce(personal);
+    workspaces.getOrCreatePersonal.mockResolvedValueOnce(personal);
 
     const result = await workspacesStore.loadPersonalWorkspace();
 
@@ -359,7 +357,7 @@ describe('workspacesStore.loadPersonalWorkspace', () => {
 
   test('returns null and logs on API failure', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.workspaces.getOrCreatePersonal.mockRejectedValueOnce(new Error('boom'));
+    workspaces.getOrCreatePersonal.mockRejectedValueOnce(new Error('boom'));
     const result = await workspacesStore.loadPersonalWorkspace();
     expect(result).toBeNull();
     expect(get(workspacesStore).personalWorkspace).toBeNull();
@@ -368,23 +366,23 @@ describe('workspacesStore.loadPersonalWorkspace', () => {
 
   test('shares an in-flight personal workspace request and reuses its result', async () => {
     const pending = deferred();
-    api.workspaces.getOrCreatePersonal.mockReturnValueOnce(pending.promise);
+    workspaces.getOrCreatePersonal.mockReturnValueOnce(pending.promise);
 
     const first = workspacesStore.loadPersonalWorkspace();
     const second = workspacesStore.loadPersonalWorkspace();
-    expect(api.workspaces.getOrCreatePersonal).toHaveBeenCalledOnce();
+    expect(workspaces.getOrCreatePersonal).toHaveBeenCalledOnce();
 
     const personal = { id: 99, is_personal: true };
     pending.resolve(personal);
     await expect(Promise.all([first, second])).resolves.toEqual([personal, personal]);
     await expect(workspacesStore.loadPersonalWorkspace()).resolves.toBe(personal);
-    expect(api.workspaces.getOrCreatePersonal).toHaveBeenCalledOnce();
+    expect(workspaces.getOrCreatePersonal).toHaveBeenCalledOnce();
   });
 });
 
 describe('workspacesStore CRUD-style mutations', () => {
   test('add appends a workspace and grows the directory total', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 1, name: 'A' }], 1));
+    workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 1, name: 'A' }], 1));
     await workspacesStore.load();
 
     workspacesStore.add({ id: 2, name: 'B' });
@@ -395,7 +393,7 @@ describe('workspacesStore CRUD-style mutations', () => {
 
   test('add is not overwritten by a workspace list request started before creation', async () => {
     const pending = deferred();
-    api.workspaces.getPage.mockReturnValueOnce(pending.promise);
+    workspaces.getPage.mockReturnValueOnce(pending.promise);
 
     const load = workspacesStore.load();
     workspacesStore.add({ id: 2, name: 'Created workspace' });
@@ -424,7 +422,7 @@ describe('workspacesStore CRUD-style mutations', () => {
   });
 
   test('remove drops a workspace by id and shrinks the directory total', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(
+    workspaces.getPage.mockResolvedValueOnce(
       pageDocument([{ id: 1 }, { id: 2 }], 2)
     );
     await workspacesStore.load();
@@ -443,7 +441,7 @@ describe('workspacesStore CRUD-style mutations', () => {
 
   test('remove is not overwritten by a workspace list request started before deletion', async () => {
     const pending = deferred();
-    api.workspaces.getPage.mockReturnValueOnce(pending.promise);
+    workspaces.getPage.mockReturnValueOnce(pending.promise);
 
     const load = workspacesStore.load();
     workspacesStore.add({ id: 1, name: 'Deleted workspace' });
@@ -457,7 +455,7 @@ describe('workspacesStore CRUD-style mutations', () => {
 
 describe('workspacesStore.reload', () => {
   test('clears loaded/loading then reloads from the API', async () => {
-    api.workspaces.getPage
+    workspaces.getPage
       .mockResolvedValueOnce(pageDocument([{ id: 1 }]))
       .mockResolvedValueOnce(pageDocument([{ id: 1 }, { id: 2 }]));
 
@@ -466,13 +464,13 @@ describe('workspacesStore.reload', () => {
 
     await workspacesStore.reload();
     expect(get(workspacesStore).workspaces).toHaveLength(2);
-    expect(api.workspaces.getPage).toHaveBeenCalledTimes(2);
+    expect(workspaces.getPage).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('workspacesStore.clear', () => {
   test('drops all state', async () => {
-    api.workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 1 }]));
+    workspaces.getPage.mockResolvedValueOnce(pageDocument([{ id: 1 }]));
     await workspacesStore.load();
     workspacesStore.clear();
 
@@ -487,7 +485,7 @@ describe('workspacesStore.clear', () => {
 
   test('does not restore a previous account list after a pending load resolves', async () => {
     const pending = deferred();
-    api.workspaces.getPage.mockReturnValueOnce(pending.promise);
+    workspaces.getPage.mockReturnValueOnce(pending.promise);
 
     const load = workspacesStore.load();
     workspacesStore.clear();

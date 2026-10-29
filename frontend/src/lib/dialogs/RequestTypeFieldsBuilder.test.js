@@ -30,16 +30,14 @@ vi.mock('@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge', () => ({
   extractClosestEdge: vi.fn((data) => data.edge),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    requestTypes: {
-      getFields: apiMocks.getFields,
-      getAvailableFields: apiMocks.getAvailableFields,
-      get: apiMocks.get,
-      updateFields: apiMocks.updateFields,
-      update: apiMocks.update,
-    },
-  },
+vi.mock('../api/channels.js', () => ({
+  requestTypes: {
+        getFields: apiMocks.getFields,
+        getAvailableFields: apiMocks.getAvailableFields,
+        get: apiMocks.get,
+        updateFields: apiMocks.updateFields,
+        update: apiMocks.update,
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -47,6 +45,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
 }));
 
 import RequestTypeFieldsBuilder from './RequestTypeFieldsBuilder.svelte';
+import { requestTypes } from '../api/channels.js';
 
 const baseFields = [
   {

@@ -1,108 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildDetailScreenFieldConfig,
-  canSystemFieldBeRequiredOnCreate,
-  dedupeScreenFields,
-  isAlwaysVisibleSystemField,
-  isCreateSystemFieldAutoManaged,
-  isCreateSystemFieldRenderable,
-  isSystemFieldAvailableForItem,
-  isSystemFieldConfigured,
-  normalizeSystemFieldIdentifier,
-  resolveEffectiveScreenIds,
-  splitScreenFields,
-} from './screenFields.js';
+import { buildDetailScreenFieldConfig, canSystemFieldBeRequiredOnCreate, dedupeScreenFields, isAlwaysVisibleSystemField, isCreateSystemFieldAutoManaged, isCreateSystemFieldRenderable, isSystemFieldAvailableInEffectiveConfig, isSystemFieldConfigured, normalizeSystemFieldIdentifier, splitScreenFields } from './screenFields.js';
 
 describe('screenFields utilities', () => {
-  it('resolves effective screen ids with create fallback per context', () => {
-    const configSet = {
-      create_screen_id: 10,
-      edit_screen_id: null,
-      view_screen_id: 30,
-      item_type_configs: [
-        {
-          item_type_id: 5,
-          create_screen_id: 11,
-          edit_screen_id: null,
-          view_screen_id: null,
-        },
-      ],
+  it('resolves system-field availability from the effective config edit screen', () => {
+    expect(
+      isSystemFieldAvailableInEffectiveConfig(
+        { edit_screen: { fields: [{ field_type: 'system', field_identifier: 'story_points' }] } },
+        'story_points'
+      )
+    ).toBe(true);
+    expect(
+      isSystemFieldAvailableInEffectiveConfig(
+        { edit_screen: { fields: [{ field_type: 'system', field_identifier: 'priority' }] } },
+        'story_points'
+      )
+    ).toBe(false);
+    expect(
+      isSystemFieldAvailableInEffectiveConfig({ edit_screen: null }, 'story_points')
+    ).toBe(false);
+    expect(isSystemFieldAvailableInEffectiveConfig({}, 'story_points')).toBe(false);
+    expect(isSystemFieldAvailableInEffectiveConfig(null, 'story_points')).toBe(false);
+  });
+
+  it('honors system field aliases from the effective config edit screen', () => {
+    const config = {
+      edit_screen: { fields: [{ field_type: 'system', field_identifier: 'estimate_minutes' }] },
     };
-
-    expect(resolveEffectiveScreenIds(configSet, 5)).toEqual({
-      create: 11,
-      edit: 11,
-      view: 11,
-    });
-    expect(resolveEffectiveScreenIds(configSet, 7)).toEqual({
-      create: 10,
-      edit: 10,
-      view: 30,
-    });
-  });
-
-  it('uses fallback screen id only when no config screen resolves', () => {
-    expect(resolveEffectiveScreenIds(null, 1, 99)).toEqual({ create: 99, edit: 99, view: 99 });
-    expect(resolveEffectiveScreenIds({}, 1, 99)).toEqual({ create: 99, edit: 99, view: 99 });
-  });
-
-  it('resolves system-field availability per item type and workspace', () => {
-    const configSetsByWorkspaceId = new Map([
-      [
-        '10',
-        {
-          edit_screen_id: 20,
-          item_type_configs: [{ item_type_id: 2, edit_screen_id: 30 }],
-        },
-      ],
-      ['11', null],
-    ]);
-    const screensById = new Map([
-      [20, { fields: [{ field_type: 'system', field_identifier: 'priority' }] }],
-      [30, { fields: [{ field_type: 'system', field_identifier: 'story_points' }] }],
-      [1, { fields: [{ field_type: 'system', field_identifier: 'story_points' }] }],
-    ]);
-
-    expect(
-      isSystemFieldAvailableForItem(
-        { workspace_id: 10, item_type_id: 1 },
-        'story_points',
-        configSetsByWorkspaceId,
-        screensById
-      )
-    ).toBe(false);
-    expect(
-      isSystemFieldAvailableForItem(
-        { workspace_id: 10, item_type_id: 2 },
-        'story_points',
-        configSetsByWorkspaceId,
-        screensById
-      )
-    ).toBe(true);
-    expect(
-      isSystemFieldAvailableForItem(
-        { workspace_id: 11, item_type_id: 1 },
-        'story_points',
-        configSetsByWorkspaceId,
-        screensById
-      )
-    ).toBe(true);
-    expect(
-      isSystemFieldAvailableForItem(
-        { workspace_id: 12, item_type_id: 1 },
-        'story_points',
-        configSetsByWorkspaceId,
-        screensById
-      )
-    ).toBe(false);
-    expect(
-      isSystemFieldAvailableForItem(
-        { workspace_id: 10, item_type_id: 1 },
-        'story_points',
-        new Map([['10', undefined]]),
-        screensById
-      )
-    ).toBe(false);
+    expect(isSystemFieldAvailableInEffectiveConfig(config, 'estimate')).toBe(true);
+    expect(isSystemFieldAvailableInEffectiveConfig(config, 'story_points')).toBe(false);
   });
 
   it('splits system and custom fields', () => {

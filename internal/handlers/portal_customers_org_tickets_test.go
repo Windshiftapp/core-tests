@@ -5,22 +5,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"windshift/internal/services"
 	"windshift/internal/testutils/factory"
 )
 
-// Regression test for docs/bughunt-2026-05-19-pass-2.md F7.
-//
-// GetOrganisationTickets used to intersect the result with the requesting
-// user's workspace permissions and bail to []. That defeated the per-org
-// ACL: a customer-organisation member or manager without any workspace
-// permission saw zero tickets. After the fix the org ACL (CanView) is the
-// gate; workspace permissions only decide whether workspace_name /
-// workspace_key are blanked in the response.
+// GetOrganisationTickets is gated by the per-org ACL and then limited to the
+// requesting user's workspace visibility: an org member without item.view on a
+// ticket's workspace does not see that ticket at all. This supersedes the
+// earlier F7 behaviour, which kept the ticket and blanked only workspace_name /
+// workspace_key, leaving the title, body, status and workspace_id exposed.
 
-func setupOrgTicketsHandler(t *testing.T, userID int) (*PortalCustomersHandler, func(orgID int) *httptest.ResponseRecorder) {
+func setupOrgTicketsHandler(t *testing.T, userID int, grantCallerAccess bool) (*PortalCustomersHandler, func(orgID int) *httptest.ResponseRecorder) {
 	t.Helper()
 	db := newNegativeTestDB(t)
 	seedNegativeTestUser(t, db, userID)
@@ -43,21 +41,25 @@ func setupOrgTicketsHandler(t *testing.T, userID int) (*PortalCustomersHandler, 
 	if _, err := db.Exec(`INSERT INTO portal_customers (id, name, email, customer_organisation_id) VALUES (500, 'PC One', 'pc1@example.com', 100)`); err != nil {
 		t.Fatalf("seed portal_customer: %v", err)
 	}
-	// Workspace 10 holds the org's tickets. We assign a workspace role to a
-	// *different* user, which flips the workspace from open-by-default into
-	// gated mode (see CLAUDE.md / project_workspace_permissions_open_default).
-	// The test user thereby loses workspace-level item.view, which is the
-	// exact condition F7 must handle gracefully.
+	// Workspace 10 holds the org's tickets. Assigning a workspace role flips
+	// the workspace from open-by-default into gated mode (see CLAUDE.md /
+	// project_workspace_permissions_open_default), so a user without an
+	// explicit role there loses item.view.
 	if _, err := db.Exec(`INSERT INTO workspaces (id, name, key, active, is_personal) VALUES (10, 'Locked WS', 'LOCK', TRUE, FALSE)`); err != nil {
 		t.Fatalf("seed workspace: %v", err)
 	}
 	seedNegativeTestUser(t, db, 999)
-	var ownerRoleID int
-	if err := db.QueryRow(`SELECT id FROM workspace_roles ORDER BY id LIMIT 1`).Scan(&ownerRoleID); err != nil {
+	var roleID int
+	if err := db.QueryRow(`SELECT id FROM workspace_roles ORDER BY id LIMIT 1`).Scan(&roleID); err != nil {
 		t.Fatalf("locate workspace role: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO user_workspace_roles (user_id, workspace_id, role_id) VALUES (999, 10, ?)`, ownerRoleID); err != nil {
+	if _, err := db.Exec(`INSERT INTO user_workspace_roles (user_id, workspace_id, role_id) VALUES (999, 10, ?)`, roleID); err != nil {
 		t.Fatalf("flip workspace to gated: %v", err)
+	}
+	if grantCallerAccess {
+		if _, err := db.Exec(`INSERT INTO user_workspace_roles (user_id, workspace_id, role_id) VALUES (?, 10, ?)`, userID, roleID); err != nil {
+			t.Fatalf("grant caller workspace access: %v", err)
+		}
 	}
 	// Create the org ticket through the production path with the portal
 	// customer pinned as creator, exactly like a portal submit would.
@@ -82,18 +84,36 @@ type orgTicketResponse struct {
 	WorkspaceKey  string `json:"workspace_key"`
 }
 
-// F7 happy path: an org member with no workspace-level item.view permission
-// must still see their org's tickets via the org endpoint. Workspace
-// metadata is blanked because the caller cannot view the workspace itself.
-func TestPortalCustomers_GetOrganisationTickets_NoWorkspacePermNoLongerBlocks(t *testing.T) {
+// An org member without workspace-level item.view must not see tickets filed
+// in workspaces they cannot view.
+func TestPortalCustomers_GetOrganisationTickets_OmitsInaccessibleWorkspaces(t *testing.T) {
 	const (
 		userID = 1
 		orgID  = 100
 	)
-	_, call := setupOrgTicketsHandler(t, userID)
+	_, call := setupOrgTicketsHandler(t, userID, false)
 
-	// Org has no whitelist rows → CanView is true (open access for any user).
-	// User 1 has zero workspace permissions because workspace 10 is gated.
+	// Org has no whitelist rows → CanView is true. User 1 has zero workspace
+	// permissions because workspace 10 is gated, so the ticket is omitted.
+	rr := call(orgID)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if body := strings.TrimSpace(rr.Body.String()); body != "[]" {
+		t.Fatalf("expected no tickets for a caller without workspace access, got %s", body)
+	}
+}
+
+// An org member with item.view on the ticket's workspace still sees the ticket
+// with its workspace metadata.
+func TestPortalCustomers_GetOrganisationTickets_IncludesViewableWorkspaces(t *testing.T) {
+	const (
+		userID = 1
+		orgID  = 100
+	)
+	_, call := setupOrgTicketsHandler(t, userID, true)
+
 	rr := call(orgID)
 
 	if rr.Code != http.StatusOK {
@@ -104,12 +124,12 @@ func TestPortalCustomers_GetOrganisationTickets_NoWorkspacePermNoLongerBlocks(t 
 		t.Fatalf("decode body: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("expected 1 org ticket for user without workspace perms, got %d: %s", len(got), rr.Body.String())
+		t.Fatalf("expected 1 org ticket for a caller with workspace access, got %d: %s", len(got), rr.Body.String())
 	}
-	if got[0].WorkspaceID != 10 {
-		t.Errorf("expected workspace_id 10, got %d", got[0].WorkspaceID)
+	if got[0].WorkspaceID != 10 || got[0].WorkspaceName != "Locked WS" || got[0].WorkspaceKey != "LOCK" {
+		t.Errorf("unexpected org ticket metadata: %#v", got[0])
 	}
-	if got[0].WorkspaceName != "" || got[0].WorkspaceKey != "" {
-		t.Errorf("expected scrubbed workspace metadata for non-accessible workspace; got name=%q key=%q", got[0].WorkspaceName, got[0].WorkspaceKey)
+	if got[0].Title != "Org ticket #1" {
+		t.Errorf("org ticket title = %q, want Org ticket #1", got[0].Title)
 	}
 }

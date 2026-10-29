@@ -3,17 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ getAll: vi.fn() }));
 
-vi.mock("../../api.js", () => ({
-	api: {
-		milestones: { getAll: mocks.getAll },
-		iterations: { getAll: mocks.getAll },
-		milestoneCategories: { getAll: async () => [] },
-		iterationTypes: { getAll: async () => [] },
-		workspaces: { getAll: async () => [] },
-		setup: {
-			getModuleSettings: async () => ({ test_management_enabled: false }),
-		},
-	},
+vi.mock('../../api/milestones.js', () => ({
+  milestones: { getAll: mocks.getAll },
+  iterations: { getAll: mocks.getAll },
+  milestoneCategories: { getAll: async () => [] },
+  iterationTypes: { getAll: async () => [] },
+}))
+
+vi.mock('../../api/workspaces.js', () => ({
+  workspaces: { getAll: async () => [] },
+}))
+
+vi.mock('../../api/admin.js', () => ({
+  setup: {
+  			getModuleSettings: async () => ({ test_management_enabled: false }),
+  		},
 }));
 vi.mock("../../stores/permissions.svelte.js", () => ({
 	permissionStore: {
@@ -49,6 +53,11 @@ vi.mock("../../stores/i18n.svelte.js", () => ({ t: (key) => key }));
 import { milestonesStore } from "../../stores/milestones.js";
 import Iterations from "../iterations/Iterations.svelte";
 import Milestones from "./Milestones.svelte";
+import { iterationTypes, iterations, milestoneCategories, milestones } from '../../api/milestones.js';
+import { workspaces } from '../../api/workspaces.js';
+import { setup } from '../../api/admin.js';
+
+
 
 beforeEach(() => {
 	milestonesStore.reset();

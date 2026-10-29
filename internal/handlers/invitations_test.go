@@ -5,6 +5,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -306,6 +307,11 @@ func TestInvitationHandler_Validation(t *testing.T) {
 			name:    "password too short",
 			body:    map[string]string{"token": "some-token", "password": "short"},
 			message: "at least 8 characters",
+		},
+		{
+			name:    "password over bcrypt limit",
+			body:    map[string]string{"token": "some-token", "password": strings.Repeat("a", 73)},
+			message: "72 bytes or fewer",
 		},
 		{
 			name:    "empty body",

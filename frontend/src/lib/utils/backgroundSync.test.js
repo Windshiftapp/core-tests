@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  canRunBackgroundSync,
-  isExpectedBackgroundSyncError,
-  onBackgroundSyncAvailable,
-} from './backgroundSync.js';
+import { canRunBackgroundSync, isExpectedBackgroundSyncError, onBackgroundSyncAvailable } from './backgroundSync.js';
 
 describe('background sync availability', () => {
   it('pauses while hidden or offline', () => {

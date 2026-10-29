@@ -99,8 +99,8 @@ func TestAutomatedMilestoneAttachmentEmitsSharedEffectsOnce(t *testing.T) {
 	}
 
 	live := liveUpdates.snapshot()
-	if len(live) != 1 || live[0].itemID != env.itemID || live[0].kind != ItemChangeUpdated {
-		t.Fatalf("live updates = %+v, want one item.updated for %d", live, env.itemID)
+	if len(live) != 1 || live[0] != env.itemID {
+		t.Fatalf("live updates = %+v, want one publish for %d", live, env.itemID)
 	}
 	if len(actions.events) != 1 {
 		t.Fatalf("action events = %d, want 1", len(actions.events))

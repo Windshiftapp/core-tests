@@ -7,9 +7,14 @@ const stores = vi.hoisted(() => ({
   authStore: { currentUser: { id: 7 } },
 }));
 
-vi.mock('../api.js', () => ({ api: { getUser: mocks.getUser } }));
+vi.mock('../api/users.js', () => ({
+  getUser: mocks.getUser,
+}));
 
-vi.mock('../stores', () => stores);
+vi.mock('../stores/attachmentStatus.svelte.js', () => ({
+  attachmentStatus: stores.attachmentStatus,
+}));
+vi.mock('../stores/auth.svelte.js', () => ({ authStore: stores.authStore }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 
@@ -27,6 +32,7 @@ vi.mock('../profile/ProfileRegionalSettingsTab.svelte', () => ({
 }));
 
 import UserProfile from './UserProfile.svelte';
+import { getUser } from '../api/users.js';
 
 describe('UserProfile', () => {
   beforeEach(() => {

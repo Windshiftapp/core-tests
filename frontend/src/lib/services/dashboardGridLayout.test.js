@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	getDashboardResizeBounds,
-	resizeDashboardWidgetRow,
-} from "./dashboardGridLayout.js";
+import { getDashboardResizeBounds, resizeDashboardWidgetRow } from "./dashboardGridLayout.js";
 
 const minimums = {
 	primary: 3,

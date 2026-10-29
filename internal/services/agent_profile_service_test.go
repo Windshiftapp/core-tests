@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"windshift/internal/agentstudio"
@@ -293,6 +294,75 @@ func TestBindingService_ActivationReportsMissingSelectedCapabilityPermission(t *
 	}
 	if activated.Lifecycle != models.AgentLifecycleReady {
 		t.Fatalf("lifecycle = %q, want ready", activated.Lifecycle)
+	}
+}
+
+func TestBindingService_UsersApprovalsReadinessDoesNotRequireGlobalUserList(t *testing.T) {
+	st := newBindingTestStack(t, false)
+	llmConnectionID := validTestLLMConnectionID
+	profile, err := st.BS.CreateStudioProfile(context.Background(), CreateStudioProfileRequest{
+		WorkspaceID:      1,
+		CreatedByUserID:  st.AdminID,
+		TemplateKey:      "blank",
+		Name:             "Approvals Agent",
+		Handle:           "approvals-agent",
+		CapabilityGroups: []string{string(agentstudio.CapabilityUsersApprovals)},
+		LLMConnectionID:  &llmConnectionID,
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+
+	validation, err := st.BS.ValidateStudioProfile(context.Background(), 1, profile.ID)
+	if err != nil {
+		t.Fatalf("validate profile: %v", err)
+	}
+	if !validation.Ready {
+		t.Fatalf("Users and approvals readiness = %+v, want ready without global user.list", validation.Errors)
+	}
+}
+
+func TestBindingService_PermissionReadinessIncludesGrantHint(t *testing.T) {
+	st := newBindingTestStack(t, false)
+	if _, err := st.DB.Exec(`
+		INSERT INTO user_workspace_roles (user_id, workspace_id, role_id, granted_by)
+		SELECT ?, 1, id, ? FROM workspace_roles WHERE name = ?
+	`, st.AgentID, st.AdminID, models.RoleViewer); err != nil {
+		t.Fatalf("restrict workspace: %v", err)
+	}
+	llmConnectionID := validTestLLMConnectionID
+	profile, err := st.BS.CreateStudioProfile(context.Background(), CreateStudioProfileRequest{
+		WorkspaceID:      1,
+		CreatedByUserID:  st.AdminID,
+		TemplateKey:      "work_item_triage",
+		Name:             "Triage Agent",
+		Handle:           "triage-agent",
+		CapabilityGroups: []string{string(agentstudio.CapabilityIssueManagement)},
+		LLMConnectionID:  &llmConnectionID,
+	})
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if _, err := st.DB.Exec(`DELETE FROM user_workspace_roles WHERE user_id = ? AND workspace_id = 1`, profile.ActingUserID); err != nil {
+		t.Fatalf("revoke agent role: %v", err)
+	}
+
+	validation, err := st.BS.ValidateStudioProfile(context.Background(), 1, profile.ID)
+	if err != nil {
+		t.Fatalf("validate profile: %v", err)
+	}
+	missing := 0
+	for _, issue := range validation.Errors {
+		if issue.Code != "permission_missing" {
+			continue
+		}
+		missing++
+		if !strings.Contains(issue.Hint, "Workspace settings") {
+			t.Fatalf("hint for %s = %q, want a Workspace settings pointer", issue.Dependency, issue.Hint)
+		}
+	}
+	if missing == 0 {
+		t.Fatalf("expected missing-permission errors, got %+v", validation.Errors)
 	}
 }
 

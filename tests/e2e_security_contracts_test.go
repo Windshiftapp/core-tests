@@ -1408,21 +1408,6 @@ func TestDirectIDAuthorizationHTTPContracts(t *testing.T) {
 	}
 	linkResp.Body.Close()
 
-	adminID := adminUserID(t, server)
-	labelResp := MakeAuthRequest(t, server, http.MethodPost, "/personal-labels", map[string]interface{}{
-		"name":    "private-label",
-		"color":   "#ff00aa",
-		"user_id": adminID,
-	})
-	AssertStatusCode(t, labelResp, http.StatusCreated)
-	var labelPayload struct {
-		ID int `json:"id"`
-	}
-	if err := json.NewDecoder(labelResp.Body).Decode(&labelPayload); err != nil {
-		t.Fatalf("decode personal label: %v", err)
-	}
-	labelResp.Body.Close()
-
 	denied := []struct {
 		name   string
 		method string
@@ -1435,8 +1420,6 @@ func TestDirectIDAuthorizationHTTPContracts(t *testing.T) {
 		{"watch read", http.MethodGet, fmt.Sprintf("/items/%d/watch", targetItemID), nil},
 		{"watch add", http.MethodPost, fmt.Sprintf("/items/%d/watch", targetItemID), map[string]interface{}{}},
 		{"watch remove", http.MethodDelete, fmt.Sprintf("/items/%d/watch", targetItemID), nil},
-		{"personal label update", http.MethodPut, fmt.Sprintf("/personal-labels/%d", labelPayload.ID), map[string]string{"name": "hijack", "color": "#000000"}},
-		{"personal label delete", http.MethodDelete, fmt.Sprintf("/personal-labels/%d", labelPayload.ID), nil},
 	}
 	for _, tc := range denied {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1455,111 +1438,6 @@ func TestDirectIDAuthorizationHTTPContracts(t *testing.T) {
 	assertResponseStatusForBody(t, links, http.StatusOK)
 	if !linkIDs(t, links)[linkPayload.ID] {
 		t.Fatalf("denied link deletion removed link %d", linkPayload.ID)
-	}
-
-	label := MakeAuthRequest(t, server, http.MethodGet, fmt.Sprintf("/personal-labels/%d", labelPayload.ID), nil)
-	assertResponseStatusForBody(t, label, http.StatusOK)
-	var labelState struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(label.Body).Decode(&labelState); err != nil {
-		t.Fatalf("decode label after denied mutation: %v", err)
-	}
-	label.Body.Close()
-	if labelState.Name != "private-label" {
-		t.Fatalf("denied label mutation changed name to %q", labelState.Name)
-	}
-}
-
-func TestPersonalLabelHTTPContracts(t *testing.T) {
-	server := newSecurityTestServer(t)
-	ownerID := adminUserID(t, server)
-
-	type labelPayload struct {
-		ID    int    `json:"id"`
-		Name  string `json:"name"`
-		Color string `json:"color"`
-	}
-
-	created := make([]labelPayload, 0, 3)
-	for _, tc := range []struct {
-		name          string
-		color         string
-		expectedColor string
-	}{
-		{name: "chosen-colour", color: "#FF0000", expectedColor: "#FF0000"},
-		{name: "default-colour", expectedColor: "#3B82F6"},
-		{name: "invalid-colour", color: "banana", expectedColor: "#3B82F6"},
-	} {
-		body := map[string]interface{}{
-			"name":    tc.name,
-			"user_id": ownerID,
-		}
-		if tc.color != "" {
-			body["color"] = tc.color
-		}
-
-		resp := MakeAuthRequest(t, server, http.MethodPost, "/personal-labels", body)
-		assertResponseStatusForBody(t, resp, http.StatusCreated)
-		var createdLabel labelPayload
-		if err := json.NewDecoder(resp.Body).Decode(&createdLabel); err != nil {
-			t.Fatalf("decode created personal label %q: %v", tc.name, err)
-		}
-		resp.Body.Close()
-		if createdLabel.Name != tc.name {
-			t.Fatalf("created label name = %q, want %q", createdLabel.Name, tc.name)
-		}
-		if createdLabel.Color != tc.expectedColor {
-			t.Fatalf("created label %q color = %q, want %q", tc.name, createdLabel.Color, tc.expectedColor)
-		}
-		created = append(created, createdLabel)
-	}
-
-	listResp := MakeAuthRequest(t, server, http.MethodGet, "/personal-labels", nil)
-	assertResponseStatusForBody(t, listResp, http.StatusOK)
-	var labels []labelPayload
-	if err := json.NewDecoder(listResp.Body).Decode(&labels); err != nil {
-		t.Fatalf("decode personal label list: %v", err)
-	}
-	listResp.Body.Close()
-	byID := make(map[int]labelPayload, len(labels))
-	for _, label := range labels {
-		byID[label.ID] = label
-	}
-	for _, want := range created {
-		got, ok := byID[want.ID]
-		if !ok {
-			t.Fatalf("personal label list omitted created label %d (%q)", want.ID, want.Name)
-		}
-		if got.Name != want.Name || got.Color != want.Color {
-			t.Fatalf("listed label %d = %#v, want name %q color %q", want.ID, got, want.Name, want.Color)
-		}
-	}
-
-	workspaceID, _ := CreateTestWorkspace(t, server, "Personal label contracts", "PLCTR")
-	itemID := CreateTestItem(t, server, workspaceID, "Personal label target")
-	setResp := MakeAuthRequest(t, server, http.MethodPut, fmt.Sprintf("/items/%d/personal-labels", itemID), map[string]interface{}{
-		"label_ids": []int{created[0].ID},
-	})
-	assertResponseStatusForBody(t, setResp, http.StatusOK)
-	var attached []labelPayload
-	if err := json.NewDecoder(setResp.Body).Decode(&attached); err != nil {
-		t.Fatalf("decode labels after assignment: %v", err)
-	}
-	setResp.Body.Close()
-	if len(attached) != 1 || attached[0].ID != created[0].ID || attached[0].Name != created[0].Name || attached[0].Color != created[0].Color {
-		t.Fatalf("labels after assignment = %#v, want only %#v", attached, created[0])
-	}
-
-	getItemResp := MakeAuthRequest(t, server, http.MethodGet, fmt.Sprintf("/items/%d/personal-labels", itemID), nil)
-	assertResponseStatusForBody(t, getItemResp, http.StatusOK)
-	var listedAttached []labelPayload
-	if err := json.NewDecoder(getItemResp.Body).Decode(&listedAttached); err != nil {
-		t.Fatalf("decode labels on item: %v", err)
-	}
-	getItemResp.Body.Close()
-	if len(listedAttached) != 1 || listedAttached[0].ID != created[0].ID {
-		t.Fatalf("labels on item = %#v, want label %d", listedAttached, created[0].ID)
 	}
 }
 

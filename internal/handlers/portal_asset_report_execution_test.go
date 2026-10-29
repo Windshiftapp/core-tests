@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"windshift/internal/auth"
+	"windshift/internal/blobstore"
 	"windshift/internal/middleware"
 	"windshift/internal/testutils"
 )
@@ -62,7 +63,7 @@ func TestExecuteAssetReportSubstitutesFormPlaceholderBeforeRunningCQL(t *testing
 	}
 
 	sessionManager := auth.NewSessionManagerWithValidationCacheTTL(db, false, false, nil, "asset-report-test-secret", "strict", auth.DefaultSessionValidationCacheTTL)
-	handler := NewPortalHandler(db, sessionManager, nil, nil, "")
+	handler := NewPortalHandler(db, sessionManager, nil, nil, blobstore.Disabled())
 	request := httptest.NewRequest(
 		http.MethodPost,
 		fmt.Sprintf("/api/portal/asset-report/asset-reports/%d/execute", reportID),

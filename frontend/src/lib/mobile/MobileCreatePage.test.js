@@ -25,7 +25,7 @@ vi.mock('../router.js', async () => {
 // (a Svelte store exposing .regularWorkspaces) and gates the list on
 // workspacePermissions.canCreate. Replace both with controllables so the
 // workspace picker renders the options we want.
-vi.mock('../stores', async () => {
+vi.mock('../stores/workspaces.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   const workspacesStore = writable({
     regularWorkspaces: [
@@ -41,7 +41,30 @@ vi.mock('../stores', async () => {
     // the browser suite (WI-1440).
     canCreate: () => true,
   };
-  return { workspacesStore, workspacePermissions };
+  return {
+    workspacesStore,
+  };
+})
+
+vi.mock('../stores/workspacePermissions.svelte.js', async () => {
+  const { writable } = await import('svelte/store');
+  const workspacesStore = writable({
+    regularWorkspaces: [
+      { id: 1, name: 'Acme', is_personal: false },
+      { id: 2, name: 'Other', is_personal: false },
+    ],
+    // Personal workspace is loaded on-demand; the page checks it in personal
+    // mode. Pre-populate it so personal-mode tests don't have to await it.
+    personalWorkspace: { id: 3, name: 'Personal', is_personal: true },
+  });
+  const workspacePermissions = {
+    // Tests exercise the unfiltered picker; permission gating is covered by
+    // the browser suite (WI-1440).
+    canCreate: () => true,
+  };
+  return {
+    workspacePermissions,
+  };
 });
 
 // Sub-item context loads through the same summary endpoint the item detail
@@ -51,41 +74,71 @@ vi.mock('./mobileItemDetailData.js', () => ({
 }));
 
 // api — spy on items.create so we can assert the parent_id payload.
-vi.mock('../api.js', () => ({
-  api: {
-    items: { create: vi.fn() },
-    itemTypes: { getAll: vi.fn() },
-    itemTemplates: { getAll: vi.fn().mockResolvedValue([]) },
-    customFields: { getAll: vi.fn().mockResolvedValue([]) },
-    configurationSets: {
-      getAll: vi.fn().mockResolvedValue({ configuration_sets: [] }),
-      get: vi.fn().mockResolvedValue(null),
-    },
-    screens: { getFields: vi.fn().mockResolvedValue([]) },
-    milestones: { getAll: vi.fn().mockResolvedValue([]) },
-    iterations: { getAll: vi.fn().mockResolvedValue([]) },
-    time: { projects: { getByWorkspace: vi.fn().mockResolvedValue([]) } },
-    priorities: { getAll: vi.fn().mockResolvedValue([]) },
-    workspaces: {
-      get: vi.fn().mockResolvedValue({}),
-      // WI-1351: workspace bootstrap and effective-config resolution go
-      // through workspaceDataStore, which renders screen fields from here.
-      getBootstrap: vi.fn().mockResolvedValue({}),
-      getEffectiveConfig: vi.fn().mockResolvedValue({ screens: { create: 55 } }),
-    },
-    getAssignableUsers: vi.fn().mockResolvedValue([]),
-    labels: {
-      getAll: vi.fn().mockResolvedValue([]),
-      create: vi.fn(),
-    },
-  },
+vi.mock('../api/items.js', () => ({
+  items: { create: vi.fn() },
+}))
+
+vi.mock('../api/configuration.js', () => ({
+  itemTypes: { getAll: vi.fn() },
+  itemTemplates: { getAll: vi.fn().mockResolvedValue([]) },
+  customFields: { getAll: vi.fn().mockResolvedValue([]) },
+  configurationSets: {
+        getAll: vi.fn().mockResolvedValue({ configuration_sets: [] }),
+        get: vi.fn().mockResolvedValue(null),
+      },
+  screens: { getFields: vi.fn().mockResolvedValue([]) },
+  priorities: { getAll: vi.fn().mockResolvedValue([]) },
+}))
+
+vi.mock('../api/milestones.js', () => ({
+  milestones: { getAll: vi.fn().mockResolvedValue([]) },
+  iterations: { getAll: vi.fn().mockResolvedValue([]) },
+  milestoneCategories: { getAll: vi.fn().mockResolvedValue([]) },
+}))
+
+vi.mock('../api/time.js', () => ({
+  time: { projects: { getByWorkspace: vi.fn().mockResolvedValue([]) } },
+}))
+
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: {
+        get: vi.fn().mockResolvedValue({}),
+        // WI-1351: workspace bootstrap and effective-config resolution go
+        // through workspaceDataStore, which renders screen fields from here.
+        getBootstrap: vi.fn().mockResolvedValue({}),
+        getEffectiveConfig: vi.fn().mockResolvedValue({ screens: { create: 55 } }),
+      },
+}))
+
+vi.mock('../api/users.js', () => ({
+  getAssignableUsers: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock('../api/misc.js', () => ({
+  labels: {
+        getAll: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
+      },
 }));
 
-import { api } from '../api.js';
+import { configurationSets, customFields, itemTemplates, itemTypes, priorities, screens } from '../api/configuration.js';
+import { items } from '../api/items.js';
+import { workspaces } from '../api/workspaces.js';
+import { labels } from '../api/misc.js';
+import { milestones } from '../api/milestones.js';
 import { i18n } from '../stores/i18n.svelte.js';
 import { navigate, setNavigationInterceptor } from '../router.js';
 import MobileCreatePage from './MobileCreatePage.svelte';
 import { loadMobileItemDetailSummary } from './mobileItemDetailData.js';
+
+
+import { iterations } from '../api/milestones.js';
+import { time } from '../api/time.js';
+
+import { getAssignableUsers } from '../api/users.js';
+
+
+
 
 const PARENT = { id: 777, title: 'Epic: Mobile parity', workspace_id: 1 };
 const SUB_TYPES = [
@@ -113,23 +166,23 @@ beforeEach(async () => {
   // PR #284 migrated the create page onto the i18n runtime; load the real
   // English catalog so t() keys resolve to the copy these tests assert on.
   await i18n.setLocale('en');
-  api.items.create.mockReset();
-  api.itemTypes.getAll.mockReset();
-  api.itemTemplates.getAll.mockReset().mockResolvedValue([]);
-  api.customFields.getAll.mockReset().mockResolvedValue([]);
-  api.configurationSets.getAll.mockReset().mockResolvedValue({ configuration_sets: [] });
-  api.configurationSets.get.mockReset().mockResolvedValue(null);
-  api.screens.getFields.mockReset().mockResolvedValue([]);
-  api.milestones.getAll.mockReset().mockResolvedValue([]);
-  api.iterations.getAll.mockReset().mockResolvedValue([]);
-  api.time.projects.getByWorkspace.mockReset().mockResolvedValue([]);
-  api.priorities.getAll.mockReset().mockResolvedValue([]);
-  api.workspaces.get.mockReset().mockResolvedValue({});
-  api.workspaces.getBootstrap.mockReset().mockResolvedValue({});
-  api.workspaces.getEffectiveConfig.mockReset().mockResolvedValue({ screens: { create: 55 } });
-  api.getAssignableUsers.mockReset().mockResolvedValue([]);
-  api.labels.getAll.mockReset().mockResolvedValue([]);
-  api.labels.create.mockReset();
+  items.create.mockReset();
+  itemTypes.getAll.mockReset();
+  itemTemplates.getAll.mockReset().mockResolvedValue([]);
+  customFields.getAll.mockReset().mockResolvedValue([]);
+  configurationSets.getAll.mockReset().mockResolvedValue({ configuration_sets: [] });
+  configurationSets.get.mockReset().mockResolvedValue(null);
+  screens.getFields.mockReset().mockResolvedValue([]);
+  milestones.getAll.mockReset().mockResolvedValue([]);
+  iterations.getAll.mockReset().mockResolvedValue([]);
+  time.projects.getByWorkspace.mockReset().mockResolvedValue([]);
+  priorities.getAll.mockReset().mockResolvedValue([]);
+  workspaces.get.mockReset().mockResolvedValue({});
+  workspaces.getBootstrap.mockReset().mockResolvedValue({});
+  workspaces.getEffectiveConfig.mockReset().mockResolvedValue({ screens: { create: 55 } });
+  getAssignableUsers.mockReset().mockResolvedValue([]);
+  labels.getAll.mockReset().mockResolvedValue([]);
+  labels.create.mockReset();
 });
 
 describe('MobileCreatePage — child creation', () => {
@@ -155,7 +208,7 @@ describe('MobileCreatePage — child creation', () => {
     expect(wsSelect).toBeDisabled();
     expect(wsSelect.value).toBe('1');
     // The parent summary is the only context load — item types are not fetched.
-    expect(api.itemTypes.getAll).not.toHaveBeenCalled();
+    expect(itemTypes.getAll).not.toHaveBeenCalled();
   });
 
   test('submit creates the item under the parent with parent_id set and returns to the parent', async () => {
@@ -163,7 +216,7 @@ describe('MobileCreatePage — child creation', () => {
       item: PARENT,
       available_sub_issue_types: SUB_TYPES,
     });
-    api.items.create.mockResolvedValue({ id: 999, title: 'New sub' });
+    items.create.mockResolvedValue({ id: 999, title: 'New sub' });
     setRoute({ parent: '777' });
     render(MobileCreatePage);
 
@@ -174,9 +227,9 @@ describe('MobileCreatePage — child creation', () => {
     await fireEvent.click(screen.getByTestId('editor-save'));
 
     await waitFor(() => {
-      expect(api.items.create).toHaveBeenCalledTimes(1);
+      expect(items.create).toHaveBeenCalledTimes(1);
     });
-    expect(api.items.create).toHaveBeenCalledWith(
+    expect(items.create).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'New sub',
         workspace_id: 1,
@@ -191,14 +244,14 @@ describe('MobileCreatePage — child creation', () => {
 
 describe('MobileCreatePage — configured fields (WI-553)', () => {
   test('renders required configured fields and submits their values', async () => {
-    api.items.create.mockResolvedValue({ id: 999, title: 'Screened item' });
-    api.itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
-    api.configurationSets.getAll.mockResolvedValue({
+    items.create.mockResolvedValue({ id: 999, title: 'Screened item' });
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
+    configurationSets.getAll.mockResolvedValue({
       configuration_sets: [{ id: 20, is_default: true, workspace_ids: [1] }],
     });
-    api.configurationSets.get.mockResolvedValue({ id: 20, create_screen_id: 55 });
-    api.customFields.getAll.mockResolvedValue([{ id: 7, name: 'Risk', field_type: 'text' }]);
-    api.screens.getFields.mockResolvedValue([
+    configurationSets.get.mockResolvedValue({ id: 20, create_screen_id: 55 });
+    customFields.getAll.mockResolvedValue([{ id: 7, name: 'Risk', field_type: 'text' }]);
+    screens.getFields.mockResolvedValue([
       { id: 1, field_type: 'system', field_identifier: 'story_points', is_required: true },
       { id: 2, field_type: 'custom', field_identifier: '7', is_required: true },
     ]);
@@ -218,8 +271,8 @@ describe('MobileCreatePage — configured fields (WI-553)', () => {
 
     await fireEvent.click(screen.getByTestId('editor-save'));
 
-    await waitFor(() => expect(api.items.create).toHaveBeenCalledTimes(1));
-    expect(api.items.create).toHaveBeenCalledWith(
+    await waitFor(() => expect(items.create).toHaveBeenCalledTimes(1));
+    expect(items.create).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Screened item',
         workspace_id: 1,
@@ -229,34 +282,67 @@ describe('MobileCreatePage — configured fields (WI-553)', () => {
       })
     );
   });
+
+  test('ignores a required linking field that create cannot satisfy', async () => {
+    items.create.mockResolvedValue({ id: 999, title: 'No link needed' });
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
+    configurationSets.getAll.mockResolvedValue({
+      configuration_sets: [{ id: 20, is_default: true, workspace_ids: [1] }],
+    });
+    configurationSets.get.mockResolvedValue({ id: 20, create_screen_id: 55 });
+    customFields.getAll.mockResolvedValue([
+      { id: 9, name: 'Blocks', field_type: 'linking' },
+    ]);
+    screens.getFields.mockResolvedValue([
+      { id: 2, field_type: 'custom', field_identifier: '9', is_required: true },
+    ]);
+
+    setRoute({});
+    render(MobileCreatePage);
+
+    await fireEvent.input(await screen.findByTestId('create-title'), {
+      target: { value: 'No link needed' },
+    });
+
+    await fireEvent.click(screen.getByTestId('editor-save'));
+
+    await waitFor(() => expect(items.create).toHaveBeenCalledTimes(1));
+    expect(items.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'No link needed',
+        custom_field_values: {},
+      })
+    );
+    expect(screen.queryByTestId('configured-custom-9')).not.toBeInTheDocument();
+  });
 });
 
 describe('MobileCreatePage — sheet-based property pickers', () => {
   beforeEach(() => {
-    api.workspaces.get.mockResolvedValue({});
-    api.priorities.getAll.mockResolvedValue([
+    workspaces.get.mockResolvedValue({});
+    priorities.getAll.mockResolvedValue([
       { id: 5, name: 'High', color: '#ef4444', sort_order: 1 },
       { id: 6, name: 'Low', color: '#94a3b8', sort_order: 2 },
     ]);
-    api.labels.getAll.mockResolvedValue([
+    labels.getAll.mockResolvedValue([
       { id: 31, name: 'bug' },
       { id: 32, name: 'ux' },
     ]);
-    api.milestones.getAll.mockResolvedValue([
+    milestones.getAll.mockResolvedValue([
       { id: 41, name: 'Sprint 9' },
       { id: 42, name: 'Sprint 10' },
     ]);
   });
 
   function mockScreenWith(fields) {
-    api.items.create.mockResolvedValue({ id: 999 });
-    api.itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
-    api.configurationSets.getAll.mockResolvedValue({
+    items.create.mockResolvedValue({ id: 999 });
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
+    configurationSets.getAll.mockResolvedValue({
       configuration_sets: [{ id: 20, is_default: true, workspace_ids: [1] }],
     });
-    api.configurationSets.get.mockResolvedValue({ id: 20, create_screen_id: 55 });
-    api.customFields.getAll.mockResolvedValue([]);
-    api.screens.getFields.mockResolvedValue(fields);
+    configurationSets.get.mockResolvedValue({ id: 20, create_screen_id: 55 });
+    customFields.getAll.mockResolvedValue([]);
+    screens.getFields.mockResolvedValue(fields);
   }
 
   test('priority edits through a sheet and lands in the payload', async () => {
@@ -276,8 +362,8 @@ describe('MobileCreatePage — sheet-based property pickers', () => {
     expect(screen.getByTestId('create-field-priority')).toHaveTextContent('High');
 
     await fireEvent.click(screen.getByTestId('editor-save'));
-    await waitFor(() => expect(api.items.create).toHaveBeenCalledTimes(1));
-    expect(api.items.create).toHaveBeenCalledWith(expect.objectContaining({ priority_id: 5 }));
+    await waitFor(() => expect(items.create).toHaveBeenCalledTimes(1));
+    expect(items.create).toHaveBeenCalledWith(expect.objectContaining({ priority_id: 5 }));
   });
 
   test('milestone and labels are multi-select sheets and land in the payload', async () => {
@@ -312,8 +398,8 @@ describe('MobileCreatePage — sheet-based property pickers', () => {
     await fireEvent.click(screen.getByTestId('mobile-sheet-done'));
 
     await fireEvent.click(screen.getByTestId('editor-save'));
-    await waitFor(() => expect(api.items.create).toHaveBeenCalledTimes(1));
-    expect(api.items.create).toHaveBeenCalledWith(
+    await waitFor(() => expect(items.create).toHaveBeenCalledTimes(1));
+    expect(items.create).toHaveBeenCalledWith(
       expect.objectContaining({
         milestone_ids: [41, 42],
         label_ids: [32],
@@ -324,8 +410,8 @@ describe('MobileCreatePage — sheet-based property pickers', () => {
 
 describe('MobileCreatePage — draft persistence', () => {
   test('title survives a remount via sessionStorage and clears after create', async () => {
-    api.items.create.mockResolvedValue({ id: 999, title: 'Drafted' });
-    api.itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
+    items.create.mockResolvedValue({ id: 999, title: 'Drafted' });
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
 
     setRoute({});
     const { unmount } = render(MobileCreatePage);
@@ -343,14 +429,14 @@ describe('MobileCreatePage — draft persistence', () => {
     // Creating clears the draft.
 
     await fireEvent.click(screen.getByTestId('editor-save'));
-    await waitFor(() => expect(api.items.create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(items.create).toHaveBeenCalledTimes(1));
     expect(sessionStorage.getItem('ws-draft:m-create:work')).toBeNull();
   });
 });
 
 describe('MobileCreatePage — back-gesture guard', () => {
   beforeEach(() => {
-    api.itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Story' }]);
   });
 
   test('registers the navigation interceptor while mounted and clears it on unmount', async () => {
@@ -384,8 +470,8 @@ describe('MobileCreatePage — back-gesture guard', () => {
 
 describe('MobileCreatePage — work item templates (WI-538)', () => {
   test('auto-applies a mandatory template body and locks the description', async () => {
-    api.itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Bug' }]);
-    api.itemTemplates.getAll.mockResolvedValue([
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Bug' }]);
+    itemTemplates.getAll.mockResolvedValue([
       { id: 50, name: 'Bug report', mode: 'mandatory', description_body: '## Repro' },
     ]);
 
@@ -405,8 +491,8 @@ describe('MobileCreatePage — work item templates (WI-538)', () => {
   });
 
   test('offers selectable templates in a picker and applies the chosen body', async () => {
-    api.itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Task' }]);
-    api.itemTemplates.getAll.mockResolvedValue([
+    itemTypes.getAll.mockResolvedValue([{ id: 10, name: 'Task' }]);
+    itemTemplates.getAll.mockResolvedValue([
       { id: 60, name: 'Standup', mode: 'selectable', description_body: '- did' },
       { id: 61, name: 'Retro', mode: 'selectable', description_body: '- went' },
     ]);
@@ -425,7 +511,7 @@ describe('MobileCreatePage — work item templates (WI-538)', () => {
   });
 
   test('skips template loading in personal mode and navigates back to Personal on save', async () => {
-    api.items.create.mockResolvedValue({ id: 999, title: 'Chore' });
+    items.create.mockResolvedValue({ id: 999, title: 'Chore' });
 
     setRoute({ mode: 'personal' });
     render(MobileCreatePage);
@@ -434,7 +520,7 @@ describe('MobileCreatePage — work item templates (WI-538)', () => {
     await screen.findByTestId('create-title');
     expect(screen.queryByTestId('template-picker')).not.toBeInTheDocument();
     expect(screen.queryByTestId('template-picker-locked')).not.toBeInTheDocument();
-    expect(api.itemTemplates.getAll).not.toHaveBeenCalled();
+    expect(itemTemplates.getAll).not.toHaveBeenCalled();
 
     await fireEvent.input(screen.getByTestId('create-title'), {
       target: { value: 'Chore' },
@@ -442,8 +528,8 @@ describe('MobileCreatePage — work item templates (WI-538)', () => {
 
     await fireEvent.click(screen.getByTestId('editor-save'));
 
-    await waitFor(() => expect(api.items.create).toHaveBeenCalledTimes(1));
-    expect(api.items.create).toHaveBeenCalledWith(
+    await waitFor(() => expect(items.create).toHaveBeenCalledTimes(1));
+    expect(items.create).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Chore', workspace_id: 3 })
     );
     expect(navigate).toHaveBeenCalledWith('/m/personal', { replace: true });

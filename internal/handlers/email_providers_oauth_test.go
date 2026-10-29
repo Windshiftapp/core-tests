@@ -42,7 +42,7 @@ func seedEmailProvider(t *testing.T, db database.Database, slug, providerType st
 	err := db.QueryRow(`
 		INSERT INTO email_providers
 		    (name, slug, type, is_enabled, oauth_client_id, oauth_client_secret_encrypted, oauth_scopes, oauth_tenant_id)
-		VALUES (?, ?, ?, ?, 'client-abc', 'legacy-test-secret', 'openid email', 'common')
+		VALUES (?, ?, ?, ?, 'client-abc', 'legacy-test-secret', 'https://outlook.office365.com/IMAP.AccessAsUser.All offline_access', 'common')
 		RETURNING id
 	`, slug, slug, providerType, enabled).Scan(&id)
 	if err != nil {
@@ -53,12 +53,17 @@ func seedEmailProvider(t *testing.T, db database.Database, slug, providerType st
 
 func seedEmailChannel(t *testing.T, db database.Database, name string, managerID int) int {
 	t.Helper()
+	return seedEmailChannelConfig(t, db, name, `{"email_oauth_mailbox":"support@example.com"}`, managerID)
+}
+
+func seedEmailChannelConfig(t *testing.T, db database.Database, name, config string, managerID int) int {
+	t.Helper()
 	var id int
 	err := db.QueryRow(`
 		INSERT INTO channels (name, type, direction, status, config)
-		VALUES (?, 'email', 'inbound', 'enabled', '{}')
+		VALUES (?, 'email', 'inbound', 'enabled', ?)
 		RETURNING id
-	`, name).Scan(&id)
+	`, name, config).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed channel %s: %v", name, err)
 	}
@@ -244,5 +249,28 @@ func TestStartEmailOAuth_DisabledProvider_Returns404(t *testing.T) {
 	// auth_url payload must not contain a Microsoft auth URL leak.
 	if strings.Contains(rec.Body.String(), "login.microsoftonline.com") {
 		t.Errorf("body leaked Microsoft auth URL despite disabled provider: %s", rec.Body.String())
+	}
+}
+
+// TestStartEmailOAuth_MissingMailbox_Returns400 pins that the provider flow
+// refuses to start without the admin-entered mailbox, so the callback never
+// has to guess an identity from the token (the GH #363 failure mode).
+func TestStartEmailOAuth_MissingMailbox_Returns400(t *testing.T) {
+	h, db := newEmailProviderTestHandler(t)
+	uid := seedEmailTestUser(t, db, "erin")
+	chID := seedEmailChannelConfig(t, db, "ch-no-mailbox", `{}`, uid)
+	pid := seedEmailProvider(t, db, "ms-no-mailbox", "microsoft", true)
+
+	rec := httptest.NewRecorder()
+	h.StartEmailOAuth(rec, emailStartReq(chID, "ms-no-mailbox", uid))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400 — body: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "login.microsoftonline.com") {
+		t.Errorf("body leaked Microsoft auth URL without a mailbox: %s", rec.Body.String())
+	}
+	if n := countEmailOAuthStates(t, db, pid); n != 0 {
+		t.Errorf("email_oauth_state rows: got %d want 0 — a rejected start must not persist state", n)
 	}
 }

@@ -142,7 +142,7 @@ func (f *engineFixture) createMetric(t *testing.T, conditions []models.SLACondit
 func (f *engineFixture) defaultGoal() []models.SLAGoal {
 	return []models.SLAGoal{{
 		Position: 0, QLQuery: "1 = 1", ImportStatus: "native",
-		Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: f.calendarID}},
+		Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: f.calendarID}},
 	}}
 }
 
@@ -172,6 +172,15 @@ func (f *engineFixture) statusFact(toStatus int) itemevents.RecordedFact {
 		Snapshot: itemevents.ItemSnapshot{ID: f.itemID, WorkspaceID: f.workspaceID, StatusID: &toStatus, PriorityID: &f.priorityAPI},
 		Changes:  []itemevents.FieldChange{{Field: "status_id", OldValue: oldStatus, NewValue: toStatus}},
 		Metadata: itemevents.Metadata{ActorKind: "user"},
+	}
+}
+
+func (f *engineFixture) commentFact(authorKind string, isPrivate bool) itemevents.RecordedFact {
+	return itemevents.RecordedFact{
+		Type: itemevents.CommentCreated, ItemID: f.itemID, WorkspaceID: f.workspaceID,
+		CommentAuthorKind: authorKind, CommentIsPrivate: isPrivate,
+		Snapshot: itemevents.ItemSnapshot{ID: f.itemID, WorkspaceID: f.workspaceID, StatusID: &f.statusOpen, PriorityID: &f.priorityAPI},
+		Metadata: itemevents.Metadata{ActorKind: authorKind},
 	}
 }
 
@@ -233,6 +242,27 @@ func TestInlineEvaluationStartsAndCompletesCycle(t *testing.T) {
 	}
 	if jobs := fixture.breachJobCount(t); jobs != 0 {
 		t.Fatalf("breach jobs after completion = %d, want 0", jobs)
+	}
+}
+
+// A goal with a blank query matches every item, so a metric whose only goal is
+// blank always has a target.
+func TestBlankGoalQueryMatchesEveryItem(t *testing.T) {
+	fixture := newEngineFixture(t)
+	fixture.engine.SetClock(fixedClock{now: time.Date(2025, 1, 8, 12, 0, 0, 0, time.UTC)})
+	metricID := fixture.createMetric(t,
+		[]models.SLACondition{statusCondition(models.SLAPhaseStart, fixture.statusOpen)},
+		[]models.SLAGoal{{Position: 0, QLQuery: "", ImportStatus: "native",
+			Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}}},
+	)
+	fixture.observe(t, fixture.createdFact())
+
+	state := derivedState(t, fixture, metricID)
+	if state.Ongoing == nil {
+		t.Fatal("no ongoing cycle for a match-all goal")
+	}
+	if state.Ongoing.GoalDurationMs != 3_600_000 {
+		t.Fatalf("goal duration = %d, want 3600000 for a match-all goal", state.Ongoing.GoalDurationMs)
 	}
 }
 
@@ -301,8 +331,8 @@ func TestResumeReevaluatesGoalChangedWhilePaused(t *testing.T) {
 	fixture.createMetric(t,
 		[]models.SLACondition{statusCondition(models.SLAPhaseStart, fixture.statusOpen), statusCondition(models.SLAPhasePause, fixture.statusWait)},
 		[]models.SLAGoal{
-			{Position: 0, QLQuery: "priority = 'SLA High'", ImportStatus: "native", Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
-			{Position: 1, QLQuery: "1 = 1", ImportStatus: "native", Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
+			{Position: 0, QLQuery: "priority = 'SLA High'", ImportStatus: "native", Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
+			{Position: 1, QLQuery: "1 = 1", ImportStatus: "native", Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
 		},
 	)
 	fixture.observe(t, fixture.createdFact())
@@ -399,7 +429,7 @@ func TestInlineEvaluationIrrelevantFactWritesNothing(t *testing.T) {
 	fixture.createMetric(t,
 		[]models.SLACondition{statusCondition(models.SLAPhaseStart, fixture.statusOpen)},
 		[]models.SLAGoal{{Position: 0, QLQuery: "priority = High", ImportStatus: "native",
-			Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}}},
+			Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}}},
 	)
 	rank := "a0"
 	next := "a1"
@@ -545,9 +575,9 @@ func TestInlineEvaluationGoalChangePreservesElapsed(t *testing.T) {
 		[]models.SLACondition{{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)}},
 		[]models.SLAGoal{
 			{Position: 0, QLQuery: "priority = 'SLA High'", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
 			{Position: 1, QLQuery: "1 = 1", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
 		},
 	)
 	fixture.observe(t, fixture.createdFact())
@@ -599,7 +629,7 @@ func TestInlineEvaluationFailureEnqueuesRepairWithoutFailingItemWrite(t *testing
 	fixture.createMetric(t,
 		[]models.SLACondition{{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)}},
 		[]models.SLAGoal{{Position: 0, QLQuery: "===", ImportStatus: "native",
-			Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 1000, CalendarID: fixture.calendarID}}}},
+			Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 1000, CalendarID: fixture.calendarID}}}},
 	)
 
 	// The observer must swallow the failure: the caller's transaction commits.
@@ -667,7 +697,7 @@ func TestCalendarRecalculationUpdatesExistingCyclesWithoutStartingCycles(t *test
 	fixture.engine.SetClock(fixedClock{now: now})
 	metricID := fixture.createMetric(t,
 		[]models.SLACondition{statusCondition(models.SLAPhaseStart, fixture.statusOpen)},
-		[]models.SLAGoal{{Position: 0, QLQuery: "1 = 1", ImportStatus: "native", Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 7_200_000, CalendarID: fixture.calendarID}}}},
+		[]models.SLAGoal{{Position: 0, QLQuery: "1 = 1", ImportStatus: "native", Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 7_200_000, CalendarID: fixture.calendarID}}}},
 	)
 	fixture.observe(t, fixture.createdFact())
 	var secondItemID int
@@ -884,5 +914,91 @@ func TestWarningJobInvokesSideEffectEmitter(t *testing.T) {
 	}
 	if effects.warnings != 1 {
 		t.Fatalf("warning side effects = %d, want 1", effects.warnings)
+	}
+}
+
+// A first-response metric stops on the first public agent comment. This is the
+// helpdesk pack's definition: a ticket replied to by an agent is satisfied even
+// when it was never assigned.
+func TestCommentByAgentStopsCycle(t *testing.T) {
+	fixture := newEngineFixture(t)
+	now := time.Date(2025, 1, 8, 12, 0, 0, 0, time.UTC)
+	clock := &advanceClock{now: now}
+	fixture.engine.SetClock(clock)
+	fixture.createMetric(t,
+		[]models.SLACondition{
+			{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)},
+			{Phase: models.SLAPhaseStop, Position: 1, ConditionType: conditionCommentByAgent, Config: json.RawMessage(`{}`)},
+		},
+		fixture.defaultGoal(),
+	)
+	fixture.observe(t, fixture.createdFact())
+
+	var status string
+	if err := fixture.db.QueryRow(`SELECT status FROM item_sla_cycles WHERE item_id = ?`, fixture.itemID).Scan(&status); err != nil {
+		t.Fatalf("load cycle: %v", err)
+	}
+	if status != models.SLACycleOngoing {
+		t.Fatalf("cycle status = %s, want ongoing before any reply", status)
+	}
+
+	clock.now = now.Add(5 * time.Minute)
+	fixture.observe(t, fixture.commentFact("user", false))
+
+	var stoppedAt time.Time
+	var elapsed int64
+	if err := fixture.db.QueryRow(`SELECT status, stopped_at, elapsed_ms FROM item_sla_cycles WHERE item_id = ?`, fixture.itemID).Scan(&status, &stoppedAt, &elapsed); err != nil {
+		t.Fatalf("reload cycle: %v", err)
+	}
+	if status != models.SLACycleCompleted {
+		t.Fatalf("cycle status = %s, want completed after a public agent comment", status)
+	}
+	if elapsed != (5 * time.Minute).Milliseconds() {
+		t.Fatalf("elapsed = %d, want %d", elapsed, (5*time.Minute).Milliseconds())
+	}
+	if !stoppedAt.Equal(clock.now) {
+		t.Fatalf("stopped_at = %s, want %s", stoppedAt, clock.now)
+	}
+	if jobs := fixture.breachJobCount(t); jobs != 0 {
+		t.Fatalf("breach jobs after completion = %d, want 0", jobs)
+	}
+}
+
+// A private note is not a response to the customer, so it must leave the
+// first-response clock running even though an agent wrote it.
+func TestPrivateAgentCommentDoesNotStopCycle(t *testing.T) {
+	fixture := newEngineFixture(t)
+	now := time.Date(2025, 1, 8, 12, 0, 0, 0, time.UTC)
+	clock := &advanceClock{now: now}
+	fixture.engine.SetClock(clock)
+	fixture.createMetric(t,
+		[]models.SLACondition{
+			{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)},
+			{Phase: models.SLAPhaseStop, Position: 1, ConditionType: conditionCommentByAgent, Config: json.RawMessage(`{}`)},
+		},
+		fixture.defaultGoal(),
+	)
+	fixture.observe(t, fixture.createdFact())
+
+	clock.now = now.Add(5 * time.Minute)
+	fixture.observe(t, fixture.commentFact("user", true))
+
+	var status string
+	var stoppedAt sql.NullTime
+	if err := fixture.db.QueryRow(`SELECT status, stopped_at FROM item_sla_cycles WHERE item_id = ?`, fixture.itemID).Scan(&status, &stoppedAt); err != nil {
+		t.Fatalf("load cycle: %v", err)
+	}
+	if status != models.SLACycleOngoing || stoppedAt.Valid {
+		t.Fatalf("cycle = status:%s stopped:%v, want ongoing with no stop after a private note", status, stoppedAt.Valid)
+	}
+
+	// The next public comment still stops it.
+	clock.now = now.Add(10 * time.Minute)
+	fixture.observe(t, fixture.commentFact("user", false))
+	if err := fixture.db.QueryRow(`SELECT status FROM item_sla_cycles WHERE item_id = ?`, fixture.itemID).Scan(&status); err != nil {
+		t.Fatalf("reload cycle: %v", err)
+	}
+	if status != models.SLACycleCompleted {
+		t.Fatalf("cycle status = %s, want completed after the following public comment", status)
 	}
 }

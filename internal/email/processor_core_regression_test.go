@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/database"
 	"windshift/internal/testutils"
 )
@@ -56,7 +57,7 @@ func TestTrackingPreclaimRecoversOnlyStaleIncompleteClaims(t *testing.T) {
 	`).Scan(&channelID); err != nil {
 		t.Fatalf("insert channel: %v", err)
 	}
-	processor := NewProcessor(db, "")
+	processor := NewProcessor(db, blobstore.Disabled())
 	message := &ParsedEmail{
 		MessageID: "<claim@example.com>",
 		From:      EmailAddress{Address: "sender@example.com"},
@@ -64,11 +65,11 @@ func TestTrackingPreclaimRecoversOnlyStaleIncompleteClaims(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	claim, err := processor.preclaimTracking(ctx, message, channelID, message.MessageID, 0)
+	claim, err := processor.preclaimTracking(ctx, message, channelID, nil, message.MessageID, 0)
 	if err != nil || claim != trackingClaimAcquired {
 		t.Fatalf("first preclaim = (%v, %v), want (acquired, nil)", claim, err)
 	}
-	claim, err = processor.preclaimTracking(ctx, message, channelID, message.MessageID, 0)
+	claim, err = processor.preclaimTracking(ctx, message, channelID, nil, message.MessageID, 0)
 	if err != nil || claim != trackingClaimInProgress {
 		t.Fatalf("fresh duplicate preclaim = (%v, %v), want (in progress, nil)", claim, err)
 	}
@@ -79,7 +80,7 @@ func TestTrackingPreclaimRecoversOnlyStaleIncompleteClaims(t *testing.T) {
 	`, time.Now().Add(-trackingClaimStaleAfter-time.Minute), channelID, message.MessageID); err != nil {
 		t.Fatalf("age incomplete claim: %v", err)
 	}
-	claim, err = processor.preclaimTracking(ctx, message, channelID, message.MessageID, 0)
+	claim, err = processor.preclaimTracking(ctx, message, channelID, nil, message.MessageID, 0)
 	if err != nil || claim != trackingClaimAcquired {
 		t.Fatalf("stale incomplete preclaim = (%v, %v), want (acquired, nil)", claim, err)
 	}
@@ -100,9 +101,23 @@ func TestTrackingPreclaimRecoversOnlyStaleIncompleteClaims(t *testing.T) {
 	`, itemID, time.Now().Add(-trackingClaimStaleAfter-time.Minute), channelID, message.MessageID); err != nil {
 		t.Fatalf("complete claim: %v", err)
 	}
-	claim, err = processor.preclaimTracking(ctx, message, channelID, message.MessageID, 0)
+	claim, err = processor.preclaimTracking(ctx, message, channelID, nil, message.MessageID, 0)
 	if err != nil || claim != trackingClaimCompleted {
 		t.Fatalf("completed preclaim = (%v, %v), want (completed, nil)", claim, err)
+	}
+
+	// Deleting the created item nulls item_id via ON DELETE SET NULL. The
+	// completed_at marker must keep the row deduplicated so the email is not
+	// reprocessed into a fresh item.
+	if _, err := db.ExecWrite(`
+		UPDATE email_message_tracking SET item_id = NULL, completed_at = CURRENT_TIMESTAMP
+		WHERE channel_id = ? AND dedup_key = ?
+	`, channelID, message.MessageID); err != nil {
+		t.Fatalf("simulate item deletion: %v", err)
+	}
+	claim, err = processor.preclaimTracking(ctx, message, channelID, nil, message.MessageID, 0)
+	if err != nil || claim != trackingClaimCompleted {
+		t.Fatalf("preclaim after item deletion = (%v, %v), want (completed, nil)", claim, err)
 	}
 }
 
@@ -151,7 +166,7 @@ func TestSenderThreadParticipationIsItemScoped(t *testing.T) {
 		t.Fatalf("insert cross-channel participant: %v", err)
 	}
 
-	processor := NewProcessor(db, "")
+	processor := NewProcessor(db, blobstore.Disabled())
 	if !processor.senderIsThreadParticipant(context.Background(), itemID, "sender@example.com") {
 		t.Fatal("participant on the item's thread (other channel) was not authorized")
 	}
@@ -197,7 +212,7 @@ func TestSenderThreadParticipationAcceptsExternalParticipant(t *testing.T) {
 		t.Fatalf("insert participant: %v", err)
 	}
 
-	processor := NewProcessor(db, "")
+	processor := NewProcessor(db, blobstore.Disabled())
 	if !processor.senderIsThreadParticipant(context.Background(), itemID, "PARTICIPANT@example.com") {
 		t.Fatal("external participant was not authorized to reply")
 	}
@@ -206,6 +221,97 @@ func TestSenderThreadParticipationAcceptsExternalParticipant(t *testing.T) {
 	}
 	if processor.senderIsThreadParticipant(context.Background(), itemID, "stranger@example.com") {
 		t.Fatal("unknown sender was authorized")
+	}
+}
+
+// TestSenderThreadParticipationRevokedByParticipantRemoval is the WI-1715
+// regression: an accepted reply, then an explicit participant removal, must not
+// leave the removed sender able to reply onto the original ticket through their
+// old thread history. The creator and a re-added participant keep access.
+func TestSenderThreadParticipationRevokedByParticipantRemoval(t *testing.T) {
+	db := newProcessorRegressionTestDB(t)
+	var workspaceID int
+	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Removal', 'RMV') RETURNING id`).Scan(&workspaceID); err != nil {
+		t.Fatalf("insert workspace: %v", err)
+	}
+	var channelID int
+	if err := db.QueryRow(`INSERT INTO channels (name, type, direction) VALUES ('Mailbox', 'email', 'inbound') RETURNING id`).Scan(&channelID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`INSERT INTO portal_customers (name, email, created_via) VALUES ('Participant', 'participant@example.com', 'agent') RETURNING id`).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var itemID int
+	if err := db.QueryRow(`
+		INSERT INTO items (workspace_id, workspace_item_number, title, channel_id, frac_index)
+		VALUES (?, 1, 'Removal item', ?, ?) RETURNING id
+	`, workspaceID, channelID, testutils.NextTestFracIndex()).Scan(&itemID); err != nil {
+		t.Fatalf("insert item: %v", err)
+	}
+	// The participant already replied once, so thread history would normally
+	// authorize their next reply.
+	if _, err := db.ExecWrite(`
+		INSERT INTO email_message_tracking
+			(channel_id, message_id, dedup_key, from_email, item_id, direction)
+		VALUES (?, '<participant@example.com>', '<participant@example.com>', 'participant@example.com', ?, 'inbound')
+	`, channelID, itemID); err != nil {
+		t.Fatalf("insert participant tracking: %v", err)
+	}
+
+	addParticipant := func() {
+		t.Helper()
+		if _, err := db.ExecWrite(`
+			INSERT INTO item_participants (item_id, portal_customer_id)
+			VALUES (?, ?)
+			ON CONFLICT (item_id, portal_customer_id) DO NOTHING
+		`, itemID, customerID); err != nil {
+			t.Fatalf("add participant: %v", err)
+		}
+	}
+	removeParticipant := func() {
+		t.Helper()
+		if _, err := db.ExecWrite(`DELETE FROM item_participants WHERE item_id = ? AND portal_customer_id = ?`, itemID, customerID); err != nil {
+			t.Fatalf("remove participant: %v", err)
+		}
+		// Mirrors the tombstone ItemParticipantService.Remove writes.
+		if _, err := db.ExecWrite(`
+			INSERT INTO item_history (item_id, field_name, old_value, changed_at)
+			VALUES (?, 'participant_removed', ?, CURRENT_TIMESTAMP)
+		`, itemID, "participant@example.com"); err != nil {
+			t.Fatalf("record removal history: %v", err)
+		}
+	}
+
+	ctx := context.Background()
+	addParticipant()
+	processor := NewProcessor(db, blobstore.Disabled())
+	if !processor.senderIsThreadParticipant(ctx, itemID, "participant@example.com") {
+		t.Fatal("active participant was not authorized")
+	}
+
+	removeParticipant()
+	if processor.senderIsThreadParticipant(ctx, itemID, "participant@example.com") {
+		t.Fatal("removed participant retained thread access")
+	}
+
+	// Re-adding restores access.
+	addParticipant()
+	if !processor.senderIsThreadParticipant(ctx, itemID, "participant@example.com") {
+		t.Fatal("re-added participant lost access")
+	}
+
+	// The creator is not a participant; a participant removal must not affect the
+	// creator's own reply access.
+	var creatorCustomerID int
+	if err := db.QueryRow(`INSERT INTO portal_customers (name, email, created_via) VALUES ('Creator', 'creator@example.com', 'agent') RETURNING id`).Scan(&creatorCustomerID); err != nil {
+		t.Fatalf("insert creator: %v", err)
+	}
+	if _, err := db.ExecWrite(`UPDATE items SET creator_portal_customer_id = ? WHERE id = ?`, creatorCustomerID, itemID); err != nil {
+		t.Fatalf("set creator: %v", err)
+	}
+	if !processor.senderIsThreadParticipant(ctx, itemID, "creator@example.com") {
+		t.Fatal("creator lost reply access")
 	}
 }
 
@@ -248,7 +354,7 @@ func TestFindParentItemRoutesPortalReplyAcrossChannels(t *testing.T) {
 		t.Fatalf("insert anchor: %v", err)
 	}
 
-	processor := NewProcessor(db, "")
+	processor := NewProcessor(db, blobstore.Disabled())
 	parent := processor.findParentItem(context.Background(), &ParsedEmail{
 		InReplyTo: anchorID,
 		From:      EmailAddress{Address: "customer@example.com"},
@@ -302,7 +408,7 @@ func TestFindParentItemAcceptsLegacyBareMessageID(t *testing.T) {
 		t.Fatalf("insert legacy tracking: %v", err)
 	}
 
-	parent := NewProcessor(db, "").findParentItem(context.Background(), &ParsedEmail{
+	parent := NewProcessor(db, blobstore.Disabled()).findParentItem(context.Background(), &ParsedEmail{
 		InReplyTo: "<legacy@example.com>",
 		From:      EmailAddress{Address: "sender@example.com"},
 	})

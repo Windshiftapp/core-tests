@@ -274,7 +274,7 @@ func TestNeutralInferenceEndpointPreservesContinuationWithBindingFingerprint(t *
 		)
 	}))
 	defer server.Close()
-	fixture := newLLMBrokerFixture(t, server.URL, `{"reasoning":{"budget_tokens":2048}}`)
+	fixture := newLLMBrokerFixture(t, server.URL, `{"thinking":{"type":"enabled","budget_tokens":2048}}`)
 	recorder := fixture.request(t, fixture.token, `{"messages":[{"role":"system","content":"You are a coding agent."},{"role":"user","content":"inspect","cache_breakpoint":true}],"tools":[{"type":"function","function":{"name":"read_file","description":"read","parameters":{"type":"object"}}}]}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())

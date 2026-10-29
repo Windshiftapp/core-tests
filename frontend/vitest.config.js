@@ -14,7 +14,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    include: ['src/**/*.{test,spec}.{js,ts}'],
+    // `scripts/` holds tests for the guard scripts that `npm run check` runs.
+    include: ['src/**/*.{test,spec}.{js,ts}', 'scripts/**/*.{test,spec}.{js,ts}'],
     setupFiles: ['./src/setupTests.js'],
     // Prevent CSS import errors in tests
     css: false,

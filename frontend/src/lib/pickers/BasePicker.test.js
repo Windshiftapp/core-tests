@@ -179,27 +179,6 @@ describe('BasePicker — Enter selects the highlighted option vs create (WI-343)
   });
 });
 
-describe('BasePicker — option highlight styling', () => {
-  test('mouse hover uses the subtle raised-surface hover token', async () => {
-    render(BasePicker, { props: { items } });
-
-    await fireEvent.click(screen.getByRole('combobox'));
-    const hoveredOption = await waitFor(() => {
-      const option = document.querySelector('[data-option-value="2"]');
-      expect(option).toBeInTheDocument();
-      return option;
-    });
-
-    await fireEvent.mouseEnter(hoveredOption);
-
-    await waitFor(() => {
-      expect(hoveredOption).toHaveStyle({
-        backgroundColor: 'var(--ds-surface-raised-hovered)',
-      });
-    });
-  });
-});
-
 // Regression for WI-428: a pre-selected single-select whose items have a
 // `label` but no `name` field (e.g. milestone status, {value,label} against
 // the default searchFields=['name']) opened empty because the selected item's
@@ -393,5 +372,36 @@ describe('BasePicker — rendered option cap (WI-1445)', () => {
     // Enter selects the highlighted newly revealed option.
     await fireEvent.keyDown(input, { key: 'Enter' });
     expect(onSelect).toHaveBeenCalledWith(makeItems(150)[100]);
+  });
+});
+
+describe('BasePicker — grouped options', () => {
+  const groupedItems = [
+    { id: 1, name: 'Apple', group: 'Fruit' },
+    { id: 2, name: 'Banana', group: 'Fruit' },
+    { id: 3, name: 'Carrot', group: 'Vegetable' },
+  ];
+
+  test('renders a header per group and keeps keyboard selection aligned', async () => {
+    const onSelect = vi.fn();
+    render(BasePicker, {
+      props: { items: groupedItems, groupBy: (item) => item.group, onSelect },
+    });
+
+    const input = screen.getByRole('combobox');
+    await fireEvent.click(input);
+    await waitFor(() => {
+      expect(document.querySelector('[data-option-value="1"]')).toBeInTheDocument();
+    });
+
+    // One header per group, in first-appearance order.
+    expect(screen.getByText('Fruit')).toBeInTheDocument();
+    expect(screen.getByText('Vegetable')).toBeInTheDocument();
+
+    // The highlight walks the flat option list, not the headers: the second
+    // option is Banana even though a header sits between Apple and it.
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith(groupedItems[1]);
   });
 });

@@ -57,6 +57,22 @@ func putLayout(t *testing.T, handler *UserPreferencesHandler, userID int, body a
 	return rr
 }
 
+func getLayout(t *testing.T, handler *UserPreferencesHandler, userID int) models.UserDashboardLayout {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/user/dashboard-layout", nil)
+	req = req.WithContext(context.WithValue(req.Context(), contextkeys.User, &models.User{ID: userID}))
+	rr := httptest.NewRecorder()
+	handler.GetDashboardLayout(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var layout models.UserDashboardLayout
+	if err := json.Unmarshal(rr.Body.Bytes(), &layout); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	return layout
+}
+
 // Regression for WI-829: the 12-column grid must accept widths up to 12.
 // The old 1-3 range check rejected every resize and silently dropped the
 // change (the store only logs the failure).
@@ -213,5 +229,73 @@ func TestUpdateDashboardLayout_RejectsStoryPointsByAssigneeType(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "Invalid widget type: story-points-by-assignee") {
 		t.Fatalf("body = %s, want invalid-widget-type error naming the type", rr.Body.String())
+	}
+}
+
+// The dashboard background is stored in the same preferences blob as the
+// layout. A gradient index and a preset background image URL must survive a
+// save/load round-trip so the homepage can restore them.
+func TestUpdateDashboardLayout_PersistsBackground(t *testing.T) {
+	handler, userID := newDashboardLayoutHandler(t)
+
+	layout := models.UserDashboardLayout{
+		Gradient:           3,
+		BackgroundImageURL: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80",
+		Sections:           []models.UserDashboardSection{},
+		Widgets:            []models.UserDashboardWidget{},
+	}
+
+	rr := putLayout(t, handler, userID, layout)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	saved := getLayout(t, handler, userID)
+	if saved.Gradient != 3 {
+		t.Fatalf("persisted gradient = %d, want 3", saved.Gradient)
+	}
+	if saved.BackgroundImageURL != layout.BackgroundImageURL {
+		t.Fatalf("persisted background image URL = %q, want %q", saved.BackgroundImageURL, layout.BackgroundImageURL)
+	}
+}
+
+// Gradient indices outside the allowed range must be rejected rather than
+// silently persisted into the preferences blob.
+func TestUpdateDashboardLayout_RejectsGradientOutOfBounds(t *testing.T) {
+	handler, userID := newDashboardLayoutHandler(t)
+
+	for _, gradient := range []int{-1, 65} {
+		layout := models.UserDashboardLayout{
+			Gradient: gradient,
+			Sections: []models.UserDashboardSection{},
+			Widgets:  []models.UserDashboardWidget{},
+		}
+
+		rr := putLayout(t, handler, userID, layout)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("gradient %d: status = %d, want 400; body=%s", gradient, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+// The background image URL is user-supplied text that the homepage renders
+// into a CSS url(). HTML must be stripped before it is stored.
+func TestUpdateDashboardLayout_StripsHTMLFromBackgroundImageURL(t *testing.T) {
+	handler, userID := newDashboardLayoutHandler(t)
+
+	layout := models.UserDashboardLayout{
+		BackgroundImageURL: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920<script>alert(1)</script>",
+		Sections:           []models.UserDashboardSection{},
+		Widgets:            []models.UserDashboardWidget{},
+	}
+
+	rr := putLayout(t, handler, userID, layout)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	saved := getLayout(t, handler, userID)
+	if saved.BackgroundImageURL != "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920" {
+		t.Fatalf("persisted background image URL = %q, want HTML stripped", saved.BackgroundImageURL)
 	}
 }

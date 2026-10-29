@@ -1,12 +1,15 @@
-// Exercise diagram CRUD through the CLI's bearer-v2 transport.
+// wscli_diagram_test exercises `ws diagram ...` end-to-end against an
+// isolated test server. The CLI talks to the v1 surface
+// (/rest/api/v1/items/{id}/diagrams, /rest/api/v1/diagrams/{id}) per
+// WI-78; this test guards against a future regression that repoints
+// `ws diagram` back to the cookie surface (where bearer tokens are
+// rejected and the command silently 401s).
 package tests
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,21 +20,17 @@ import (
 func TestWSCLI_Diagram_CRUDLifecycle(t *testing.T) {
 	ts, _ := StartTestServer(t, GetDBType())
 	CreateBearerToken(t, ts)
-	workspace := DecodeV2Document[v2FixtureRecord](t, MakeV2SessionRequest(t, ts, http.MethodPost, "/workspaces", map[string]any{"name": "CLI diagrams", "key": "CLIDIAG"}), http.StatusCreated)
-	item := DecodeV2Document[struct {
-		ID     int `json:"id"`
-		Number int `json:"workspace_item_number"`
-	}](t, MakeV2SessionRequest(t, ts, http.MethodPost, "/items", map[string]any{"workspace_id": workspace.ID, "title": "Diagram target"}), http.StatusCreated)
-	if item.ID <= 0 || item.Number <= 0 {
-		t.Fatalf("invalid diagram target: %+v", item)
-	}
+	w := SeedWorld(t, ts)
 
-	// Resolve the public item key, preserving coverage of the real CLI lookup.
-	targetKey := fmt.Sprintf("%s-%d", workspace.Key, item.Number)
+	// Pick the first seeded item in Alpha. Tests resolve through the CLI
+	// (workspace key + workspace_item_number), not the numeric ID — that
+	// exercises the same ResolveItemID path real callers hit and makes the
+	// test less brittle if the underlying ID ever drifts.
+	target := w.Items[0]
 
 	// 1. Create with a mermaid seed.
 	out, stderr, code := runWS(t, ts,
-		"diagram", "create", targetKey,
+		"diagram", "create", target.Key,
 		"--name", "Auth flow",
 		"--mermaid", "graph TD; A-->B",
 		"-o", "json",
@@ -55,7 +54,7 @@ func TestWSCLI_Diagram_CRUDLifecycle(t *testing.T) {
 
 	// 2. List returns the created diagram.
 	out, stderr, code = runWS(t, ts,
-		"diagram", "list", targetKey,
+		"diagram", "list", target.Key,
 		"-o", "json",
 	)
 	requireZero(t, code, stderr)
@@ -99,7 +98,7 @@ func TestWSCLI_Diagram_CRUDLifecycle(t *testing.T) {
 	requireZero(t, code, stderr)
 
 	out, stderr, code = runWS(t, ts,
-		"diagram", "list", targetKey,
+		"diagram", "list", target.Key,
 		"-o", "json",
 	)
 	requireZero(t, code, stderr)
@@ -134,7 +133,7 @@ func decodeDiagram(t *testing.T, out []byte) diagramJSON {
 }
 
 // decodeDiagrams decodes the JSON array `ws diagram list` prints. The CLI
-// unwraps the v2 data envelope before printing, so the on-wire
+// unwraps the v1 `{"items":[...]}` envelope before printing, so the on-wire
 // output is a bare array.
 func decodeDiagrams(t *testing.T, out []byte) []diagramJSON {
 	t.Helper()

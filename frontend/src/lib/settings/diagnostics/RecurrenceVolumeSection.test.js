@@ -11,10 +11,7 @@ vi.mock("../../stores/toasts.svelte.js", () => ({
 	errorToast: vi.fn(),
 }));
 
-import {
-	getRecurrenceVolume,
-	updateRecurrenceVolumeSettings,
-} from "../../api/diagnostics.js";
+import { getRecurrenceVolume, updateRecurrenceVolumeSettings } from "../../api/diagnostics.js";
 import { successToast } from "../../stores/toasts.svelte.js";
 import RecurrenceVolumeSection from "./RecurrenceVolumeSection.svelte";
 

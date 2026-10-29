@@ -1,7 +1,11 @@
 import { cleanup, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { store } = vi.hoisted(() => ({
+const { store, workspaceData, defaultBacklogItems } = vi.hoisted(() => ({
+	defaultBacklogItems: [
+		{ id: 1, title: "First item" },
+		{ id: 2, title: "Second item" },
+	],
 	store: {
 		backlogItems: [
 			{ id: 1, title: "First item" },
@@ -11,37 +15,46 @@ const { store } = vi.hoisted(() => ({
 		collectionTotal: 1299,
 		backlogHasMore: true,
 		loading: false,
+		subFilterQL: "",
+		effectiveSubFilterQL: "",
 		loadMoreBacklog: vi.fn(),
+		insertCreatedItem: vi.fn(),
+	},
+	workspaceData: {
+		workspace: { id: 1, name: "Workspace" },
+		itemTypes: [],
+		statuses: [],
+		statusCategories: [],
+		screenConfigs: {},
+		initialize: vi.fn(),
+		initializeGlobal: vi.fn(),
+		screenConfigFor: vi.fn().mockResolvedValue(null),
 	},
 }));
 
 vi.mock("../../stores/collectionContext.js", () => ({
 	collectionStore: store,
-	refreshCollectionDeltas: vi.fn(),
+	scheduleCollectionReconciliation: vi.fn(),
 	reloadCollection: vi.fn(),
 }));
-vi.mock("../../stores/index.js", () => ({
-	backlogStore: { setCount: vi.fn() },
-	workspaceDataStore: {
-		workspace: { id: 1, name: "Workspace" },
-		itemTypes: [],
-		statuses: [],
-		statusCategories: [],
-		initialize: vi.fn(),
-	},
+vi.mock('../../stores/backlogStore.svelte.js', () => ({
+  backlogStore: { setCount: vi.fn() },
+}))
+
+vi.mock('../../stores/workspaceDataStore.svelte.js', () => ({
+  workspaceDataStore: workspaceData,
 }));
-vi.mock("../../api.js", () => ({
-	api: {
-		screens: { getAllWithFields: vi.fn().mockResolvedValue([]) },
-		iterations: { getAll: vi.fn().mockResolvedValue([]) },
-	},
+vi.mock('../../api/configuration.js', () => ({
+  screens: { getAllWithFields: vi.fn().mockResolvedValue([]) },
+}))
+
+vi.mock('../../api/milestones.js', () => ({
+  iterations: { getAll: vi.fn().mockResolvedValue([]) },
+  milestoneCategories: { getAll: vi.fn().mockResolvedValue([]) },
 }));
 vi.mock("../../stores/workspaceGradient.svelte.js", () => ({
 	useGradientStyles: () => ({}),
 	loadWorkspaceGradient: vi.fn(),
-}));
-vi.mock("../../composables/useWorkItemPoller.svelte.js", () => ({
-	useWorkItemPoller: vi.fn(),
 }));
 vi.mock("../../stores/i18n.svelte.js", () => ({
 	t: (key, params = {}) =>
@@ -76,10 +89,65 @@ vi.mock(
 );
 
 import CollectionBacklog from "./CollectionBacklog.svelte";
+import { screens } from '../../api/configuration.js';
+import { iterations } from '../../api/milestones.js';
+
 
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+	store.backlogItems = [...defaultBacklogItems];
+	store.backlogPagination = { total_items: 293 };
+	store.backlogHasMore = true;
+	workspaceData.screenConfigFor.mockClear();
+});
+
+describe("backlog creation events", () => {
+	it("routes a created item through the store instead of writing the array", async () => {
+		store.insertCreatedItem.mockClear();
+		render(CollectionBacklog, { workspaceId: 1 });
+
+		window.dispatchEvent(
+			new CustomEvent("refresh-work-items", {
+				detail: { itemId: 55, item: { id: 55, workspace_id: 1 } },
+			}),
+		);
+
+		await vi.waitFor(() =>
+			expect(store.insertCreatedItem).toHaveBeenCalledWith(
+				{ id: 55, workspace_id: 1 },
+				{ backlog: true },
+			),
+		);
+	});
+});
+
+describe("backlog field availability", () => {
+	it("requests effective config once per distinct workspace and item type", async () => {
+		store.backlogItems = [
+			{ id: 1, title: "A", workspace_id: 1, item_type_id: 5 },
+			{ id: 2, title: "B", workspace_id: 1, item_type_id: 5 },
+			{ id: 3, title: "C", workspace_id: 1, item_type_id: 6 },
+			{ id: 4, title: "D", workspace_id: 2, item_type_id: 5 },
+		];
+		render(CollectionBacklog, { workspaceId: 1 });
+
+		await vi.waitFor(() =>
+			expect(workspaceData.screenConfigFor).toHaveBeenCalledTimes(3),
+		);
+		expect(workspaceData.screenConfigFor).toHaveBeenCalledWith(1, 5);
+		expect(workspaceData.screenConfigFor).toHaveBeenCalledWith(1, 6);
+		expect(workspaceData.screenConfigFor).toHaveBeenCalledWith(2, 5);
+		expect(screens.getAllWithFields).not.toHaveBeenCalled();
+	});
+
+	it("does not request metadata for items without a workspace", async () => {
+		store.backlogItems = [{ id: 1, title: "A" }];
+		render(CollectionBacklog, { workspaceId: 1 });
+
+		await Promise.resolve();
+		expect(workspaceData.screenConfigFor).not.toHaveBeenCalled();
+	});
 });
 
 describe("backlog counts", () => {

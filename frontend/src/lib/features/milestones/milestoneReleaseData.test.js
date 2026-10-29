@@ -1,24 +1,27 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../api/scm.js', () => ({
+  workspaceSCM: { getAccessibleConnections: vi.fn(), getConnections: vi.fn() },
+}));
+
+import { workspaceSCM } from '../../api/scm.js';
 import { loadMilestoneReleaseConnections } from './milestoneReleaseData.js';
 
 describe('milestone release connection request graph', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('loads global connections with one accessible-workspaces request', async () => {
-    const apiClient = {
-      workspaceSCM: {
-        getAccessibleConnections: vi.fn().mockResolvedValue([
-          { id: 10, workspace_id: 1, workspace_name: 'One' },
-          { id: 20, workspace_id: 2, workspace_name: 'Two' },
-        ]),
-        getConnections: vi.fn(),
-      },
-      workspaces: { getAll: vi.fn() },
-    };
+    workspaceSCM.getAccessibleConnections.mockResolvedValue([
+      { id: 10, workspace_id: 1, workspace_name: 'One' },
+      { id: 20, workspace_id: 2, workspace_name: 'Two' },
+    ]);
 
-    const connections = await loadMilestoneReleaseConnections(apiClient, null);
+    const connections = await loadMilestoneReleaseConnections(null);
 
-    expect(apiClient.workspaceSCM.getAccessibleConnections).toHaveBeenCalledOnce();
-    expect(apiClient.workspaceSCM.getConnections).not.toHaveBeenCalled();
-    expect(apiClient.workspaces.getAll).not.toHaveBeenCalled();
+    expect(workspaceSCM.getAccessibleConnections).toHaveBeenCalledOnce();
+    expect(workspaceSCM.getConnections).not.toHaveBeenCalled();
     expect(connections).toEqual([
       { id: 10, workspace_id: 1, workspace_name: 'One', _workspaceId: 1, _workspaceName: 'One' },
       { id: 20, workspace_id: 2, workspace_name: 'Two', _workspaceId: 2, _workspaceName: 'Two' },
@@ -26,17 +29,12 @@ describe('milestone release connection request graph', () => {
   });
 
   it('keeps the existing single request for workspace milestones', async () => {
-    const apiClient = {
-      workspaceSCM: {
-        getAccessibleConnections: vi.fn(),
-        getConnections: vi.fn().mockResolvedValue([{ id: 30 }]),
-      },
-    };
+    workspaceSCM.getConnections.mockResolvedValue([{ id: 30 }]);
 
-    const connections = await loadMilestoneReleaseConnections(apiClient, 3);
+    const connections = await loadMilestoneReleaseConnections(3);
 
-    expect(apiClient.workspaceSCM.getConnections).toHaveBeenCalledWith(3);
-    expect(apiClient.workspaceSCM.getAccessibleConnections).not.toHaveBeenCalled();
+    expect(workspaceSCM.getConnections).toHaveBeenCalledWith(3);
+    expect(workspaceSCM.getAccessibleConnections).not.toHaveBeenCalled();
     expect(connections).toEqual([{ id: 30, _workspaceId: 3, _workspaceName: null }]);
   });
 });

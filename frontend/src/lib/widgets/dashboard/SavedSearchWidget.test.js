@@ -8,12 +8,17 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 
-vi.mock('../../api.js', () => ({
-  api: {
-    collections: { getAll: mocks.getCollections },
-    workspaces: { getAll: mocks.getWorkspaces },
-    items: { getAll: mocks.getItems },
-  },
+vi.mock('../../api/collections.js', () => ({
+  collections: { getAll: mocks.getCollections },
+  collectionCategories: { getAll: vi.fn().mockResolvedValue([]) },
+}))
+
+vi.mock('../../api/workspaces.js', () => ({
+  workspaces: { getAll: mocks.getWorkspaces },
+}))
+
+vi.mock('../../api/items.js', () => ({
+  items: { getAll: mocks.getItems },
 }));
 
 vi.mock('../../router.js', () => ({ navigate: mocks.navigate }));
@@ -39,6 +44,11 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 }));
 
 import SavedSearchWidget from './SavedSearchWidget.svelte';
+import { collections } from '../../api/collections.js';
+import { workspaces } from '../../api/workspaces.js';
+import { items } from '../../api/items.js';
+
+
 
 describe('SavedSearchWidget', () => {
   beforeEach(() => {

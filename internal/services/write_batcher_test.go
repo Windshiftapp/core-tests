@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,25 +12,6 @@ import (
 
 	"windshift/internal/database"
 )
-
-// waitForWriteBatcherFlush polls Flush until it succeeds, tolerating the
-// batcher's retry backoff window.
-func waitForWriteBatcherFlush[T any](t *testing.T, wb *WriteBatcher[T], label string) {
-	t.Helper()
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
-	deadline := time.Now().Add(time.Second)
-	for {
-		err := wb.Flush()
-		if err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: %v", label, err)
-		}
-		<-tick.C
-	}
-}
 
 func testWriteBatcherConfig() WriteBatcherConfig {
 	return WriteBatcherConfig{
@@ -76,8 +56,10 @@ func TestWriteBatcherBoundsPendingWorkAcrossFlushFailure(t *testing.T) {
 	}
 
 	fail = false
-	// The batcher enforces a retry backoff; poll until a flush succeeds.
-	waitForWriteBatcherFlush(t, wb, "recovery flush")
+	<-time.After(15 * time.Millisecond)
+	if err := wb.Flush(); err != nil {
+		t.Fatalf("recovery flush: %v", err)
+	}
 	if stats := wb.Stats(); stats.Pending != 0 || stats.ItemsFlushed != 3 {
 		t.Fatalf("stats after recovery = %+v", stats)
 	}
@@ -176,7 +158,10 @@ func TestWriteBatcherBacksOffAfterFailure(t *testing.T) {
 	if attempts.Load() != 1 {
 		t.Fatalf("attempts during backoff = %d, want 1", attempts.Load())
 	}
-	waitForWriteBatcherFlush(t, wb, "retry flush")
+	<-time.After(15 * time.Millisecond)
+	if err := wb.Flush(); err != nil {
+		t.Fatalf("retry flush: %v", err)
+	}
 }
 
 func TestWriteBatcherRetryBackoffGrowsAndCaps(t *testing.T) {
@@ -221,10 +206,8 @@ func TestWriteBatcherAutomaticallyRecoversWithinBound(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(time.Second)
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
 	for time.Now().Before(deadline) && wb.Stats().Pending > 0 {
-		<-tick.C
+		<-time.After(5 * time.Millisecond)
 	}
 	stats := wb.Stats()
 	if stats.Pending != 0 || stats.HighWaterMark > int64(config.MaxPending) || stats.ItemsDropped == 0 {
@@ -274,7 +257,10 @@ func TestWriteBatcherMergesUpdatesThatArriveDuringFailedFlush(t *testing.T) {
 	if err := <-flushDone; err == nil {
 		t.Fatal("failed flush returned nil")
 	}
-	waitForWriteBatcherFlush(t, wb, "recovery flush")
+	<-time.After(15 * time.Millisecond)
+	if err := wb.Flush(); err != nil {
+		t.Fatalf("recovery flush: %v", err)
+	}
 	if len(recovered) != 1 || recovered[0].count != 3 || !recovered[0].when.Equal(now.Add(time.Second)) {
 		t.Fatalf("recovered updates = %+v", recovered)
 	}
@@ -288,18 +274,7 @@ func TestWriteBatcherExpiresStaleWorkAndAdmitsFreshWork(t *testing.T) {
 	if !wb.Add(1) {
 		t.Fatal("first item rejected")
 	}
-	// MaxRetryAge is 5ms; the pending item's age is observable through
-	// stats. Wait until it passes the retry age, then a single Add must
-	// admit the fresh item by expiring the stale one.
-	staleTick := time.NewTicker(time.Millisecond)
-	defer staleTick.Stop()
-	staleDeadline := time.Now().Add(time.Second)
-	for wb.Stats().OldestAge < config.MaxRetryAge {
-		if time.Now().After(staleDeadline) {
-			t.Fatal("stale item never aged past MaxRetryAge")
-		}
-		<-staleTick.C
-	}
+	<-time.After(10 * time.Millisecond)
 	if !wb.Add(2) {
 		t.Fatal("fresh item rejected after stale item should expire")
 	}
@@ -360,10 +335,7 @@ func TestWriteBatcherConcurrentAddFlushStop(t *testing.T) {
 
 	stopDone := make(chan error, 1)
 	go func() {
-		// Yield scheduling so producers get a head start before the stop.
-		for i := 0; i < 50; i++ {
-			runtime.Gosched()
-		}
+		<-time.After(time.Millisecond)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		stopDone <- wb.StopContext(ctx)

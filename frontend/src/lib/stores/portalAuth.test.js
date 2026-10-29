@@ -1,16 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { portal, portalAuth, portalPasskey } from '../api/portal.js';
 
 const mocks = vi.hoisted(() => ({
   getUserBootstrap: vi.fn(),
   getCurrentCustomer: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    portal: { getUserBootstrap: mocks.getUserBootstrap },
-    portalAuth: { getCurrentCustomer: mocks.getCurrentCustomer },
-    portalPasskey: {},
-  },
+vi.mock('../api/portal.js', () => ({
+  portal: { getUserBootstrap: mocks.getUserBootstrap },
+  portalAuth: { getCurrentCustomer: mocks.getCurrentCustomer },
+  portalPasskey: {},
 }));
 
 vi.mock('../utils/webauthn-utils.js', () => ({

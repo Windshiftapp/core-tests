@@ -1,4 +1,4 @@
-import { expect, test } from '../fixtures/context-path';
+import { expect, logicalPath, test } from '../fixtures/context-path';
 import {
 	createItemViaAPI,
 	createLinkViaAPI,
@@ -106,6 +106,44 @@ test.describe('Item ↔ test case linking', () => {
 			(link) => link.source_type === 'item' && link.source_id === item.id
 		);
 		expect(incoming).toHaveLength(1);
+	});
+
+	test('opens a linked test case preview with the numeric workspace id', async ({
+		page,
+		request,
+	}) => {
+		await createLinkViaAPI(request, {
+			link_type_id: testsLinkTypeId,
+			source_type: 'item',
+			source_id: item.id,
+			target_type: 'test_case',
+			target_id: testCase.id,
+		});
+
+		await itemPage.gotoWorkspaceBacklog(workspaceId);
+		await itemPage.openItemDetailModal(item.title);
+		await linksPage.expectLinkVisible(testCase.title);
+
+		// Capture the detail request whatever the workspace segment is, so a
+		// regression that sends the key or null fails the assertion below with a
+		// useful message instead of timing out on a request that never matches.
+		const detailRequestPromise = page.waitForRequest(
+			(candidate) =>
+				candidate.method() === 'GET' &&
+				/\/api\/v2\/workspaces\/[^/]+\/test-cases\/\d+$/.test(candidate.url())
+		);
+
+		const row = linksPage.linkRows().filter({ hasText: testCase.title }).first();
+		await row.getByTestId('linked-item-title').click();
+
+		const detailRequest = await detailRequestPromise;
+		expect(logicalPath(new URL(detailRequest.url()).pathname)).toBe(
+			`/api/v2/workspaces/${workspaceNumericId}/test-cases/${testCase.id}`
+		);
+
+		const preview = page.getByTestId('test-case-preview');
+		await expect(preview).toContainText(testCase.title);
+		await expect(page.getByTestId('test-case-preview-error')).toHaveCount(0);
 	});
 
 	test('deletes the test case link via the row hover button', async ({ request }) => {

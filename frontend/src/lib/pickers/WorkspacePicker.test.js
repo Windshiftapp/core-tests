@@ -1,17 +1,15 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    workspaces: {
-      getPage: vi.fn(),
-      get: vi.fn(),
-      getOrCreatePersonal: vi.fn(),
-    },
-  },
+vi.mock('../api/workspaces.js', () => ({
+  workspaces: {
+        getPage: vi.fn(),
+        get: vi.fn(),
+        getOrCreatePersonal: vi.fn(),
+      },
 }));
 
-import { api } from '../api.js';
+import { workspaces } from '../api/workspaces.js';
 import { workspacesStore } from '../stores/workspaces.svelte.js';
 import WorkspacePicker from './WorkspacePicker.svelte';
 
@@ -32,7 +30,7 @@ function pageDocument(rows, total = rows.length) {
 
 describe('WorkspacePicker — server-backed search (WI-1445)', () => {
   test('typing beyond the cached page pulls matches from the server', async () => {
-    api.workspaces.getPage.mockImplementation((_filters) => {
+    workspaces.getPage.mockImplementation((_filters) => {
       const search = _filters?.search || '';
       if (!search) {
         return Promise.resolve(
@@ -61,7 +59,7 @@ describe('WorkspacePicker — server-backed search (WI-1445)', () => {
     await vi.advanceTimersByTimeAsync(400);
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(api.workspaces.getPage).toHaveBeenCalledWith(
+    expect(workspaces.getPage).toHaveBeenCalledWith(
       expect.objectContaining({ search: 'zeta' })
     );
     expect(document.querySelector('[data-option-value="9"]')).toBeInTheDocument();
@@ -74,5 +72,38 @@ describe('WorkspacePicker — server-backed search (WI-1445)', () => {
 
     expect(document.querySelector('[data-option-value="1"]')).toBeInTheDocument();
     expect(document.querySelector('[data-option-value="9"]')).not.toBeInTheDocument();
+  });
+
+  test('keeps a selected chip labeled after server search replaces the options (WI-1586)', async () => {
+    workspaces.getPage.mockImplementation((_filters) => {
+      const search = _filters?.search || '';
+      if (!search) {
+        return Promise.resolve(
+          pageDocument([
+            { id: 1, name: 'Alpha', is_personal: false },
+            { id: 2, name: 'Beta', is_personal: false },
+          ])
+        );
+      }
+      const matches =
+        search.toLowerCase() === 'zeta'
+          ? [{ id: 9, name: 'Zeta Workspace', is_personal: false }]
+          : [];
+      return Promise.resolve(pageDocument(matches, matches.length));
+    });
+
+    render(WorkspacePicker, { props: { value: [1] } });
+    await vi.waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+
+    const input = screen.getByRole('combobox');
+    await fireEvent.click(input);
+    await fireEvent.input(input, { target: { value: 'zeta' } });
+    await vi.advanceTimersByTimeAsync(400);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Alpha is no longer an option, but the selected chip still resolves its
+    // label from the remembered directory instead of vanishing.
+    expect(document.querySelector('[data-option-value="1"]')).not.toBeInTheDocument();
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
   });
 });

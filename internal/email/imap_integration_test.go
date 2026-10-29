@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/models"
 	"windshift/internal/services"
 	"windshift/internal/utils"
@@ -130,11 +131,11 @@ func testIMAPTLSConfigs(t *testing.T) (*tls.Config, *tls.Config) {
 	roots := x509.NewCertPool()
 	roots.AddCert(certificate)
 	return &tls.Config{ //nolint:gosec // TLS 1.2 is the production minimum under test.
-			Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: privateKey}},
-			MinVersion:   tls.VersionTLS12,
-		}, &tls.Config{ //nolint:gosec // TLS 1.2 is the production minimum under test.
-			RootCAs: roots, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12,
-		}
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: privateKey}},
+		MinVersion:   tls.VersionTLS12,
+	}, &tls.Config{ //nolint:gosec // TLS 1.2 is the production minimum under test.
+		RootCAs: roots, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12,
+	}
 }
 
 type memoryLiteral struct {
@@ -247,7 +248,7 @@ func TestArtificialIMAPIngestion(t *testing.T) {
 			}
 
 			attachmentRoot := t.TempDir()
-			processor := NewProcessor(db, attachmentRoot)
+			processor := NewProcessor(db, blobstore.NewLocal(attachmentRoot))
 			processor.SetCommentService(services.NewCommentService(db))
 			config := &models.ChannelConfig{EmailWorkspaceID: workspaceID, EmailItemTypeID: &itemTypeID}
 			created, err := processor.ProcessEmail(context.Background(), first, channelID, selected.UIDValidity, config)
@@ -338,6 +339,36 @@ func TestArtificialIMAPIngestion(t *testing.T) {
 			remaining, err := client.FetchMessages(0, 50)
 			if err != nil || len(remaining) != 1 || remaining[0].UID != replyUID {
 				t.Fatalf("messages after expunge = (%v, %v)", fetchedUIDs(remaining), err)
+			}
+		})
+	}
+}
+
+// TestArtificialIMAPFetchAtWatermarkReturnsNothing reproduces WI-1790: when the
+// mailbox's highest UID equals the stored watermark, the "watermark+1:*" search
+// must not return the watermark message itself. The in-process server resolves
+// the dynamic "*" to the highest UID and normalises the inverted range, exactly
+// like Stalwart did in production.
+func TestArtificialIMAPFetchAtWatermarkReturnsNothing(t *testing.T) {
+	for _, encryption := range []string{"ssl", "starttls"} {
+		t.Run(encryption, func(t *testing.T) {
+			server := startArtificialIMAPServer(t, encryption == "ssl", nil)
+			newestUID := appendArtificialMessage(t, server.user, firstArtificialMessage)
+
+			client := connectArtificialClient(t, server, encryption)
+			if err := client.AuthenticateBasic(testIMAPUsername, testIMAPPassword); err != nil {
+				t.Fatalf("authenticate to artificial IMAP server: %v", err)
+			}
+			if _, err := client.SelectMailbox("INBOX"); err != nil {
+				t.Fatalf("select artificial INBOX: %v", err)
+			}
+
+			messages, err := client.FetchMessages(newestUID, 50)
+			if err != nil {
+				t.Fatalf("fetch at watermark: %v", err)
+			}
+			if len(messages) != 0 {
+				t.Fatalf("fetch at watermark returned UIDs %v, want none", fetchedUIDs(messages))
 			}
 		})
 	}

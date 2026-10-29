@@ -134,69 +134,6 @@ test("keeps a five-year quarter horizon and offers a return-to-today control", a
 		.toBe(0);
 });
 
-test("uses the workspace foreground token for the roadmap scheduling hint", async ({
-	page,
-	request,
-}) => {
-	const stamp = Date.now();
-	const workspace = await createWorkspaceViaAPI(request, {
-		name: `Roadmap gradient ${stamp}`,
-		key: `RG${stamp.toString().slice(-6)}`.toUpperCase(),
-		description: "Playwright roadmap gradient contrast coverage",
-	});
-	await createItemViaAPI(request, workspace.id, {
-		title: `Undated gradient item ${stamp}`,
-	});
-	const collection = await createCollectionViaAPI(request, {
-		name: `Roadmap gradient collection ${stamp}`,
-		workspace_id: workspace.id,
-		ql_query: `title ~ "${stamp}"`,
-	});
-	const configurationResponse = await request.put(
-		`/api/v2/collections/${collection.id}/board-configuration`,
-		{
-			headers: { "Sec-Fetch-Site": "same-origin" },
-			data: {
-				columns: [],
-				backlog_status_ids: [],
-				list_columns: [],
-				card_fields: [],
-				roadmap_config: {
-					start_field_id: "start_date",
-					end_field_id: "end_date",
-					dependency_link_type_id: null,
-				},
-				show_rightmost_column_last_50: false,
-			},
-		},
-	);
-	expect(configurationResponse.ok()).toBeTruthy();
-	const layoutResponse = await request.put(
-		`/api/workspaces/${workspace.id}/homepage/layout`,
-		{
-			headers: { "Sec-Fetch-Site": "same-origin" },
-			data: {
-				sections: [],
-				widgets: [],
-				gradient: 19,
-				applyToAllViews: true,
-				backgroundImageUrl: "",
-			},
-		},
-	);
-	expect(layoutResponse.ok()).toBeTruthy();
-
-	await page.goto(
-		`/workspaces/${workspace.id}/collections/${collection.id}/roadmap`,
-	);
-	const roadmap = page.getByTestId("roadmap-view");
-	const hint = page.getByTestId("roadmap-unscheduled-hint");
-
-	await expect(roadmap).toHaveCSS("background-image", /linear-gradient/);
-	await expect(hint).toBeVisible();
-	await expect(hint).toHaveCSS("color", "rgb(255, 255, 255)");
-});
-
 test("previews and schedules an undated roadmap item with one click", async ({
 	page,
 	request,

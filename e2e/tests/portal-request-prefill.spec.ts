@@ -14,7 +14,7 @@ test('opens a prefilled request form from a direct route URL', async ({ page, re
   const stamp = Date.now();
   const slug = `e2e-request-prefill-${stamp}`;
   const channel = await createPortalChannel(request, { slug, name: `Prefill ${stamp}` });
-  const rt = await createSimpleRequestType(request, channel.channelId, {
+  const rt = await createSimpleRequestType(request, channel, {
     name: `Prefill form ${stamp}`,
   });
   await attachRequestTypesToSection(request, channel, [rt.id]);
@@ -46,7 +46,7 @@ test('redirects the legacy request-type query param to the request route', async
   const stamp = Date.now();
   const slug = `e2e-request-legacy-${stamp}`;
   const channel = await createPortalChannel(request, { slug, name: `Legacy ${stamp}` });
-  const rt = await createSimpleRequestType(request, channel.channelId, {
+  const rt = await createSimpleRequestType(request, channel, {
     name: `Legacy form ${stamp}`,
   });
   await attachRequestTypesToSection(request, channel, [rt.id]);
@@ -63,7 +63,7 @@ test('asset report row action links to the prefilled request form', async ({ pag
   const stamp = Date.now();
   const slug = `e2e-row-action-${stamp}`;
   const channel = await createPortalChannel(request, { slug, name: `Row action ${stamp}` });
-  const rt = await createSimpleRequestType(request, channel.channelId, {
+  const rt = await createSimpleRequestType(request, channel, {
     name: `Row form ${stamp}`,
   });
 

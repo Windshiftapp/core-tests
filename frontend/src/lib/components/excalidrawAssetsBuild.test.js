@@ -1,10 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import {
-  collectExcalidrawFontAssets,
-  EXCALIDRAW_ASSET_ROUTE,
-  excalidrawAssetsPlugin,
-} from '../../../scripts/excalidraw-assets.js';
+import { collectExcalidrawFontAssets, EXCALIDRAW_ASSET_ROUTE, excalidrawAssetsPlugin } from '../../../scripts/excalidraw-assets.js';
 
 const comicShannsFont =
   'excalidraw-assets/fonts/ComicShanns/ComicShanns-Regular-fcb0fc02dcbee4c9846b3e2508668039.woff2';

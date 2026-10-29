@@ -121,6 +121,57 @@ test.describe('Milestone Management', () => {
     });
   });
 
+  test('offers the new workspace milestones after an in-app workspace switch', async ({
+    page,
+    request,
+  }) => {
+    // Workspace A (from beforeEach) has no milestones. Load one of its items
+    // first so the shared item-detail store holds A's empty milestone list.
+    const itemA = generateItem(0, 'switch-a');
+    await createItemViaAPI(request, workspaceId, { title: itemA.title });
+
+    // Workspace B owns a milestone and an item.
+    const workspaceB = generateWorkspace();
+    const createdB = await createWorkspaceViaAPI(request, {
+      name: workspaceB.name,
+      key: workspaceB.key,
+      description: workspaceB.description,
+    });
+    const workspaceBId = createdB.id;
+    const ms = generateMilestone('switch-b');
+    const milestone = await createMilestoneViaAPI(request, {
+      ...ms,
+      workspace_id: workspaceBId,
+    });
+    const itemB = generateItem(0, 'switch-b');
+    await createItemViaAPI(request, workspaceBId, { title: itemB.title });
+
+    await itemPage.gotoWorkspaceBacklog(String(workspaceId));
+    await itemPage.openItemDetailModal(itemA.title);
+    await itemPage.closeItemDetailModal();
+
+    // Switch through the in-app workspace menu (no reload), then open B's
+    // item. The detail store briefly pairs B's item with A's references; the
+    // milestone picker must not lock onto A's empty list.
+    await page.getByTestId('workspaces-dropdown-trigger').click();
+    await page.getByTestId('workspaces-search').fill(workspaceB.name);
+    await page
+      .getByTestId('workspace-dropdown-item')
+      .filter({ hasText: workspaceB.name })
+      .first()
+      .click();
+    await page.getByTestId('workspace-nav-backlog').click();
+
+    await itemPage.openItemDetailModal(itemB.title);
+
+    // The modal first reuses the previous item while the new detail loads.
+    // Wait until it actually shows B's item before opening the picker.
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog.getByText(itemB.title).first()).toBeVisible();
+    await dialog.locator('[data-testid="milestone-field"]').click();
+    await expect(page.locator(`[role="option"][data-option-id="${milestone.id}"]`)).toBeVisible();
+  });
+
   test('filters items by milestone via a collection using a raw CQL query', async ({ page, request }) => {
     const ms = generateMilestone('filter');
     const milestone = await createMilestoneViaAPI(request, {

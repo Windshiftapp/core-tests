@@ -15,7 +15,7 @@ import (
 )
 
 func TestHandlerExposesRuntimeHTTPAndSCMMetrics(t *testing.T) {
-	metrics := New(nil)
+	metrics := New(nil, "")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /items/{id}", func(w http.ResponseWriter, _ *http.Request) {
@@ -73,7 +73,7 @@ func TestHandlerExposesDatabaseBackedWindshiftMetrics(t *testing.T) {
 		t.Fatalf("seed webhook deliveries: %v", err)
 	}
 
-	metrics := New(db)
+	metrics := New(db, "")
 	body := scrape(t, metrics.Handler())
 	assertMetricContains(t, body, `go_sql_open_connections{db_name="windshift"}`)
 	assertMetricContains(t, body, "windshift_agent_run_queue_depth 1")
@@ -83,6 +83,46 @@ func TestHandlerExposesDatabaseBackedWindshiftMetrics(t *testing.T) {
 	assertMetricContains(t, body, `windshift_agent_run_duration_average_seconds{outcome="succeeded"} 0`)
 	assertMetricContains(t, body, `windshift_webhook_dispatches{outcome="success"} 1`)
 	assertMetricContains(t, body, `windshift_webhook_dispatches{outcome="failure"} 1`)
+}
+
+func TestHandlerRequiresConfiguredBearerToken(t *testing.T) {
+	tests := []struct {
+		name       string
+		token      string
+		header     string
+		wantStatus int
+	}{
+		{name: "no token configured serves anonymously", wantStatus: http.StatusOK},
+		{name: "missing header is rejected", token: "s3cret", wantStatus: http.StatusUnauthorized},
+		{name: "wrong token is rejected", token: "s3cret", header: "Bearer wrong", wantStatus: http.StatusUnauthorized},
+		{name: "token without bearer scheme is rejected", token: "s3cret", header: "s3cret", wantStatus: http.StatusUnauthorized},
+		{name: "matching bearer token is accepted", token: "s3cret", header: "Bearer s3cret", wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(nil, tt.token)
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			recorder := httptest.NewRecorder()
+			m.Handler().ServeHTTP(recorder, req)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body: %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			if tt.wantStatus != http.StatusUnauthorized {
+				return
+			}
+			if got := recorder.Header().Get("WWW-Authenticate"); got != `Bearer realm="metrics"` {
+				t.Fatalf("WWW-Authenticate = %q, want bearer challenge", got)
+			}
+			if strings.Contains(recorder.Body.String(), tt.token) {
+				t.Fatal("unauthorized response leaked the configured token")
+			}
+		})
+	}
 }
 
 func scrape(t *testing.T, handler http.Handler) string {

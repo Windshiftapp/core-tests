@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  clearPublicFormDraft,
-  loadPublicFormDraft,
-  loadPublicFormDraftForIdentity,
-  publicFormDraftKey,
-  savePublicFormDraft,
-} from './publicFormDrafts.js';
+import { clearPublicFormDraft, loadPublicFormDraft, loadPublicFormDraftForIdentity, publicFormDraftKey, savePublicFormDraft } from './publicFormDrafts.js';
 
 function memoryStorage() {
   const values = new Map();

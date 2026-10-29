@@ -3,21 +3,50 @@ import { expect, test } from '../fixtures/context-path';
 import { generateItem, generateUser, generateWorkspace } from '../fixtures/test-data';
 
 /**
- * Notification polling + toast + live-comment tests.
+ * Notification toast + live-comment tests.
  *
- * The poller ticks every 30 s when the user is active (see usePoller.svelte.js
- * and notifications.js). Each assertion that waits for a tick uses a 40 s
+ * Notifications and open item views update over SSE (see notifications.js and
+ * useItemEventStream). Each assertion that waits for the push uses a 40 s
  * budget, and each test overrides the default 60 s test timeout.
  */
 test.describe('Notifications: toast + live item comments', () => {
-  // Poll cadence is 30 s; give ourselves headroom for the tick + render.
+  // Generous headroom for the SSE push + render on a slow runner.
   const POLL_WAIT_MS = 40_000;
+
+  // Notifications share the admin inbox across parallel workers. A millisecond
+  // timestamp is not unique enough: colliding titles produce multiple toasts
+  // and make the title-filtered locators ambiguous.
+  const uniqueSuffix = () =>
+    `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  // Toast tests need an inbox that only they write to. The shared admin inbox
+  // collects notifications from every parallel worker, and the toast stack
+  // only renders the newest three, so the notification under test can be
+  // pushed out of view. A fresh user per test keeps the stack deterministic.
+  async function openToastPage(browser, request) {
+    const data = generateUser(`notif-toast-${uniqueSuffix()}`);
+    await createUserViaAPI(request, data);
+    const context = await browser.newContext({
+      baseURL: process.env.BASE_URL || 'http://localhost:8080',
+      storageState: { cookies: [], origins: [] },
+    });
+    const login = await context.request.post('/api/auth/login', {
+      headers: { 'Sec-Fetch-Site': 'same-origin' },
+      data: {
+        email_or_username: data.username,
+        password: data.password_hash,
+        remember_me: false,
+      },
+    });
+    expect(login.ok(), `notification user login: ${login.status()}`).toBeTruthy();
+    return { context, page: await context.newPage() };
+  }
 
   test('opening an item marks an older notification beyond the default page as read', async ({
     page,
     request,
   }) => {
-    const suffix = `notif-page-${Date.now()}`;
+    const suffix = `notif-page-${uniqueSuffix()}`;
     const baseTimestamp = Date.now();
     const workspace = await createWorkspaceViaAPI(request, generateWorkspace(suffix));
     const item = await createItemViaAPI(request, workspace.id, {
@@ -91,90 +120,111 @@ test.describe('Notifications: toast + live item comments', () => {
     ).toBe(true);
   });
 
-  test('mention notification surfaces as an info toast', async ({ page, request }) => {
+  test('mention notification surfaces as an info toast', async ({ browser, request }) => {
     test.setTimeout(90_000);
+    const { context, page } = await openToastPage(browser, request);
+    try {
+      const initialInbox = page.waitForResponse(
+        (response) => response.url().includes('/api/notifications') && response.status() === 200
+      );
+      // The toast is driven by the SSE invalidation stream. Create the
+      // notification only after the stream is connected so the change event is
+      // delivered instead of falling into the snapshot/subscription gap.
+      const streamConnected = page.waitForResponse((response) =>
+        response.url().includes('/api/notifications/events')
+      );
+      await page.goto('/');
+      // MainApp is mounted when the global create button exists — this is also
+      // the moment startNotificationPoller() has been called.
+      await expect(page.locator('#global-create-button')).toBeVisible({ timeout: 15_000 });
+      await initialInbox;
+      await streamConnected;
 
-    const initialInbox = page.waitForResponse(
-      (response) => response.url().includes('/api/notifications') && response.status() === 200
-    );
-    await page.goto('/');
-    // MainApp is mounted when the global create button exists — this is also
-    // the moment startNotificationPoller() has been called.
-    await expect(page.locator('#global-create-button')).toBeVisible({ timeout: 15_000 });
-    await initialInbox;
+      const title = `E2E Mention ${uniqueSuffix()}`;
+      const message = 'Agent @admin mentioned you in a comment';
 
-    const title = `E2E Mention ${Date.now()}`;
-    const message = 'Agent @admin mentioned you in a comment';
+      // Self-create a mention notification. The backend forces user_id = caller,
+      // so this appears in this user's inbox; the frontend poller picks it up
+      // and the toast allowlist (`mention`) triggers a toast.
+      const resp = await context.request.post('/api/notifications', {
+        headers: { 'Sec-Fetch-Site': 'same-origin' },
+        data: {
+          type: 'mention',
+          title,
+          message,
+          action_url: '/notifications',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      expect(resp.ok()).toBeTruthy();
 
-    // Self-create a mention notification. The backend forces user_id = caller,
-    // so this appears in the admin's inbox; the frontend poller picks it up
-    // and the toast allowlist (`mention`) triggers a toast.
-    const resp = await request.post('/api/notifications', {
-      headers: { 'Sec-Fetch-Site': 'same-origin' },
-      data: {
-        type: 'mention',
-        title,
-        message,
-        action_url: '/notifications',
-        timestamp: new Date().toISOString(),
-      },
-    });
-    expect(resp.ok()).toBeTruthy();
-
-    // The toast appears within one poll window.
-    const toast = page.locator('[data-testid="toast"]').filter({ hasText: title });
-    await expect(toast).toBeVisible({ timeout: POLL_WAIT_MS });
-    await expect(toast).toHaveAttribute('data-toast-variant', 'info');
-    await expect(toast).toContainText(message);
+      // The toast appears from the pushed invalidation.
+      const toast = page.locator('[data-testid="toast"]').filter({ hasText: title });
+      await expect(toast).toBeVisible({ timeout: POLL_WAIT_MS });
+      await expect(toast).toHaveAttribute('data-toast-variant', 'info');
+      await expect(toast).toContainText(message);
+    } finally {
+      await context.close();
+    }
   });
 
   test('assignment notification also toasts; plain "info" type does not', async ({
-    page,
+    browser,
     request,
   }) => {
     test.setTimeout(90_000);
+    const { context, page } = await openToastPage(browser, request);
+    try {
+      const initialInbox = page.waitForResponse(
+        (response) => response.url().includes('/api/notifications') && response.status() === 200
+      );
+      // Wait for the SSE stream before creating notifications so the toast
+      // invalidation is not lost in the snapshot/subscription gap.
+      const streamConnected = page.waitForResponse((response) =>
+        response.url().includes('/api/notifications/events')
+      );
+      await page.goto('/');
+      await expect(page.locator('#global-create-button')).toBeVisible({ timeout: 15_000 });
+      await initialInbox;
+      await streamConnected;
 
-    const initialInbox = page.waitForResponse(
-      (response) => response.url().includes('/api/notifications') && response.status() === 200
-    );
-    await page.goto('/');
-    await expect(page.locator('#global-create-button')).toBeVisible({ timeout: 15_000 });
-    await initialInbox;
+      const assignTitle = `E2E Assigned ${uniqueSuffix()}`;
+      const infoTitle = `E2E Info ${uniqueSuffix()}`;
 
-    const assignTitle = `E2E Assigned ${Date.now()}`;
-    const infoTitle = `E2E Info ${Date.now()}`;
+      // Assignment should toast (allowlisted).
+      await context.request.post('/api/notifications', {
+        headers: { 'Sec-Fetch-Site': 'same-origin' },
+        data: {
+          type: 'assignment',
+          title: assignTitle,
+          message: 'You were assigned an item',
+          action_url: '/',
+          timestamp: new Date().toISOString(),
+        },
+      });
 
-    // Assignment should toast (allowlisted).
-    await request.post('/api/notifications', {
-      headers: { 'Sec-Fetch-Site': 'same-origin' },
-      data: {
-        type: 'assignment',
-        title: assignTitle,
-        message: 'You were assigned an item',
-        action_url: '/',
-        timestamp: new Date().toISOString(),
-      },
-    });
+      // Plain info should NOT toast — it stays in the tray only.
+      await context.request.post('/api/notifications', {
+        headers: { 'Sec-Fetch-Site': 'same-origin' },
+        data: {
+          type: 'info',
+          title: infoTitle,
+          message: 'Background info event',
+          action_url: '/',
+          timestamp: new Date().toISOString(),
+        },
+      });
 
-    // Plain info should NOT toast — it stays in the tray only.
-    await request.post('/api/notifications', {
-      headers: { 'Sec-Fetch-Site': 'same-origin' },
-      data: {
-        type: 'info',
-        title: infoTitle,
-        message: 'Background info event',
-        action_url: '/',
-        timestamp: new Date().toISOString(),
-      },
-    });
+      await expect(
+        page.locator('[data-testid="toast"]').filter({ hasText: assignTitle })
+      ).toBeVisible({ timeout: POLL_WAIT_MS });
 
-    await expect(
-      page.locator('[data-testid="toast"]').filter({ hasText: assignTitle })
-    ).toBeVisible({ timeout: POLL_WAIT_MS });
-
-    // After seeing the assignment toast, the info one must not have appeared.
-    const infoToast = page.locator('[data-testid="toast"]').filter({ hasText: infoTitle });
-    await expect(infoToast).toHaveCount(0);
+      // After seeing the assignment toast, the info one must not have appeared.
+      const infoToast = page.locator('[data-testid="toast"]').filter({ hasText: infoTitle });
+      await expect(infoToast).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
   });
 
   test('open item pulls in new comments from another author and shows the badge', async ({
@@ -185,7 +235,7 @@ test.describe('Notifications: toast + live item comments', () => {
     test.setTimeout(120_000);
 
     // Unique suffix so retries don't collide on user/workspace unique constraints.
-    const suffix = `notif-live-${Date.now()}`;
+    const suffix = `notif-live-${uniqueSuffix()}`;
 
     // Set up a workspace + item via API (fast, no UI).
     const ws = generateWorkspace(suffix);
@@ -203,7 +253,7 @@ test.describe('Notifications: toast + live item comments', () => {
     // comment-create endpoint always uses the caller's session as the author
     // (no body-supplied author_id — see comment.go), so we need a real
     // second session to exercise the "comment from another author" badge path.
-    const userB = generateUser(`commenter-${Date.now()}`);
+    const userB = generateUser(`commenter-${uniqueSuffix()}`);
     await createUserViaAPI(request, userB);
     const userBCtx = await playwright.request.newContext({
       baseURL: process.env.BASE_URL || 'http://localhost:8080',
@@ -222,7 +272,7 @@ test.describe('Notifications: toast + live item comments', () => {
 
       // Open the item detail view (renders as a full page under /workspaces/:id/items/:id).
       await page.goto(`/workspaces/${wsId}/items/${itemId}`);
-      // Comment composer present => Comments.svelte mounted and polling.
+      // Comment composer present => Comments.svelte mounted.
       // Comments section is rendered by Comments.svelte (ProseMirror placeholders
       // aren't real HTML `placeholder` attrs, so target the section wrapper).
       await expect(page.locator('[data-testid="comments-section"]')).toBeVisible({
@@ -233,7 +283,7 @@ test.describe('Notifications: toast + live item comments', () => {
       await expect(page.locator('[data-testid="comment-item"]')).toHaveCount(0);
 
       // Post a comment as user B from their own session.
-      const content = `Hi from agent B ${Date.now()}`;
+      const content = `Hi from agent B ${uniqueSuffix()}`;
       const commentResp = await userBCtx.post(`/api/v2/items/${itemId}/comments`, {
         headers: { 'Sec-Fetch-Site': 'same-origin' },
         data: {
@@ -246,7 +296,7 @@ test.describe('Notifications: toast + live item comments', () => {
         `userB comment POST failed (status ${commentResp.status()})`
       ).toBeTruthy();
 
-      // Within one poll window the comment shows up inline — no reload.
+      // The pushed change shows the comment inline — no reload.
       await expect(page.locator('[data-testid="comment-item"]')).toHaveCount(1, {
         timeout: POLL_WAIT_MS,
       });
@@ -268,7 +318,7 @@ test.describe('Notifications: toast + live item comments', () => {
   test('submitting my own comment does not raise the "new" badge', async ({ page, request }) => {
     test.setTimeout(120_000);
 
-    const suffix = `notif-self-${Date.now()}`;
+    const suffix = `notif-self-${uniqueSuffix()}`;
     const ws = generateWorkspace(suffix);
     const workspace = await createWorkspaceViaAPI(request, ws);
     const wsId: number = workspace.id;
@@ -296,7 +346,7 @@ test.describe('Notifications: toast + live item comments', () => {
     });
     expect(commentResponse.ok(), await commentResponse.text()).toBeTruthy();
 
-    // The comment still appears on the next poll…
+    // The comment still appears from the pushed change…
     await expect(page.locator('[data-testid="comment-item"]')).toHaveCount(1, {
       timeout: POLL_WAIT_MS,
     });

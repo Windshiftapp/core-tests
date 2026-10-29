@@ -38,7 +38,7 @@ func TestSLATestClockAdvancesEvaluationInstant(t *testing.T) {
 		"goals": []map[string]any{{
 			"position": 0, "ql_query": "1 = 1", "import_status": "native",
 			"targets": []map[string]any{{
-				"position": 0, "is_fallback": true, "target_ms": 3_600_000, "calendar_id": calendar.ID,
+				"position": 0, "target_ms": 3_600_000, "calendar_id": calendar.ID,
 			}},
 		}},
 	}

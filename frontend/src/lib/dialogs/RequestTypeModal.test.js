@@ -14,15 +14,12 @@ const storeMocks = vi.hoisted(() => ({
   get: vi.fn(),
 }));
 
-vi.mock('../api.js', async (importOriginal) => {
+vi.mock('../api/channels.js', () => ({ requestTypes: apiMocks }));
+vi.mock('../api/workspaces.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    api: {
-      ...actual.api,
-      requestTypes: apiMocks,
-      workspaces: { ...actual.api.workspaces, get: storeMocks.get },
-    },
+    workspaces: { ...actual.workspaces, get: storeMocks.get },
   };
 });
 
@@ -35,6 +32,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
 }));
 
 import RequestTypeModal from './RequestTypeModal.svelte';
+import { workspacesStore } from '../api/channels.js';
 
 function workspace(id, name) {
   return { id, name, key: `WS${id}` };
@@ -124,5 +122,33 @@ describe('RequestTypeModal workspace choices', () => {
       expect(document.querySelector('[data-option-value="1"]')).toBeInTheDocument();
     });
     expect(storeMocks.get).not.toHaveBeenCalled();
+  });
+
+  it('omits is_active on edit so a disabled request type stays disabled', async () => {
+    const requestType = {
+      id: 7,
+      name: 'Existing type',
+      workspace_id: 2,
+      item_type_id: 3,
+      is_active: false,
+      title_template: 'Ticket {{id}}',
+    };
+    apiMocks.get.mockResolvedValue({ ...requestType });
+
+    render(RequestTypeModal, {
+      isOpen: true,
+      mode: 'edit',
+      requestType,
+      channelWorkspaceIds: [2],
+    });
+
+    await waitFor(() => expect(apiMocks.get).toHaveBeenCalledWith(7));
+    await fireEvent.click(screen.getByTestId('dialog-confirm'));
+
+    await waitFor(() => expect(apiMocks.update).toHaveBeenCalledTimes(1));
+    const payload = apiMocks.update.mock.calls[0][2];
+    expect(payload).not.toHaveProperty('is_active');
+    expect(payload).not.toHaveProperty('display_order');
+    expect(payload.title_template).toBe('Ticket {{id}}');
   });
 });

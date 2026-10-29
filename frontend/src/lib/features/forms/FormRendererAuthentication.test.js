@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
+import { forms } from '../../api/forms.js';
 
-vi.mock("../../api.js", () => ({
-	api: { forms: { submit: vi.fn() } },
+vi.mock('../../api/forms.js', () => ({
+  forms: { submit: vi.fn() },
 }));
 
 vi.mock("../../stores/i18n.svelte.js", () => ({

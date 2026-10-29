@@ -3,19 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const permissionState = vi.hoisted(() => ({ admin: false }));
 
-vi.mock('../../api.js', () => ({
+vi.mock('../../api/agentBindings.js', () => ({
   agentBindings: {
-    listCatalog: vi.fn(),
-  },
+      listCatalog: vi.fn(),
+    },
+}))
+
+vi.mock('../../api/agentRuns.js', () => ({
   agentRuns: {
-    listForWorkspace: vi.fn(),
-  },
+      listForWorkspace: vi.fn(),
+    },
 }));
 
-vi.mock('../../stores', () => ({
+vi.mock('../../stores/workspacePermissions.svelte.js', () => ({
   workspacePermissions: {
-    canAdminWorkspace: vi.fn(() => permissionState.admin),
-  },
+      canAdminWorkspace: vi.fn(() => permissionState.admin),
+    },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -35,8 +38,10 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
   },
 }));
 
-import { agentBindings, agentRuns } from '../../api.js';
+
 import AgentCatalog from './AgentCatalog.svelte';
+import { agentBindings } from '../../api/agentBindings.js';
+import { agentRuns } from '../../api/agentRuns.js';
 
 const readyAgent = {
   id: 42,

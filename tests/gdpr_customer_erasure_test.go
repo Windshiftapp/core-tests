@@ -180,6 +180,61 @@ func TestGBPDCustomerErasure(t *testing.T) {
 	AssertStatusCode(t, orphanResp, http.StatusUnauthorized)
 }
 
+// TestGBPDCustomerErasureTombstoneIsImmutable verifies WI-1580: an erased
+// customer cannot be re-identified by an ordinary update or resurrected by an
+// activation, and its deactivation marker stays set.
+func TestGBPDCustomerErasureTombstoneIsImmutable(t *testing.T) {
+	server, _ := StartTestServer(t, GetDBType())
+	CreateBearerToken(t, server)
+
+	wsID, _ := CreateTestWorkspace(t, server, "GDPR Tombstone WS", "")
+	_, channelID := SetupPortalChannel(t, server, wsID)
+	customerID, _ := CreatePortalCustomerWithSession(t, server, channelID, "Tombstone Subject", "tombstone@test.local")
+
+	eraseResp := MakeAuthRequest(t, server, http.MethodPost, fmt.Sprintf("/portal-customers/%d/erase", customerID), map[string]interface{}{
+		"requested_by": "privacy@test.local",
+		"requested_at": time.Now().UTC().Format(time.RFC3339),
+		"notes":        "Art. 17 request approved",
+	})
+	AssertStatusCode(t, eraseResp, http.StatusCreated)
+	_ = eraseResp.Body.Close()
+
+	// A re-identifying write must not resurrect the tombstone.
+	updateResp := MakeAuthRequest(t, server, http.MethodPut, fmt.Sprintf("/portal-customers/%d", customerID), map[string]interface{}{
+		"name":  "Resurrected Subject",
+		"email": "resurrected@test.local",
+	})
+	defer updateResp.Body.Close()
+	AssertStatusCode(t, updateResp, http.StatusNotFound)
+
+	var name, email string
+	if err := server.DB().QueryRow(`SELECT name, email FROM portal_customers WHERE id = ?`, customerID).Scan(&name, &email); err != nil {
+		t.Fatalf("read customer: %v", err)
+	}
+	if name != fmt.Sprintf("deleted-customer-%d", customerID) || email != fmt.Sprintf("deleted-customer-%d@erased.invalid", customerID) {
+		t.Fatalf("erased customer was re-identified: name=%q email=%q", name, email)
+	}
+
+	// Activation cannot clear the erased state either.
+	activateResp := MakeAuthRequest(t, server, http.MethodPost, fmt.Sprintf("/portal-customers/%d/activate", customerID), nil)
+	defer activateResp.Body.Close()
+	AssertStatusCode(t, activateResp, http.StatusConflict)
+
+	var erasedAt *time.Time
+	var postActivationName, postActivationEmail string
+	if err := server.DB().QueryRow(
+		`SELECT erased_at, name, email FROM portal_customers WHERE id = ?`, customerID,
+	).Scan(&erasedAt, &postActivationName, &postActivationEmail); err != nil {
+		t.Fatalf("read tombstone: %v", err)
+	}
+	if erasedAt == nil {
+		t.Fatal("activation cleared erased_at on an erased customer")
+	}
+	if postActivationName != fmt.Sprintf("deleted-customer-%d", customerID) || postActivationEmail != fmt.Sprintf("deleted-customer-%d@erased.invalid", customerID) {
+		t.Fatalf("activation re-identified the tombstone: name=%q email=%q", postActivationName, postActivationEmail)
+	}
+}
+
 // TestGBPDCustomerErasureDenials pins the access and validation contract of
 // the erasure endpoint: only callers with customers.manage may execute a
 // DSAR, the intake reference is required, and unknown customers 404.

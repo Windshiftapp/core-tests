@@ -1,9 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import TimeLogModal from './TimeLogModal.svelte';
+import { links } from '../api/configuration.js';
 
 const { search } = vi.hoisted(() => ({ search: vi.fn() }));
-vi.mock('../api.js', () => ({ api: { links: { search } } }));
+vi.mock('../api/configuration.js', () => ({
+  links: { search },
+}));
 
 const restoreDOM = [];
 beforeEach(() => {
@@ -82,4 +85,69 @@ test('a failed search clears results and a later search can succeed', async () =
   await waitFor(() => expect(screen.queryByText(initialItem.title)).not.toBeInTheDocument());
   await fireEvent.input(input, { target: { value: 'Remote' } });
   expect(await screen.findByText(remoteItem.title)).toBeInTheDocument();
+});
+
+function renderLinkedEditModal(onsave = vi.fn()) {
+  render(TimeLogModal, {
+    props: {
+      projects: [{ id: 7, name: 'Project', status: 'Active' }],
+      showProjectField: false,
+      workItems: [{ id: 501, title: 'Linked item', workspace_name: 'WS' }],
+      editingWorklog: {
+        id: 1,
+        project_id: 7,
+        item_id: 501,
+        description: 'Work',
+        duration_minutes: 60,
+        start_time: 1757000000,
+        end_time: 1757003600,
+      },
+      onsave,
+    },
+  });
+  return onsave;
+}
+
+test('clearing the work-item link saves an explicit null item_id', async () => {
+  const onsave = renderLinkedEditModal();
+
+  await waitFor(() => expect(document.querySelector('.picker-clear')).not.toBeNull());
+  await fireEvent.click(document.querySelector('.picker-clear'));
+  await fireEvent.click(screen.getByTestId('dialog-confirm'));
+
+  expect(onsave).toHaveBeenCalledTimes(1);
+  expect(onsave.mock.calls[0][0].detail.item_id).toBeNull();
+});
+
+test('an edit that leaves the work-item link unchanged preserves it', async () => {
+  const onsave = renderLinkedEditModal();
+
+  await fireEvent.input(document.getElementById('time-log-description'), {
+    target: { value: 'Updated work' },
+  });
+  await fireEvent.click(screen.getByTestId('dialog-confirm'));
+
+  expect(onsave).toHaveBeenCalledTimes(1);
+  expect(onsave.mock.calls[0][0].detail.item_id).toBe(501);
+});
+
+test('an unlinked create saves a null item_id', async () => {
+  const onsave = vi.fn();
+  render(TimeLogModal, {
+    props: {
+      projects: [{ id: 7, name: 'Project', status: 'Active' }],
+      defaultProjectId: 7,
+      showProjectField: false,
+      onsave,
+    },
+  });
+
+  await fireEvent.input(document.getElementById('time-log-description'), {
+    target: { value: 'Work' },
+  });
+  await fireEvent.input(document.getElementById('time-log-duration'), { target: { value: '1h' } });
+  await fireEvent.click(screen.getByTestId('dialog-confirm'));
+
+  expect(onsave).toHaveBeenCalledTimes(1);
+  expect(onsave.mock.calls[0][0].detail.item_id).toBeNull();
 });

@@ -30,14 +30,23 @@ test('moves a page subtree to a selected workspace and parent', async ({ page, r
   await knowledge.gotoPage(String(source.id), sourceRoot.id);
   await knowledge.openMoveDialog();
 
+  // The picker mounts at most 100 options, so filter to the destination to
+  // keep its option rendered no matter how many workspaces exist.
+  const workspacePicker = page.locator('#page-move-workspace-picker');
+  await workspacePicker.click();
+  await workspacePicker.fill(destination.name);
+  const destinationOption = page.getByTestId(
+    `page-move-workspace-option-${destination.id}`,
+  );
+  await expect(destinationOption).toBeVisible();
+
   const destinationTreeLoaded = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
       response.url().endsWith(`/api/v2/workspaces/${destination.id}/pages`) &&
       response.ok(),
   );
-  await page.locator('#page-move-workspace-picker').click();
-  await page.getByTestId(`page-move-workspace-option-${destination.id}`).click();
+  await destinationOption.click();
   await destinationTreeLoaded;
 
   const preview = page.getByTestId('page-move-cross-workspace-preview');

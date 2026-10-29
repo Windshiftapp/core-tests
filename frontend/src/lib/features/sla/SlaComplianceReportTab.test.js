@@ -1,10 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    sla: { getReport: vi.fn() },
-  },
+vi.mock('../../api/sla.js', () => ({
+  sla: { getReport: vi.fn() },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -15,7 +13,7 @@ vi.mock('../../utils/dateFormatter.js', () => ({
   formatDate: (value) => String(value),
 }));
 
-import { api } from '../../api.js';
+import { sla } from '../../api/sla.js';
 import SlaComplianceReportTab from './SlaComplianceReportTab.svelte';
 
 const report = {
@@ -62,13 +60,13 @@ const report = {
 describe('SlaComplianceReportTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.sla.getReport.mockResolvedValue(report);
+    sla.getReport.mockResolvedValue(report);
   });
 
   it('renders per-metric aggregates and the breached-item list', async () => {
     render(SlaComplianceReportTab, { workspaceId: 5 });
 
-    await waitFor(() => expect(api.sla.getReport).toHaveBeenCalledWith(5, { from: '', to: '' }));
+    await waitFor(() => expect(sla.getReport).toHaveBeenCalledWith(5, { from: '', to: '' }));
     expect(await screen.findByTestId('sla-report-metric-1')).toBeTruthy();
     expect(screen.getAllByText('First response').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId('sla-report-coverage')).toBeTruthy();
@@ -89,7 +87,7 @@ describe('SlaComplianceReportTab', () => {
     await fireEvent.click(screen.getByTestId('sla-report-apply'));
 
     await waitFor(() =>
-      expect(api.sla.getReport).toHaveBeenLastCalledWith(5, {
+      expect(sla.getReport).toHaveBeenLastCalledWith(5, {
         from: '2026-01-01',
         to: '2026-02-01',
       })

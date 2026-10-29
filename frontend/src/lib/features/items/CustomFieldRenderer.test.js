@@ -1,23 +1,28 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-// Mock the api module — the renderer calls api.getUsers() for the user
+// Mock the api module — the renderer calls getUsers() for the user
 // field type when the stored value is a bare id (not an object). Stub it
 // to a controllable spy so we can drive the user-lookup branch.
-vi.mock('../../api.js', () => ({
-  api: {
-    getUsers: vi.fn(),
-    assets: {
-      getSummaries: vi.fn(),
-      getAll: vi.fn(async () => ({ data: [], pagination: { total_items: 0 } })),
-    },
-    portalCustomers: {
-      getAll: vi.fn(async () => []),
-    },
-    customerOrganisations: {
-      getAll: vi.fn(async () => []),
-    },
-  },
+vi.mock('../../api/users.js', () => ({
+  getUsers: vi.fn(),
+}))
+
+vi.mock('../../api/assets.js', () => ({
+  assets: {
+        getSummaries: vi.fn(),
+        getAll: vi.fn(async () => ({ data: [], pagination: { total_items: 0 } })),
+      },
+}))
+
+vi.mock('../../api/portal.js', () => ({
+  portalCustomers: {
+        getAll: vi.fn(async () => []),
+      },
+  customerOrganisations: {
+        getAll: vi.fn(async () => []),
+      },
 }));
 
 // i18n — both the t function (used by the renderer) and the i18n object
@@ -35,9 +40,15 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 // which jsdom doesn't implement. The renderer itself doesn't use
 // transitions, but a child picker might pull one in transitively. Defensive
 // stub.
-import { api } from '../../api.js';
+import { getUsers } from '../../api/users.js';
 import { referenceDisplayCache } from '../../stores/referenceDisplayCache.svelte.js';
 import CustomFieldRenderer from './CustomFieldRenderer.svelte';
+
+import { assets } from '../../api/assets.js';
+import { customerOrganisations, portalCustomers } from '../../api/portal.js';
+
+
+import { items } from '../../api/items.js';
 
 afterEach(() => {
   cleanup();
@@ -253,6 +264,95 @@ describe('select field', () => {
   });
 });
 
+// An editor only exists after the user activated the field: the sidebar opens
+// one through onStartEdit, self-editing cells open their own. Forms mount every
+// field in editor mode up front and must not pop a dropdown per select.
+describe('editable picker auto-open', () => {
+  test('an editable select stays closed by default', () => {
+    renderEdit({
+      field: { field_type: 'select', name: 'Priority', options: SELECT_OPTIONS },
+      value: 2,
+    });
+    expect(screen.queryByTestId('picker-dropdown')).not.toBeInTheDocument();
+  });
+
+  test('an externally opened editor opens the dropdown on mount', async () => {
+    renderEdit({
+      field: { field_type: 'select', name: 'Priority', options: SELECT_OPTIONS },
+      value: 2,
+      onStartEdit: () => {},
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('picker-dropdown')).toBeInTheDocument();
+    });
+  });
+});
+
+// Row mode is the item detail sidebar layout: the caller passes the label
+// snippet and the component owns the label/value row and the editor swap.
+describe('row mode', () => {
+  function rowLabel() {
+    return createRawSnippet((nameParam) => ({
+      render: () => `<span data-testid="row-label">${nameParam()}</span>`,
+    }));
+  }
+
+  function renderRow(props) {
+    return render(CustomFieldRenderer, {
+      props: {
+        field: { field_type: 'text', name: 'Notes', id: 7 },
+        value: 'Hello world',
+        label: rowLabel(),
+        rowTestIdPrefix: 'item-custom-field',
+        readonly: true,
+        ...props,
+      },
+    });
+  }
+
+  test('renders the label and the value in one row', () => {
+    renderRow({});
+    expect(screen.getByTestId('item-custom-field-7')).toBeInTheDocument();
+    expect(screen.getByTestId('row-label')).toHaveTextContent('Notes');
+    expect(screen.getByTestId('item-custom-field-edit-7')).toHaveTextContent(
+      'Hello world',
+    );
+  });
+
+  test('clicking the value starts editing', async () => {
+    const onStartEdit = vi.fn();
+    renderRow({ onStartEdit });
+    await fireEvent.click(screen.getByTestId('item-custom-field-edit-7'));
+    expect(onStartEdit).toHaveBeenCalledTimes(1);
+  });
+
+  test('an empty value renders the none label as a subtle value', () => {
+    renderRow({ value: '' });
+    expect(screen.getByTestId('item-custom-field-edit-7')).toHaveTextContent(
+      'common.none',
+    );
+  });
+
+  test('a link value renders an anchor and moves the edit hook to the label', async () => {
+    const onStartEdit = vi.fn();
+    renderRow({ value: 'https://example.com/report', onStartEdit });
+
+    const link = screen.getByTestId('item-custom-field-value-7');
+    expect(link.tagName).toBe('A');
+    expect(link).toHaveAttribute('href', 'https://example.com/report');
+    expect(link).toHaveAttribute('target', '_blank');
+
+    await fireEvent.click(screen.getByTestId('item-custom-field-edit-7'));
+    expect(onStartEdit).toHaveBeenCalledTimes(1);
+  });
+
+  test('the editor replaces the label while editing', () => {
+    renderRow({ readonly: false, onStartEdit: () => {}, onCancel: () => {} });
+    expect(screen.queryByTestId('row-label')).not.toBeInTheDocument();
+    expect(screen.getByTestId('custom-field-input-7')).toBeInTheDocument();
+  });
+});
+
 describe('multiselect field', () => {
   test('joins resolved labels with commas', () => {
     renderReadonly({
@@ -310,8 +410,8 @@ describe('user field', () => {
     expect(screen.getByText('Alice Smith')).toBeInTheDocument();
   });
 
-  test('bare-id value triggers api.getUsers() and resolves to first_name + last_name', async () => {
-    api.getUsers.mockResolvedValueOnce([
+  test('bare-id value triggers getUsers() and resolves to first_name + last_name', async () => {
+    getUsers.mockResolvedValueOnce([
       { id: 7, first_name: 'Bob', last_name: 'Lee', username: 'blee' },
     ]);
     renderReadonly({
@@ -321,11 +421,11 @@ describe('user field', () => {
     await waitFor(() => {
       expect(screen.getByText('Bob Lee')).toBeInTheDocument();
     });
-    expect(api.getUsers).toHaveBeenCalledTimes(1);
+    expect(getUsers).toHaveBeenCalledTimes(1);
   });
 
   test('unknown user id shows common.unknownUser', async () => {
-    api.getUsers.mockResolvedValueOnce([
+    getUsers.mockResolvedValueOnce([
       { id: 7, first_name: 'Bob', last_name: 'Lee', username: 'blee' },
     ]);
     renderReadonly({
@@ -360,6 +460,50 @@ describe('milestone field', () => {
       milestones: [{ id: 10, name: 'M1' }],
     });
     expect(screen.getByText('setField:milestone')).toBeInTheDocument();
+  });
+});
+
+describe('multi_milestone field', () => {
+  const milestones = [
+    { id: 10, name: 'M1', category_color: '#ff0000' },
+    { id: 11, name: 'M2', category_color: '#00ff00' },
+  ];
+
+  test('renders selected milestone names in stored order', () => {
+    renderReadonly({
+      field: { field_type: 'multi_milestone', name: 'Affected versions' },
+      value: [11, 10],
+      milestones,
+    });
+    expect(screen.getByText('M2, M1')).toBeInTheDocument();
+  });
+
+  test('falls back to the raw id for an unknown milestone', () => {
+    renderReadonly({
+      field: { field_type: 'multi_milestone', name: 'Affected versions' },
+      value: [10, 99],
+      milestones,
+    });
+    expect(screen.getByText('M1, 99')).toBeInTheDocument();
+  });
+
+  test('empty selection shows setField placeholder', () => {
+    renderReadonly({
+      field: { field_type: 'multi_milestone', name: 'Affected versions' },
+      value: [],
+      milestones,
+    });
+    expect(screen.getByText('setField:affected versions')).toBeInTheDocument();
+  });
+
+  test('edit mode shows the selected milestones as chips', () => {
+    renderEdit({
+      field: { field_type: 'multi_milestone', name: 'Affected versions' },
+      value: [10, 11],
+      milestones,
+    });
+    expect(screen.getByText('M1')).toBeInTheDocument();
+    expect(screen.getByText('M2')).toBeInTheDocument();
   });
 });
 
@@ -407,7 +551,7 @@ describe('asset field', () => {
   });
 
   test('bare-id value resolves to asset title', async () => {
-    api.assets.getSummaries.mockResolvedValueOnce([
+    assets.getSummaries.mockResolvedValueOnce([
       { id: 42, asset_tag: 'A-042', title: 'Loader' },
     ]);
     renderReadonly({
@@ -419,13 +563,13 @@ describe('asset field', () => {
   });
 
   test('bare-id value falls back to "Asset #N" when lookup fails', async () => {
-    api.assets.getSummaries.mockRejectedValueOnce(new Error('not found'));
+    assets.getSummaries.mockRejectedValueOnce(new Error('not found'));
     renderReadonly({
       field: { field_type: 'asset', name: 'Machine' },
       value: 42,
     });
     await waitFor(() =>
-      expect(api.assets.getSummaries).toHaveBeenCalledWith([42], expect.anything())
+      expect(assets.getSummaries).toHaveBeenCalledWith([42], expect.anything())
     );
     expect(screen.getByText('Asset #42')).toBeInTheDocument();
   });
@@ -491,27 +635,6 @@ describe('customerorganisation field', () => {
 	  value: { id: 6 },
 	});
 	expect(screen.getByText('Organisation #6')).toBeInTheDocument();
-  });
-});
-
-describe('combobox field', () => {
-  test('comma-separated value renders as chips', () => {
-    renderReadonly({
-      field: { field_type: 'combobox', name: 'Labels' },
-      value: 'urgent, bug, ui',
-    });
-    expect(screen.getByText('urgent')).toBeInTheDocument();
-    expect(screen.getByText('bug')).toBeInTheDocument();
-    expect(screen.getByText('ui')).toBeInTheDocument();
-  });
-
-  test('empty value shows nothing for the chip area', () => {
-    renderReadonly({
-      field: { field_type: 'combobox', name: 'Labels' },
-      value: '',
-    });
-    // Falls into the unset state; specifically the setField placeholder.
-    expect(screen.getByText('setField:labels')).toBeInTheDocument();
   });
 });
 

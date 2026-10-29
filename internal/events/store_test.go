@@ -251,17 +251,19 @@ func TestEngineRenewsOwnershipWhileHandlerIsStillRunning(t *testing.T) {
 		LeaseDuration: 300 * time.Millisecond, HandlerTimeout: 200 * time.Millisecond,
 		ReconcileBatch: 10, MaxAttempts: 2,
 		BaseRetryDelay: time.Millisecond, MaxRetryDelay: time.Second,
-		FullReconcileInterval: time.Hour,
+		SafetyReconcileInterval: time.Hour, ReconcileLookback: time.Hour,
 	}
 	engine := NewEngine(tdb.DB, config)
 	configureConsumer(t, engine.Store(), "actions.items", "item.changed")
 	appendEvent(t, engine.Store(), testEvent("item", "42", "item.changed"))
-	reconcile(t, engine.Store(), 1)
 
 	claimedAt := time.Date(2030, time.September, 5, 12, 0, 0, 0, time.UTC)
 	var logicalNow atomic.Int64
 	logicalNow.Store(claimedAt.UnixNano())
 	engine.now = func() time.Time { return time.Unix(0, logicalNow.Load()).UTC() }
+	if created, err := engine.tick(ctx); err != nil || created != 1 {
+		t.Fatalf("tick() = (%d, %v), want (1, nil)", created, err)
+	}
 	started := make(chan struct{})
 	release := make(chan struct{})
 	renewed := make(chan time.Time, 1)
@@ -460,7 +462,9 @@ func TestEngineProcessesRegisteredConsumerAndReportsStats(t *testing.T) {
 	engine := NewEngine(tdb.DB, DefaultConfig())
 	configureConsumer(t, engine.Store(), "projection", "item.changed")
 	event := appendEvent(t, engine.Store(), testEvent("item", "42", "item.changed"))
-	reconcile(t, engine.Store(), 1)
+	if created, err := engine.tick(ctx); err != nil || created != 1 {
+		t.Fatalf("tick() = (%d, %v), want (1, nil)", created, err)
+	}
 
 	var handled Event
 	if err := engine.RegisterHandler("projection", HandlerFunc(func(_ context.Context, event Event) error {
@@ -496,7 +500,9 @@ func TestEngineRotatesConsumerClaimPriority(t *testing.T) {
 	appendEvent(t, engine.Store(), testEvent("busy", "1", "busy.changed"))
 	appendEvent(t, engine.Store(), testEvent("busy", "2", "busy.changed"))
 	later := appendEvent(t, engine.Store(), testEvent("later", "1", "later.changed"))
-	reconcile(t, engine.Store(), 3)
+	if created, err := engine.tick(ctx); err != nil || created != 3 {
+		t.Fatalf("tick() = (%d, %v), want (3, nil)", created, err)
+	}
 
 	handled := []string{}
 	for _, key := range []string{"a-busy", "z-later"} {
@@ -543,7 +549,7 @@ func TestEngineShutdownCanBeAwaitedAgainAfterTimeout(t *testing.T) {
 		LeaseDuration: time.Second, HandlerTimeout: 500 * time.Millisecond,
 		ReconcileBatch: 10, MaxAttempts: 2,
 		BaseRetryDelay: time.Millisecond, MaxRetryDelay: time.Second,
-		FullReconcileInterval: time.Hour,
+		SafetyReconcileInterval: time.Hour, ReconcileLookback: time.Hour,
 	}
 	engine := NewEngine(tdb.DB, config)
 	configureConsumer(t, engine.Store(), "blocking", "item.changed")

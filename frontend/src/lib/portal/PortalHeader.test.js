@@ -1,11 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../stores', async () => {
+vi.mock('../stores/auth.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   const authStore = writable({ isAuthenticated: false, currentUser: null });
   authStore.logout = vi.fn();
-  return { authStore };
+  return {
+    authStore,
+  };
 });
 
 vi.mock('../stores/portalAuth.svelte.js', async () => {
@@ -57,7 +59,7 @@ vi.mock('../router.js', () => {
   return { navigate: vi.fn(), currentRoute };
 });
 
-import { authStore } from '../stores';
+import { authStore } from '../stores/auth.svelte.js';
 import { portalAuthStore } from '../stores/portalAuth.svelte.js';
 import { portalCustomizationStore } from '../stores/portal.svelte.js';
 import PortalHeader from './PortalHeader.svelte';

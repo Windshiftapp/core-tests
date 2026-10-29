@@ -88,13 +88,11 @@ func TestCloseSubtasksActionTemplateRuntime(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(10 * time.Second)
-	tick := time.NewTicker(50 * time.Millisecond)
-	defer tick.Stop()
 	for time.Now().Before(deadline) {
 		if itemStatus(childAID) == terminalStatusID && itemStatus(childBID) == terminalStatusID {
 			return
 		}
-		<-tick.C
+		<-time.After(50 * time.Millisecond)
 	}
 	t.Fatalf(
 		"close-subtasks action did not transition both children: childA=%d childB=%d want=%d",

@@ -98,16 +98,12 @@ test.describe('On-call roster visibility', () => {
       await page.goto(`/teams/${team.id}/on-call`);
       await expect(page.getByTestId('on-call-tab')).toBeVisible();
 
-      // The fixture creates exactly one schedule, so the feature-scoped test
-      // id is sufficient and remains within the stable-selector policy.
-      const scheduleRow = page.getByTestId('schedule-row').first();
-      await expect(scheduleRow).toBeVisible();
-      const layerRow = scheduleRow.getByTestId('layer-row');
-      await expect(layerRow).toHaveCount(1);
-
-      // This is the intended contract: the schedule directory may be visible,
-      // but roster identities must remain restricted to team members/admins.
-      await expect(layerRow).not.toContainText(rosterUserData.last_name);
+      // Non-members are denied the schedule directory outright (WI-1809), so
+      // neither the schedule nor any roster identity reaches the page.
+      const onCallTab = page.getByTestId('on-call-tab');
+      await expect(onCallTab).not.toContainText(rosterUserData.last_name);
+      await expect(page.getByTestId('schedule-row')).toHaveCount(0);
+      await expect(page.getByTestId('layer-row')).toHaveCount(0);
     } finally {
       await outsiderContext.close();
     }

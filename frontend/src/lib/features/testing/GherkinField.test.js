@@ -1,14 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    tests: {
-      testCases: {
-        validateFeature: vi.fn(),
+vi.mock('../../api/tests/index.js', () => ({
+  tests: {
+        testCases: {
+          validateFeature: vi.fn(),
+        },
       },
-    },
-  },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -20,7 +18,7 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
         : key,
 }));
 
-import { api } from '../../api.js';
+import { tests } from '../../api/tests/index.js';
 import GherkinField from './GherkinField.svelte';
 
 beforeEach(() => {
@@ -35,7 +33,7 @@ function renderField(value = '') {
 
 describe('GherkinField', () => {
   it('validates through the backend and reports a valid scenario', async () => {
-    api.tests.testCases.validateFeature.mockResolvedValue({
+    tests.testCases.validateFeature.mockResolvedValue({
       valid: true,
       errors: [],
       document: { feature_name: 'Login', scenarios: [{ name: 'valid credentials' }] },
@@ -48,7 +46,7 @@ describe('GherkinField', () => {
     fireEvent.click(screen.getByTestId('test-case-gherkin-validate'));
 
     await waitFor(() =>
-      expect(api.tests.testCases.validateFeature).toHaveBeenCalledWith(
+      expect(tests.testCases.validateFeature).toHaveBeenCalledWith(
         3,
         'Feature: Login\n  Scenario: valid credentials'
       )
@@ -61,7 +59,7 @@ describe('GherkinField', () => {
   });
 
   it('lists parse errors with their authored positions', async () => {
-    api.tests.testCases.validateFeature.mockResolvedValue({
+    tests.testCases.validateFeature.mockResolvedValue({
       valid: false,
       errors: [
         { line: 3, column: 5, message: 'step keyword expected' },
@@ -79,7 +77,7 @@ describe('GherkinField', () => {
   });
 
   it('flags edits made after a successful validation', async () => {
-    api.tests.testCases.validateFeature.mockResolvedValue({
+    tests.testCases.validateFeature.mockResolvedValue({
       valid: true,
       errors: [],
       document: { feature_name: 'Login', scenarios: [{ name: 's' }] },

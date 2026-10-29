@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../stores', () => ({
+vi.mock('../stores/attachmentStatus.svelte.js', () => ({
   attachmentStatus: { enabled: true },
 }));
 

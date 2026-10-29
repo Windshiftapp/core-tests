@@ -31,35 +31,12 @@ func submitPublicFormForRouting(t *testing.T, fixture *publicFormAttachmentFixtu
 	return recorder
 }
 
-func TestPublicFormRejectsAmbiguousLegacyWorkspaceRouting(t *testing.T) {
+// WI-1695: the implicit first-served-workspace fallback is gone. An unpinned
+// request type (legacy data, or a route whose channel serves no workspace) is
+// rejected instead of routing to the first workspace.
+func TestPublicFormUnpinnedRequestTypeWorkspaceIsRejected(t *testing.T) {
 	fixture := newPublicFormAttachmentFixture(t, t.TempDir(), false)
 
-	var originalWorkspaceID int
-	if err := fixture.db.QueryRow(
-		`SELECT workspace_id FROM request_types WHERE id = ?`,
-		fixture.requestTypeID,
-	).Scan(&originalWorkspaceID); err != nil {
-		t.Fatalf("read original workspace: %v", err)
-	}
-	var secondWorkspaceID int
-	if err := fixture.db.QueryRow(`
-		INSERT INTO workspaces (name, key)
-		VALUES ('Second public form target', 'PFS') RETURNING id
-	`).Scan(&secondWorkspaceID); err != nil {
-		t.Fatalf("insert second workspace: %v", err)
-	}
-	config := fmt.Sprintf(
-		`{"form_slug":"attachment-form","form_workspace_ids":[%d,%d]}`,
-		originalWorkspaceID,
-		secondWorkspaceID,
-	)
-	if _, err := fixture.db.ExecWrite(
-		`UPDATE channels SET config = ? WHERE id = ?`,
-		config,
-		fixture.channelID,
-	); err != nil {
-		t.Fatalf("add second served workspace: %v", err)
-	}
 	if _, err := fixture.db.ExecWrite(
 		`UPDATE request_types SET workspace_id = NULL WHERE id = ?`,
 		fixture.requestTypeID,
@@ -68,46 +45,14 @@ func TestPublicFormRejectsAmbiguousLegacyWorkspaceRouting(t *testing.T) {
 	}
 
 	recorder := submitPublicFormForRouting(t, fixture)
-
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), "select a target workspace") {
-		t.Fatalf("body = %s, want explicit target-workspace error", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), "no target workspace") {
+		t.Fatalf("body = %s, want missing-workspace error", recorder.Body.String())
 	}
 	if got := fixture.rowCount(t, "items"); got != 0 {
-		t.Fatalf("item count = %d, want 0 after ambiguous routing denial", got)
-	}
-}
-
-func TestPublicFormPreservesUnambiguousLegacyWorkspaceRouting(t *testing.T) {
-	fixture := newPublicFormAttachmentFixture(t, t.TempDir(), false)
-
-	var workspaceID int
-	if err := fixture.db.QueryRow(
-		`SELECT workspace_id FROM request_types WHERE id = ?`,
-		fixture.requestTypeID,
-	).Scan(&workspaceID); err != nil {
-		t.Fatalf("read original workspace: %v", err)
-	}
-	if _, err := fixture.db.ExecWrite(
-		`UPDATE request_types SET workspace_id = NULL WHERE id = ?`,
-		fixture.requestTypeID,
-	); err != nil {
-		t.Fatalf("clear request type workspace: %v", err)
-	}
-
-	recorder := submitPublicFormForRouting(t, fixture)
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body=%s", recorder.Code, recorder.Body.String())
-	}
-	var createdWorkspaceID int
-	if err := fixture.db.QueryRow(`SELECT workspace_id FROM items`).Scan(&createdWorkspaceID); err != nil {
-		t.Fatalf("read created item workspace: %v", err)
-	}
-	if createdWorkspaceID != workspaceID {
-		t.Fatalf("created workspace = %d, want sole served workspace %d", createdWorkspaceID, workspaceID)
+		t.Fatalf("item count = %d, want 0 after unpinned routing denial", got)
 	}
 }
 

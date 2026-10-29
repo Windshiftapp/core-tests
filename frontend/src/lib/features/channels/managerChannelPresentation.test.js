@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  managerChannelPurpose,
-  managerChannelStatusColor,
-} from './managerChannelPresentation.js';
+import { managerChannelPurpose, managerChannelStatusColor } from './managerChannelPresentation.js';
 
 describe('managerChannelPurpose', () => {
   test.each([

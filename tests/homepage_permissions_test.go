@@ -36,7 +36,13 @@ type workspaceListResponse struct {
 }
 
 type homepageItemActivity struct {
-	ItemID int `json:"item_id"`
+	ItemID             int    `json:"item_id"`
+	LastActivity       string `json:"last_activity"`
+	LastActiveAt       string `json:"last_active_at"`
+	ItemTypeName       string `json:"item_type_name"`
+	ItemTypeBuiltinKey string `json:"item_type_builtin_key"`
+	ItemTypeIcon       string `json:"item_type_icon"`
+	ItemTypeColor      string `json:"item_type_color"`
 }
 
 type homepageMilestone struct {

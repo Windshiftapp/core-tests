@@ -263,3 +263,77 @@ func TestWorkspaceUpdateRejectsDisabledDefaultView(t *testing.T) {
 		t.Fatalf("legacy default view: %v", err)
 	}
 }
+
+func TestPutBoardConfigurationValidatesCompletedVisibility(t *testing.T) {
+	tdb, permissions, seed := convergenceFixture(t, true)
+	service := NewCollectionApplicationService(tdb.GetDatabase(), permissions)
+	actor := AuditActor{UserID: seed.UserID}
+	scope := BoardConfigurationScope{WorkspaceID: &seed.WorkspaceID}
+
+	unknown := "fortnight"
+	_, err := service.PutBoardConfiguration(actor, scope, models.BoardConfigurationRequest{
+		ViewSettings: &models.ViewSettings{CompletedVisibility: &unknown},
+	})
+	if err == nil || err.Error() != `unknown completed_visibility "fortnight"` {
+		t.Fatalf("PutBoardConfiguration error = %v, want unknown completed_visibility", err)
+	}
+
+	for _, value := range models.CompletedVisibilityValues {
+		v := value
+		t.Run("accepts "+value, func(t *testing.T) {
+			_, err := service.PutBoardConfiguration(actor, scope, models.BoardConfigurationRequest{
+				ViewSettings: &models.ViewSettings{CompletedVisibility: &v},
+			})
+			if err != nil {
+				t.Fatalf("PutBoardConfiguration(%q): %v", value, err)
+			}
+		})
+	}
+}
+
+func TestCollectionScopeInheritsCompletedVisibility(t *testing.T) {
+	tdb, permissions, seed := convergenceFixture(t, true)
+	service := NewCollectionApplicationService(tdb.GetDatabase(), permissions)
+	actor := AuditActor{UserID: seed.UserID}
+
+	collection, err := service.Create(actor, models.Collection{
+		Name: "Completed visibility", WorkspaceID: &seed.WorkspaceID, QLQuery: "",
+	})
+	if err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	collectionScope := BoardConfigurationScope{CollectionID: &collection.ID}
+	workspaceScope := BoardConfigurationScope{WorkspaceID: &seed.WorkspaceID}
+
+	workspaceVisibility := "last_week"
+	if _, err := service.PutBoardConfiguration(actor, workspaceScope, models.BoardConfigurationRequest{
+		ViewSettings: &models.ViewSettings{CompletedVisibility: &workspaceVisibility},
+	}); err != nil {
+		t.Fatalf("workspace override: %v", err)
+	}
+
+	config, err := service.GetBoardConfiguration(seed.UserID, collectionScope)
+	if err != nil {
+		t.Fatalf("get collection: %v", err)
+	}
+	if config.ViewSettings == nil || config.ViewSettings.CompletedVisibility == nil ||
+		*config.ViewSettings.CompletedVisibility != "last_week" {
+		t.Fatalf("inherited completed visibility = %+v, want last_week", config.ViewSettings)
+	}
+
+	// A collection override wins over the workspace default.
+	collectionVisibility := "none"
+	if _, err := service.PutBoardConfiguration(actor, collectionScope, models.BoardConfigurationRequest{
+		ViewSettings: &models.ViewSettings{CompletedVisibility: &collectionVisibility},
+	}); err != nil {
+		t.Fatalf("collection override: %v", err)
+	}
+	config, err = service.GetBoardConfiguration(seed.UserID, collectionScope)
+	if err != nil {
+		t.Fatalf("get collection after override: %v", err)
+	}
+	if config.ViewSettings == nil || config.ViewSettings.CompletedVisibility == nil ||
+		*config.ViewSettings.CompletedVisibility != "none" {
+		t.Fatalf("collection completed visibility = %+v, want none", config.ViewSettings)
+	}
+}

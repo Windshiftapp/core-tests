@@ -40,8 +40,11 @@ test.describe('item deletion feedback', () => {
     await expect(page.getByTestId('toast')).toHaveCount(1);
     await expect(page.getByTestId('item-detail-ready')).toBeHidden();
 
-    await page.getByTestId('workspace-nav-board').click();
+    // Deleting from the board modal closes it without leaving the board.
     await expect(page.getByTestId('board-view')).toBeVisible();
+    expect(new URL(page.url()).pathname).toContain('/board');
+    await expect(page.getByTestId(`board-item-${deletedItem.id}`)).toBeHidden();
+
     await page.getByTestId(`board-item-${remainingItem.id}`).click();
     await expect(page.getByTestId('item-detail-ready')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('item-title-edit')).toHaveText(remainingItem.title);

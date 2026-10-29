@@ -8,18 +8,23 @@ const mocks = vi.hoisted(() => ({
   getProgressMany: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    items: { getAll: mocks.getItems },
-    iterations: { getAll: mocks.getIterations, getProgressMany: mocks.getProgressMany },
-    milestones: { getAll: mocks.getMilestones },
-  },
+vi.mock('../api/items.js', () => ({
+  items: { getAll: mocks.getItems },
+}))
+
+vi.mock('../api/milestones.js', () => ({
+  iterations: { getAll: mocks.getIterations, getProgressMany: mocks.getProgressMany },
+  milestones: { getAll: mocks.getMilestones },
+  milestoneCategories: { getAll: vi.fn().mockResolvedValue([]) },
 }));
 vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 
 import IterationTimelineWidget from './IterationTimelineWidget.svelte';
 import OverdueItemsWidget from './OverdueItemsWidget.svelte';
 import UpcomingDeadlinesWidget from './UpcomingDeadlinesWidget.svelte';
+import { items } from '../api/items.js';
+import { iterations, milestones } from '../api/milestones.js';
+
 
 beforeEach(() => {
   vi.clearAllMocks();

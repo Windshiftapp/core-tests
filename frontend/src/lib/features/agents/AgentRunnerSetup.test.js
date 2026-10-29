@@ -1,23 +1,21 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    runnerPools: {
-      listWorkspaceTokens: vi.fn(),
-      mintWorkspaceToken: vi.fn(),
-      revokeWorkspaceToken: vi.fn(),
-      listWorkspaceInstances: vi.fn(),
-    },
-  },
+vi.mock('../../api/ai.js', () => ({
+  runnerPools: {
+        listWorkspaceTokens: vi.fn(),
+        mintWorkspaceToken: vi.fn(),
+        revokeWorkspaceToken: vi.fn(),
+        listWorkspaceInstances: vi.fn(),
+      },
 }));
 
-import { api } from '../../api.js';
+import { runnerPools } from '../../api/ai.js';
 import AgentRunnerSetup from './AgentRunnerSetup.svelte';
 
 beforeEach(() => {
-  api.runnerPools.listWorkspaceInstances.mockResolvedValue([]);
-  api.runnerPools.listWorkspaceTokens.mockResolvedValue([
+  runnerPools.listWorkspaceInstances.mockResolvedValue([]);
+  runnerPools.listWorkspaceTokens.mockResolvedValue([
     {
       id: 31,
       pool_capability_id: 7,
@@ -25,12 +23,12 @@ beforeEach(() => {
       expires_at: new Date(Date.now() + 60_000).toISOString(),
     },
   ]);
-  api.runnerPools.mintWorkspaceToken.mockResolvedValue({
+  runnerPools.mintWorkspaceToken.mockResolvedValue({
     id: 31,
     token: 'wsrt_plaintext-once',
     install_command: 'docker run --rm windshift-runner',
   });
-  api.runnerPools.revokeWorkspaceToken.mockResolvedValue({
+  runnerPools.revokeWorkspaceToken.mockResolvedValue({
     id: 31,
     revoked: true,
   });
@@ -72,7 +70,7 @@ describe('AgentRunnerSetup', () => {
     await fireEvent.click(screen.getByTestId('agent-runner-generate'));
 
     await waitFor(() =>
-      expect(api.runnerPools.mintWorkspaceToken).toHaveBeenCalledWith(
+      expect(runnerPools.mintWorkspaceToken).toHaveBeenCalledWith(
         3,
         7,
         { description: 'Agent Studio · new runner', ttl_hours: 720 }
@@ -83,7 +81,7 @@ describe('AgentRunnerSetup', () => {
     );
 
     view.unmount();
-    expect(api.runnerPools.revokeWorkspaceToken).not.toHaveBeenCalled();
+    expect(runnerPools.revokeWorkspaceToken).not.toHaveBeenCalled();
   });
 
   it('revokes the pending one-time token on explicit cancellation', async () => {
@@ -100,13 +98,13 @@ describe('AgentRunnerSetup', () => {
     await fireEvent.click(await screen.findByTestId('agent-runner-cancel'));
 
     await waitFor(() =>
-      expect(api.runnerPools.revokeWorkspaceToken).toHaveBeenCalledWith(3, 7, 31)
+      expect(runnerPools.revokeWorkspaceToken).toHaveBeenCalledWith(3, 7, 31)
     );
     expect(screen.queryByTestId('agent-runner-command')).not.toBeInTheDocument();
   });
 
   it('recognizes a fresh runner and clears the consumed command from memory', async () => {
-    api.runnerPools.listWorkspaceInstances.mockResolvedValueOnce([]).mockResolvedValueOnce([
+    runnerPools.listWorkspaceInstances.mockResolvedValueOnce([]).mockResolvedValueOnce([
       {
         id: 88,
         name: 'new-runner',
@@ -127,6 +125,6 @@ describe('AgentRunnerSetup', () => {
 
     expect(await screen.findByTestId('agent-runner-ready')).toHaveTextContent('new-runner');
     expect(screen.queryByTestId('agent-runner-command')).not.toBeInTheDocument();
-    expect(api.runnerPools.revokeWorkspaceToken).not.toHaveBeenCalled();
+    expect(runnerPools.revokeWorkspaceToken).not.toHaveBeenCalled();
   });
 });

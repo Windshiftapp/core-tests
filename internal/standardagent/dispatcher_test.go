@@ -18,13 +18,16 @@ import (
 )
 
 type fixedResolver struct {
-	client llm.Client
-	err    error
+	client    llm.Client
+	err       error
+	maxOutput int
 }
 
 func (r fixedResolver) Resolve(int) (llm.Client, error) {
 	return r.client, r.err
 }
+
+func (r fixedResolver) MaxOutputTokens(int) int { return r.maxOutput }
 
 type finalAnswerClient struct {
 	answer string
@@ -473,5 +476,93 @@ func TestDispatcherQueuesHumanTriggerWithImmutableProfileSnapshot(t *testing.T) 
 		!slices.Contains(snapshot.ToolNames, "update_item") ||
 		slices.Contains(snapshot.ToolNames, "delete_item") {
 		t.Fatalf("profile snapshot = %#v", snapshot)
+	}
+}
+
+// truncatedClient ends a run with a provider output-token cutoff, the shape a
+// reasoning model produces when it burns the completion budget.
+type truncatedClient struct{}
+
+func (truncatedClient) Complete(context.Context, llm.CompletionRequest) (*llm.CompletionResponse, error) {
+	return &llm.CompletionResponse{Choices: []llm.Choice{{
+		Message:      llm.Message{Role: "assistant", Content: "Partial"},
+		FinishReason: "length",
+	}}}, nil
+}
+
+func (truncatedClient) Health(context.Context) error { return nil }
+func (truncatedClient) Available() bool              { return true }
+
+// A truncated answer is not a completed run: the persisted error names the
+// actionable cause and no final comment is posted from the partial text.
+func TestDispatcherExecutePersistsStopReasonFailure(t *testing.T) {
+	dispatcher, runs, humanID, agentID, itemID := newStandardRuntime(t,
+		fixedResolver{client: truncatedClient{}})
+	run := insertRunningStandard(t, dispatcher, runs, humanID, agentID, itemID, false)
+
+	dispatcher.execute(run)
+
+	got, err := runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != models.AgentRunStatusFailed {
+		t.Fatalf("run status = %q, want failed", got.Status)
+	}
+	if !strings.Contains(got.Error, "output token limit") {
+		t.Fatalf("run error = %q, want the token-limit cause", got.Error)
+	}
+	var comments int
+	if err := dispatcher.opts.DB.QueryRow(`SELECT COUNT(*) FROM comments WHERE item_id = ?`, itemID).Scan(&comments); err != nil {
+		t.Fatal(err)
+	}
+	if comments != 1 {
+		t.Fatalf("truncated run posted a final comment: comment count=%d", comments)
+	}
+}
+
+// maxTokensCapturingClient records the per-request output cap the loop sends.
+type maxTokensCapturingClient struct {
+	maxTokens []int
+}
+
+func (c *maxTokensCapturingClient) Complete(_ context.Context, req llm.CompletionRequest) (*llm.CompletionResponse, error) {
+	c.maxTokens = append(c.maxTokens, req.MaxTokens)
+	return &llm.CompletionResponse{Choices: []llm.Choice{{
+		Message:      llm.Message{Role: "assistant", Content: "Done."},
+		FinishReason: "stop",
+	}}}, nil
+}
+
+func (*maxTokensCapturingClient) Health(context.Context) error { return nil }
+func (*maxTokensCapturingClient) Available() bool              { return true }
+
+// The run sizes its output cap from the connection's resolved model limit, not
+// a fixed low default, so reasoning models are not truncated mid-answer.
+func TestDispatcherExecuteUsesResolvedModelOutputLimit(t *testing.T) {
+	client := &maxTokensCapturingClient{}
+	dispatcher, runs, humanID, agentID, itemID := newStandardRuntime(t,
+		fixedResolver{client: client, maxOutput: 32000})
+	run := insertRunningStandard(t, dispatcher, runs, humanID, agentID, itemID, false)
+
+	dispatcher.execute(run)
+
+	if len(client.maxTokens) != 1 || client.maxTokens[0] != 32000 {
+		t.Fatalf("request max_tokens = %v, want [32000]", client.maxTokens)
+	}
+}
+
+// A resolver that cannot name a limit still gets the conservative fallback
+// rather than no cap at all.
+func TestDispatcherExecuteFallsBackWhenModelLimitUnknown(t *testing.T) {
+	client := &maxTokensCapturingClient{}
+	dispatcher, runs, humanID, agentID, itemID := newStandardRuntime(t,
+		fixedResolver{client: client})
+	run := insertRunningStandard(t, dispatcher, runs, humanID, agentID, itemID, false)
+
+	dispatcher.execute(run)
+
+	if len(client.maxTokens) != 1 || client.maxTokens[0] != llm.FallbackMaxOutputTokens {
+		t.Fatalf("request max_tokens = %v, want [%d]", client.maxTokens, llm.FallbackMaxOutputTokens)
 	}
 }

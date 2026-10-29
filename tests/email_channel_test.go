@@ -61,9 +61,17 @@ func TestEmailChannelItemCreation(t *testing.T) {
 		Date:      time.Now(),
 	})
 
-	// Trigger email processing and wait for the item to appear
+	// Wait a moment for email to be stored
+	<-time.After(100 * time.Millisecond)
+
+	// Trigger email processing
 	TriggerEmailProcessing(t, server, channelID)
-	items := waitForEmailItemCount(t, server, workspaceID, 1)
+
+	// Wait for processing
+	<-time.After(500 * time.Millisecond)
+
+	// Verify item was created
+	items := GetItemsByWorkspace(t, server, workspaceID)
 
 	if len(items) == 0 {
 		t.Fatal("Expected at least one item to be created from email")
@@ -152,10 +160,12 @@ func TestReplyCreatesComment(t *testing.T) {
 	})
 
 	// Process original email
+	<-time.After(100 * time.Millisecond)
 	TriggerEmailProcessing(t, server, channelID)
+	<-time.After(500 * time.Millisecond)
 
 	// Verify item was created
-	items := waitForEmailItemCount(t, server, workspaceID, 1)
+	items := GetItemsByWorkspace(t, server, workspaceID)
 	if len(items) == 0 {
 		t.Fatal("Original email should have created an item")
 	}
@@ -176,10 +186,12 @@ func TestReplyCreatesComment(t *testing.T) {
 	})
 
 	// Process reply email
+	<-time.After(100 * time.Millisecond)
 	TriggerEmailProcessing(t, server, channelID)
+	<-time.After(500 * time.Millisecond)
 
 	// Verify no new items were created
-	items = settleEmailProcessing(t, server, workspaceID)
+	items = GetItemsByWorkspace(t, server, workspaceID)
 	if len(items) != 1 {
 		t.Errorf("Expected 1 item (reply should be comment), got %d", len(items))
 	}
@@ -257,9 +269,13 @@ func TestEmailChannelValidation(t *testing.T) {
 			MessageID: "validation-test@example.com",
 		})
 
+		<-time.After(100 * time.Millisecond)
+
 		// The processing will fail due to missing item type
 		// We can't easily verify the error, but we can verify no items were created
-		items := settleEmailProcessing(t, server, workspaceID)
+		<-time.After(500 * time.Millisecond)
+
+		items := GetItemsByWorkspace(t, server, workspaceID)
 		if len(items) > 0 {
 			t.Error("No items should be created when item type is not configured")
 		} else {
@@ -327,10 +343,12 @@ func TestEmailDeduplication(t *testing.T) {
 	})
 
 	// Process first email
+	<-time.After(100 * time.Millisecond)
 	TriggerEmailProcessing(t, server, channelID)
+	<-time.After(500 * time.Millisecond)
 
 	// Verify one item was created
-	items := waitForEmailItemCount(t, server, workspaceID, 1)
+	items := GetItemsByWorkspace(t, server, workspaceID)
 	if len(items) != 1 {
 		t.Fatalf("Expected 1 item after first processing, got %d", len(items))
 	}
@@ -347,49 +365,15 @@ func TestEmailDeduplication(t *testing.T) {
 	})
 
 	// Process again
+	<-time.After(100 * time.Millisecond)
 	TriggerEmailProcessing(t, server, channelID)
+	<-time.After(500 * time.Millisecond)
 
 	// Verify still only one item exists
-	items = settleEmailProcessing(t, server, workspaceID)
+	items = GetItemsByWorkspace(t, server, workspaceID)
 	if len(items) != 1 {
 		t.Errorf("Expected still 1 item after duplicate processing, got %d", len(items))
 	} else {
 		t.Log("Deduplication working: still only 1 item after duplicate email")
 	}
-}
-
-// waitForEmailItemCount polls the workspace until it holds exactly want items
-// or the timeout elapses, returning the last seen snapshot.
-func waitForEmailItemCount(t *testing.T, server *TestServer, workspaceID, want int) []map[string]interface{} {
-	t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
-	defer deadline.Stop()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	var items []map[string]interface{}
-	for {
-		items = GetItemsByWorkspace(t, server, workspaceID)
-		if len(items) == want {
-			return items
-		}
-		select {
-		case <-deadline.C:
-			return items
-		case <-ticker.C:
-		}
-	}
-}
-
-// settleEmailProcessing gives asynchronous email handling a full window to
-// finish before the caller asserts that nothing new appeared.
-func settleEmailProcessing(t *testing.T, server *TestServer, workspaceID int) []map[string]interface{} {
-	t.Helper()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	var items []map[string]interface{}
-	for i := 0; i < 10; i++ {
-		<-ticker.C
-		items = GetItemsByWorkspace(t, server, workspaceID)
-	}
-	return items
 }

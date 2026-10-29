@@ -1,18 +1,16 @@
 import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-// Mock api.notifications before importing the store.
-vi.mock('../api.js', () => ({
-  api: {
-    notifications: {
-      getAll: vi.fn(() => Promise.resolve([])),
-      clearAll: vi.fn(() => Promise.resolve()),
-      markAsRead: vi.fn(() => Promise.resolve()),
-      markAllAsRead: vi.fn(() => Promise.resolve()),
-      markItemAsRead: vi.fn(() => Promise.resolve()),
-      create: vi.fn(),
-    },
-  },
+// Mock notificationsApi before importing the store.
+vi.mock('../api/notifications.js', () => ({
+  notifications: {
+        getAll: vi.fn(() => Promise.resolve([])),
+        clearAll: vi.fn(() => Promise.resolve()),
+        markAsRead: vi.fn(() => Promise.resolve()),
+        markAllAsRead: vi.fn(() => Promise.resolve()),
+        markItemAsRead: vi.fn(() => Promise.resolve()),
+        create: vi.fn(),
+      },
 }));
 
 // Other side effects we don't want firing during unit tests:
@@ -23,23 +21,15 @@ vi.mock('../utils/dateFormatter.js', () => ({
 vi.mock('../utils/serverClock.js', () => ({
   serverNow: vi.fn(() => new Date('2026-05-12T12:00:00Z')),
 }));
-vi.mock('./activityStore.svelte.js', () => ({
-  activityStore: { isIdle: false },
-}));
 vi.mock('./toasts.svelte.js', () => ({ addToast: vi.fn() }));
 
-import { api } from '../api.js';
-import {
-  notificationActions,
-  notifications,
-  startNotificationPoller,
-  stopNotificationPoller,
-} from './notifications.js';
+import { notifications as notificationsApi } from '../api/notifications.js';
+import { notificationActions, notifications, startNotificationPoller, stopNotificationPoller } from './notifications.js';
 import { addToast } from './toasts.svelte.js';
 
 beforeEach(async () => {
   stopNotificationPoller();
-  api.notifications.getAll.mockResolvedValueOnce([]);
+  notificationsApi.getAll.mockResolvedValueOnce([]);
   await notificationActions.refresh();
   vi.clearAllMocks();
 });
@@ -52,7 +42,7 @@ afterEach(() => {
 describe('notification poller account lifecycle', () => {
   test('clears the old inbox and ignores a request that settles after logout', async () => {
     let resolveOldInbox;
-    api.notifications.getAll.mockReturnValueOnce(
+    notificationsApi.getAll.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveOldInbox = resolve;
       })
@@ -66,7 +56,7 @@ describe('notification poller account lifecycle', () => {
 
     expect(get(notifications)).toEqual([]);
 
-    api.notifications.getAll.mockResolvedValueOnce([
+    notificationsApi.getAll.mockResolvedValueOnce([
       { id: 92, title: 'Current account', timestamp: '2026-05-12T11:30:00Z' },
     ]);
     startNotificationPoller();
@@ -77,7 +67,7 @@ describe('notification poller account lifecycle', () => {
     let visibilityState = 'hidden';
     vi.spyOn(document, 'hidden', 'get').mockImplementation(() => visibilityState === 'hidden');
     vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState);
-    api.notifications.getAll.mockResolvedValueOnce([
+    notificationsApi.getAll.mockResolvedValueOnce([
       {
         id: 93,
         read: false,
@@ -87,12 +77,12 @@ describe('notification poller account lifecycle', () => {
     ]);
 
     startNotificationPoller();
-    expect(api.notifications.getAll).not.toHaveBeenCalled();
+    expect(notificationsApi.getAll).not.toHaveBeenCalled();
 
     visibilityState = 'visible';
     document.dispatchEvent(new Event('visibilitychange'));
 
-    await vi.waitFor(() => expect(api.notifications.getAll).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(notificationsApi.getAll).toHaveBeenCalledTimes(1));
     expect(addToast).not.toHaveBeenCalled();
   });
 });
@@ -106,7 +96,7 @@ describe('notificationActions.markAsRead', () => {
 
     await notificationActions.markAsRead(2);
 
-    expect(api.notifications.markAsRead).toHaveBeenCalledWith(2);
+    expect(notificationsApi.markAsRead).toHaveBeenCalledWith(2);
     expect(get(notifications)).toEqual([
       { id: 1, read: false, title: 'a' },
       { id: 2, read: true, title: 'b' },
@@ -115,7 +105,7 @@ describe('notificationActions.markAsRead', () => {
 
   test('leaves state untouched when the API call rejects', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.notifications.markAsRead.mockRejectedValueOnce(new Error('500'));
+    notificationsApi.markAsRead.mockRejectedValueOnce(new Error('500'));
     notifications.set([{ id: 1, read: false }]);
 
     await notificationActions.markAsRead(1);
@@ -143,7 +133,7 @@ describe('notificationActions.markItemAsRead', () => {
 
     await notificationActions.markItemAsRead(42);
 
-    expect(api.notifications.markItemAsRead).toHaveBeenCalledWith(42);
+    expect(notificationsApi.markItemAsRead).toHaveBeenCalledWith(42);
     expect(get(notifications)).toEqual([
       { id: 1, read: true, actionUrl: '/workspaces/2/items/42' },
       { id: 2, read: true, actionUrl: '/workspaces/2/items/42' },
@@ -153,7 +143,7 @@ describe('notificationActions.markItemAsRead', () => {
 
   test('leaves state untouched when the API call rejects', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.notifications.markItemAsRead.mockRejectedValueOnce(new Error('500'));
+    notificationsApi.markItemAsRead.mockRejectedValueOnce(new Error('500'));
     notifications.set([{ id: 1, read: false, actionUrl: '/workspaces/2/items/42' }]);
 
     await notificationActions.markItemAsRead(42);
@@ -172,7 +162,7 @@ describe('notificationActions.markItemAsRead', () => {
 
     await notificationActions.markItemAsRead(42);
 
-    expect(api.notifications.markItemAsRead).toHaveBeenCalledWith(42);
+    expect(notificationsApi.markItemAsRead).toHaveBeenCalledWith(42);
     expect(get(notifications)).toEqual([
       { id: 1, read: true, actionUrl: '/workspaces/2/items/42' },
       { id: 2, read: false, actionUrl: '/workspaces/2/items/99' },
@@ -182,7 +172,7 @@ describe('notificationActions.markItemAsRead', () => {
   test('no-op when itemId is null/undefined', async () => {
     await notificationActions.markItemAsRead(null);
     await notificationActions.markItemAsRead(undefined);
-    expect(api.notifications.markItemAsRead).not.toHaveBeenCalled();
+    expect(notificationsApi.markItemAsRead).not.toHaveBeenCalled();
   });
 });
 
@@ -203,7 +193,7 @@ describe('notificationActions.dismiss', () => {
   test('does not call the API (local-only dismissal)', () => {
     notifications.set([{ id: 1, read: false }]);
     notificationActions.dismiss(1);
-    expect(api.notifications.markAsRead).not.toHaveBeenCalled();
+    expect(notificationsApi.markAsRead).not.toHaveBeenCalled();
   });
 });
 
@@ -216,13 +206,13 @@ describe('notificationActions.clearAll', () => {
 
     await notificationActions.clearAll();
 
-    expect(api.notifications.clearAll).toHaveBeenCalledTimes(1);
+    expect(notificationsApi.clearAll).toHaveBeenCalledTimes(1);
     expect(get(notifications)).toEqual([]);
   });
 
   test('preserves notifications and rejects when deletion fails', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.notifications.clearAll.mockRejectedValueOnce(new Error('500'));
+    notificationsApi.clearAll.mockRejectedValueOnce(new Error('500'));
     notifications.set([{ id: 1, read: false }]);
 
     await expect(notificationActions.clearAll()).rejects.toThrow('500');
@@ -233,7 +223,7 @@ describe('notificationActions.clearAll', () => {
 
   test('stays empty when an older inbox request settles after deletion', async () => {
     let resolveOldInbox;
-    api.notifications.getAll.mockReturnValueOnce(
+    notificationsApi.getAll.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveOldInbox = resolve;
       })
@@ -259,8 +249,8 @@ describe('notificationActions.markAllAsRead', () => {
 
     await notificationActions.markAllAsRead();
 
-    expect(api.notifications.markAllAsRead).toHaveBeenCalledTimes(1);
-    expect(api.notifications.markAsRead).not.toHaveBeenCalled();
+    expect(notificationsApi.markAllAsRead).toHaveBeenCalledTimes(1);
+    expect(notificationsApi.markAsRead).not.toHaveBeenCalled();
 
     // Every item now has read=true.
     expect(get(notifications).map((n) => n.read)).toEqual([true, true, true]);
@@ -268,7 +258,7 @@ describe('notificationActions.markAllAsRead', () => {
 
   test('keeps notifications unread when the API call rejects', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.notifications.markAllAsRead.mockRejectedValueOnce(new Error('500'));
+    notificationsApi.markAllAsRead.mockRejectedValueOnce(new Error('500'));
     notifications.set([
       { id: 1, read: false },
       { id: 2, read: false },
@@ -285,13 +275,13 @@ describe('notificationActions.markAllAsRead', () => {
 
     await notificationActions.markAllAsRead();
 
-    expect(api.notifications.markAllAsRead).toHaveBeenCalledTimes(1);
+    expect(notificationsApi.markAllAsRead).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('notificationActions.add', () => {
   test('prepends the created notification and maps action_url → actionUrl', async () => {
-    api.notifications.create.mockResolvedValueOnce({
+    notificationsApi.create.mockResolvedValueOnce({
       id: 7,
       title: 'New',
       timestamp: '2026-05-12T10:00:00Z',
@@ -302,7 +292,7 @@ describe('notificationActions.add', () => {
 
     const result = await notificationActions.add({ title: 'New' });
 
-    expect(api.notifications.create).toHaveBeenCalledTimes(1);
+    expect(notificationsApi.create).toHaveBeenCalledTimes(1);
     expect(result.actionUrl).toBe('/items/42');
     expect(result.timestamp).toBeInstanceOf(Date);
 
@@ -313,7 +303,7 @@ describe('notificationActions.add', () => {
 
   test('rethrows on API failure and leaves state unchanged', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.notifications.create.mockRejectedValueOnce(new Error('boom'));
+    notificationsApi.create.mockRejectedValueOnce(new Error('boom'));
     notifications.set([{ id: 1 }]);
 
     await expect(notificationActions.add({ title: 'x' })).rejects.toThrow('boom');
@@ -324,7 +314,7 @@ describe('notificationActions.add', () => {
 
 describe('notificationActions.refresh', () => {
   test('reloads notifications from the server, processes timestamps + action_url', async () => {
-    api.notifications.getAll.mockResolvedValueOnce([
+    notificationsApi.getAll.mockResolvedValueOnce([
       {
         id: 1,
         title: 'n1',
@@ -342,14 +332,14 @@ describe('notificationActions.refresh', () => {
 
   test('falls back to empty array when API returns null', async () => {
     notifications.set([{ id: 99 }]);
-    api.notifications.getAll.mockResolvedValueOnce(null);
+    notificationsApi.getAll.mockResolvedValueOnce(null);
     await notificationActions.refresh();
     expect(get(notifications)).toEqual([]);
   });
 
   test('falls back to empty array when API returns non-array', async () => {
     notifications.set([{ id: 99 }]);
-    api.notifications.getAll.mockResolvedValueOnce({ unexpected: 'shape' });
+    notificationsApi.getAll.mockResolvedValueOnce({ unexpected: 'shape' });
     await notificationActions.refresh();
     expect(get(notifications)).toEqual([]);
   });
@@ -357,7 +347,7 @@ describe('notificationActions.refresh', () => {
   test('on unexpected rejection logs and preserves the last loaded list', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     notifications.set([{ id: 99 }]);
-    api.notifications.getAll.mockRejectedValueOnce(new Error('net'));
+    notificationsApi.getAll.mockRejectedValueOnce(new Error('net'));
     await notificationActions.refresh();
     expect(get(notifications)).toEqual([{ id: 99 }]);
     expect(errSpy).toHaveBeenCalled();
@@ -366,7 +356,7 @@ describe('notificationActions.refresh', () => {
   test('quietly preserves the last loaded list on expected connectivity failures', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     notifications.set([{ id: 99 }]);
-    api.notifications.getAll.mockRejectedValueOnce(
+    notificationsApi.getAll.mockRejectedValueOnce(
       Object.assign(new Error('offline'), { code: 'NETWORK_ERROR' })
     );
 
@@ -383,7 +373,7 @@ describe('notificationActions.refresh', () => {
       timestamp: '2026-05-12T11:00:00Z',
       action_url: `/workspaces/2/items/${200 - index}`,
     }));
-    api.notifications.getAll.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([
+    notificationsApi.getAll.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([
       {
         id: 42,
         read: false,
@@ -394,8 +384,8 @@ describe('notificationActions.refresh', () => {
 
     await notificationActions.refresh();
 
-    expect(api.notifications.getAll).toHaveBeenNthCalledWith(1, { limit: 100, offset: 0 });
-    expect(api.notifications.getAll).toHaveBeenNthCalledWith(2, { limit: 100, offset: 100 });
+    expect(notificationsApi.getAll).toHaveBeenNthCalledWith(1, { limit: 100, offset: 0 });
+    expect(notificationsApi.getAll).toHaveBeenNthCalledWith(2, { limit: 100, offset: 100 });
     expect(get(notifications)).toHaveLength(101);
     expect(get(notifications).at(-1)).toMatchObject({
       id: 42,
@@ -411,7 +401,7 @@ describe('notificationActions.refresh', () => {
       timestamp: '2026-05-12T11:00:00Z',
       action_url: `/workspaces/2/items/${200 - index}`,
     }));
-    api.notifications.getAll.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([
+    notificationsApi.getAll.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([
       {
         id: 42,
         read: false,
@@ -423,14 +413,14 @@ describe('notificationActions.refresh', () => {
     await notificationActions.refresh();
     await notificationActions.markItemAsRead(7);
 
-    expect(api.notifications.markItemAsRead).toHaveBeenCalledWith(7);
+    expect(notificationsApi.markItemAsRead).toHaveBeenCalledWith(7);
     expect(get(notifications).at(-1).read).toBe(true);
   });
 
   test('preserves the last complete inbox when a later page fails', async () => {
     const previousInbox = [{ id: 9, read: false, title: 'previous complete inbox' }];
     notifications.set(previousInbox);
-    api.notifications.getAll
+    notificationsApi.getAll
       .mockResolvedValueOnce(
         Array.from({ length: 100 }, (_, index) => ({
           id: 200 - index,
@@ -479,5 +469,159 @@ describe('notificationActions.formatTimestamp', () => {
     expect(notificationActions.formatTimestamp('2026-04-01T12:00:00Z')).toBe(
       'formatted:2026-04-01T12:00:00Z'
     );
+  });
+});
+
+describe('notification invalidation stream (WI-1625)', () => {
+  function installFakeEventSource() {
+    const instances = [];
+    class FakeEventSource {
+      constructor(url) {
+        this.url = url;
+        this.listeners = new Map();
+        this.closed = false;
+        instances.push(this);
+      }
+      addEventListener(type, callback) {
+        if (!this.listeners.has(type)) this.listeners.set(type, []);
+        this.listeners.get(type).push(callback);
+      }
+      emit(type) {
+        for (const callback of this.listeners.get(type) ?? []) callback();
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+    globalThis.EventSource = FakeEventSource;
+    return {
+      instances,
+      restore: () => {
+        delete globalThis.EventSource;
+      },
+    };
+  }
+
+  test('reconciles the inbox when the user stream reports a change', async () => {
+    const fake = installFakeEventSource();
+    try {
+      startNotificationPoller();
+      await vi.waitFor(() => expect(fake.instances.length).toBe(1));
+      expect(fake.instances[0].url).toContain('/api/notifications/events');
+
+      notificationsApi.getAll.mockClear();
+      notificationsApi.getAll.mockResolvedValue([
+        { id: 7, title: 'Live update', timestamp: '2026-05-12T12:00:00Z' },
+      ]);
+      fake.instances[0].emit('changed');
+
+      await vi.waitFor(() => expect(notificationsApi.getAll).toHaveBeenCalled());
+      await vi.waitFor(() => expect(get(notifications).map((n) => n.id)).toEqual([7]));
+    } finally {
+      fake.restore();
+    }
+  });
+
+  test('toasts the newest notification last so it lands on top of the stack', async () => {
+    const fake = installFakeEventSource();
+    try {
+      startNotificationPoller();
+      await vi.waitFor(() => expect(fake.instances.length).toBe(1));
+
+      notificationsApi.getAll.mockClear();
+      notificationsApi.getAll.mockResolvedValue([
+        { id: 103, read: false, type: 'mention', title: 'newest', timestamp: '2026-05-12T12:00:02Z' },
+        { id: 102, read: false, type: 'mention', title: 'middle', timestamp: '2026-05-12T12:00:01Z' },
+        { id: 101, read: false, type: 'mention', title: 'oldest', timestamp: '2026-05-12T12:00:00Z' },
+      ]);
+      fake.instances[0].emit('changed');
+
+      await vi.waitFor(() => expect(addToast).toHaveBeenCalledTimes(3));
+      // addToast prepends, so the newest must be added last to render on top.
+      expect(addToast.mock.calls.map((call) => call[0].title)).toEqual([
+        'oldest',
+        'middle',
+        'newest',
+      ]);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  test('surfaces a change that arrives while the initial snapshot is in flight', async () => {
+    vi.useFakeTimers();
+    const fake = installFakeEventSource();
+    try {
+      let resolveInitial;
+      notificationsApi.getAll.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveInitial = resolve;
+        })
+      );
+
+      startNotificationPoller();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.instances.length).toBe(1);
+
+      // A change lands before the initial snapshot resolves. The reconcile
+      // debounce fires while that snapshot is still pending; it must not reuse
+      // the stale snapshot, but fetch again once seeding completes.
+      notificationsApi.getAll.mockResolvedValueOnce([
+        {
+          id: 8,
+          read: false,
+          type: 'assignment',
+          title: 'Live assignment',
+          timestamp: '2026-05-12T12:00:00Z',
+        },
+      ]);
+      fake.instances[0].emit('changed');
+      await vi.advanceTimersByTimeAsync(300);
+
+      resolveInitial([]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(notificationsApi.getAll).toHaveBeenCalledTimes(2);
+      expect(get(notifications).map((n) => n.id)).toEqual([8]);
+      expect(addToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Live assignment' })
+      );
+    } finally {
+      vi.useRealTimers();
+      fake.restore();
+    }
+  });
+
+  test('does not re-fetch on the first healthy connection', async () => {
+    vi.useFakeTimers();
+    const fake = installFakeEventSource();
+    try {
+      startNotificationPoller();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fake.instances.length).toBe(1);
+
+      notificationsApi.getAll.mockClear();
+      fake.instances[0].emit('connected');
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(notificationsApi.getAll).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      fake.restore();
+    }
+  });
+
+  test('closes the stream when the poller stops', async () => {
+    const fake = installFakeEventSource();
+    try {
+      startNotificationPoller();
+      await vi.waitFor(() => expect(fake.instances.length).toBe(1));
+
+      stopNotificationPoller();
+
+      expect(fake.instances[0].closed).toBe(true);
+    } finally {
+      fake.restore();
+    }
   });
 });

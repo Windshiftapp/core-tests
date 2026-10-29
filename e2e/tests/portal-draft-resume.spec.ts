@@ -43,7 +43,7 @@ test.describe('Portal request-form draft resume', () => {
       slug,
       name: `Draft Resume ${stamp}`,
     });
-    const rt = await createTwoStepRequestType(request, channel.channelId, {
+    const rt = await createTwoStepRequestType(request, channel, {
       name: 'Two-step bug report',
     });
     await attachRequestTypesToSection(request, channel, [rt.id]);

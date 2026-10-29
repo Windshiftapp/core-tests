@@ -9,16 +9,14 @@ const { getEmailLog, requeueRateLimitedEmail, getEmailReplies, retryEmailReply, 
   discardEmailReply: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    channels: {
-      getEmailLog,
-      requeueRateLimitedEmail,
-      getEmailReplies,
-      retryEmailReply,
-      discardEmailReply,
-    },
-  },
+vi.mock('../api/channels.js', () => ({
+  channels: {
+        getEmailLog,
+        requeueRateLimitedEmail,
+        getEmailReplies,
+        retryEmailReply,
+        discardEmailReply,
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -27,6 +25,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
 }));
 
 import EmailLogModal from './EmailLogModal.svelte';
+import { channels } from '../api/channels.js';
 
 const channel = { id: 7, name: 'Support', config: '{}' };
 
@@ -102,9 +101,34 @@ describe('EmailLogModal', () => {
     expect(screen.queryByTestId('email-log-requeue-button')).not.toBeInTheDocument();
   });
 
+  it('renders per-intake watermarks and rate-limit counts', async () => {
+    const log = structuredClone(rateLimitedLog);
+    log.state.intakes = [
+      {
+        intake_id: 3,
+        folder: 'Support',
+        target_type: 'workspace',
+        target_id: 1,
+        status: 'enabled',
+        last_uid: 88,
+        uid_validity: 42,
+        last_polled_at: '2026-09-23T10:00:00Z',
+        rate_limited_count: 2,
+      },
+    ];
+    getEmailLog.mockResolvedValue(log);
+    renderModal();
+
+    const row = await screen.findByTestId('email-log-intake-3');
+    expect(row).toHaveTextContent('Support');
+    expect(row).toHaveTextContent('88');
+    expect(row).toHaveTextContent('2');
+  });
+
   const outboxPage = {
     replies: [
       {
+        id: 101,
         comment_id: 21,
         item_id: 42,
         to_email: 'customer@example.com',
@@ -116,6 +140,7 @@ describe('EmailLogModal', () => {
         created_at: '2026-09-23T10:00:00Z',
       },
       {
+        id: 102,
         comment_id: 22,
         item_id: 42,
         to_email: 'other@example.com',
@@ -143,18 +168,96 @@ describe('EmailLogModal', () => {
     expect(getEmailReplies).toHaveBeenCalledWith(7, 'pending', 1, 50);
 
     // Failed row shows its scheduled-retry status and last error.
-    await waitFor(() => expect(screen.getByTestId('email-outbox-status-21')).toBeInTheDocument());
-    expect(screen.getByTestId('email-outbox-status-21')).toHaveTextContent('2');
+    await waitFor(() => expect(screen.getByTestId('email-outbox-status-101')).toBeInTheDocument());
+    expect(screen.getByTestId('email-outbox-status-101')).toHaveTextContent('2');
     expect(screen.getByText('smtp relay down')).toBeInTheDocument();
     // Pending row never retried shows the pending badge.
-    expect(screen.getByTestId('email-outbox-status-22')).toBeInTheDocument();
+    expect(screen.getByTestId('email-outbox-status-102')).toBeInTheDocument();
 
-    await fireEvent.click(screen.getByTestId('email-outbox-retry-21'));
+    await fireEvent.click(screen.getByTestId('email-outbox-retry-101'));
     await waitFor(() => expect(retryEmailReply).toHaveBeenCalledWith(7, 21));
     await waitFor(() => expect(getEmailReplies).toHaveBeenCalledTimes(2));
 
-    await fireEvent.click(screen.getByTestId('email-outbox-discard-22'));
+    await fireEvent.click(screen.getByTestId('email-outbox-discard-102'));
     await waitFor(() => expect(discardEmailReply).toHaveBeenCalledWith(7, 22));
+  });
+
+  it('renders one row per recipient even when a comment has several', async () => {
+    // The outbox is per-recipient, so two rows can share a comment_id. Keying
+    // the table by comment_id crashed Svelte with each_key_duplicate.
+    getEmailLog.mockResolvedValue(structuredClone(rateLimitedLog));
+    getEmailReplies.mockResolvedValue({
+      replies: [
+        {
+          id: 201,
+          comment_id: 30,
+          item_id: 42,
+          to_email: 'customer@example.com',
+          subject: 'Re: Help',
+          attempt_count: 0,
+          created_at: '2026-09-23T10:00:00Z',
+        },
+        {
+          id: 202,
+          comment_id: 30,
+          item_id: 42,
+          to_email: 'participant@example.com',
+          subject: 'Re: Help',
+          attempt_count: 0,
+          created_at: '2026-09-23T10:00:00Z',
+        },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 50,
+    });
+    renderModal();
+
+    await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
+
+    expect(await screen.findByTestId('email-outbox-status-201')).toBeInTheDocument();
+    expect(screen.getByTestId('email-outbox-status-202')).toBeInTheDocument();
+  });
+
+  it('renders intake receipts without retry/discard actions', async () => {
+    // Intake confirmations live in the same outbox but have no comment_id, and
+    // the retry/discard endpoints are comment-keyed. The row must stay visible
+    // (status/audit) without offering actions that would call /replies/undefined.
+    getEmailLog.mockResolvedValue(structuredClone(rateLimitedLog));
+    getEmailReplies.mockResolvedValue({
+      replies: [
+        {
+          id: 301,
+          item_id: 42,
+          to_email: 'customer@example.com',
+          subject: 'We received your request',
+          attempt_count: 3,
+          last_error: 'smtp relay down',
+          created_at: '2026-09-23T10:00:00Z',
+        },
+        {
+          id: 302,
+          comment_id: 21,
+          item_id: 42,
+          to_email: 'customer@example.com',
+          subject: 'Re: Help',
+          attempt_count: 0,
+          created_at: '2026-09-23T10:00:00Z',
+        },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 50,
+    });
+    renderModal();
+
+    await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
+
+    expect(await screen.findByTestId('email-outbox-status-301')).toBeInTheDocument();
+    expect(screen.queryByTestId('email-outbox-retry-301')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('email-outbox-discard-301')).not.toBeInTheDocument();
+    // The comment reply next to it keeps its actions.
+    expect(screen.getByTestId('email-outbox-retry-302')).toBeInTheDocument();
   });
 
   it('shows an empty queue state when nothing is pending', async () => {
@@ -164,6 +267,6 @@ describe('EmailLogModal', () => {
 
     await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
     await waitFor(() => expect(getEmailReplies).toHaveBeenCalled());
-    expect(screen.queryByTestId('email-outbox-retry-21')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('email-outbox-retry-101')).not.toBeInTheDocument();
   });
 });

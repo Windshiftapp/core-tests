@@ -285,3 +285,38 @@ func TestApprovalDecisionsEnforceChannelInsideTransaction(t *testing.T) {
 		t.Fatalf("same-channel decision = %+v", decision)
 	}
 }
+
+// TestPortalServedWorkspaceHonoursPortalConfig pins finding 1's building block:
+// the portal's served-workspace scope resolves from its channel config and
+// rejects a workspace that is not listed.
+func TestPortalServedWorkspaceHonoursPortalConfig(t *testing.T) {
+	fx := setupApprovalChannelFixture(t)
+	ctx := context.Background()
+	svc := NewPortalService(fx.db)
+
+	var servedWorkspaceID int
+	if err := fx.db.QueryRow(`SELECT id FROM workspaces WHERE key = 'ACS'`).Scan(&servedWorkspaceID); err != nil {
+		t.Fatalf("load served workspace: %v", err)
+	}
+	var otherWorkspaceID int
+	if err := fx.db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Unserved', 'UNSERVED') RETURNING id`).Scan(&otherWorkspaceID); err != nil {
+		t.Fatalf("insert other workspace: %v", err)
+	}
+
+	ids, err := svc.PortalServedWorkspaceIDs(ctx, fx.channelA)
+	if err != nil {
+		t.Fatalf("PortalServedWorkspaceIDs: %v", err)
+	}
+	if !reflect.DeepEqual(ids, []int{servedWorkspaceID}) {
+		t.Fatalf("served workspace ids = %v, want [%d]", ids, servedWorkspaceID)
+	}
+
+	served, err := svc.PortalServesWorkspace(ctx, fx.channelA, servedWorkspaceID)
+	if err != nil || !served {
+		t.Fatalf("PortalServesWorkspace(served) = %v, %v; want true", served, err)
+	}
+	unserved, err := svc.PortalServesWorkspace(ctx, fx.channelA, otherWorkspaceID)
+	if err != nil || unserved {
+		t.Fatalf("PortalServesWorkspace(unserved) = %v, %v; want false", unserved, err)
+	}
+}

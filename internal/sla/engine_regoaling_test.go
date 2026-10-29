@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"windshift/internal/businesstime"
+	"windshift/internal/database"
 	"windshift/internal/itemevents"
 	"windshift/internal/models"
 )
@@ -32,9 +34,9 @@ func TestReGoalWithHeadroomKeepsFirstBreach(t *testing.T) {
 		[]models.SLACondition{{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)}},
 		[]models.SLAGoal{
 			{Position: 0, QLQuery: "priority = 'SLA High'", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
 			{Position: 1, QLQuery: "1 = 1", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
 		},
 	)
 	fixture.observe(t, fixture.createdFact())
@@ -184,9 +186,9 @@ func TestStaleBreachRunnerCannotDeleteRearmedJob(t *testing.T) {
 		[]models.SLACondition{{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)}},
 		[]models.SLAGoal{
 			{Position: 0, QLQuery: "priority = 'SLA High'", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 600_000, CalendarID: fixture.calendarID}}},
 			{Position: 1, QLQuery: "1 = 1", ImportStatus: "native",
-				Targets: []models.SLAGoalTarget{{Position: 0, IsFallback: true, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
+				Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 3_600_000, CalendarID: fixture.calendarID}}},
 		},
 	)
 	fixture.observe(t, fixture.createdFact())
@@ -287,5 +289,83 @@ func TestLoopRenewalKeepsSlowBatchOwned(t *testing.T) {
 	}
 	if store.renewCalls == 0 {
 		t.Fatal("the loop never renewed its leases")
+	}
+}
+
+// A cycle that has not matched a goal carries the synthetic 24/7 snapshot. It
+// must not accrue wall-clock elapsed: a goal matched later would inherit that
+// time and breach immediately. Reproduces a Saturday intake that breached the
+// instant the metric's goal was edited to match it.
+func TestNoGoalCycleDoesNotAccrueWallClockElapsed(t *testing.T) {
+	fixture := newEngineFixture(t)
+	// Mon-Fri 09:00-17:00: the whole Saturday window is outside service hours.
+	calendar, err := fixture.repo.GetCalendar(context.Background(), fixture.calendarID)
+	if err != nil {
+		t.Fatalf("load calendar: %v", err)
+	}
+	weekly, err := json.Marshal(map[string][]businesstime.ClockInterval{
+		"monday":    {{Start: "09:00", End: "17:00"}},
+		"tuesday":   {{Start: "09:00", End: "17:00"}},
+		"wednesday": {{Start: "09:00", End: "17:00"}},
+		"thursday":  {{Start: "09:00", End: "17:00"}},
+		"friday":    {{Start: "09:00", End: "17:00"}},
+	})
+	if err != nil {
+		t.Fatalf("encode weekly intervals: %v", err)
+	}
+	calendar.WeeklyIntervals = json.RawMessage(weekly)
+	if err := database.WithTx(fixture.db, func(tx database.Tx) error {
+		if err := fixture.repo.UpdateCalendarTx(context.Background(), tx, calendar); err != nil {
+			return err
+		}
+		_, err := fixture.engine.BumpConfigGeneration(context.Background(), tx, fixture.workspaceID)
+		return err
+	}); err != nil {
+		t.Fatalf("update calendar and generation: %v", err)
+	}
+
+	saturday := time.Date(2026, 10, 17, 12, 49, 51, 0, time.UTC)
+	clock := &advanceClock{now: saturday}
+	fixture.engine.SetClock(clock)
+
+	var lowPriority int
+	if err := fixture.db.QueryRow(`INSERT INTO priorities (name) VALUES ('SLA Low') RETURNING id`).Scan(&lowPriority); err != nil {
+		t.Fatalf("insert low priority: %v", err)
+	}
+
+	// The only goal is scoped to a priority the item does not have, so the
+	// cycle starts with no matched target.
+	metricID := fixture.createMetric(t,
+		[]models.SLACondition{{Phase: models.SLAPhaseStart, Position: 0, ConditionType: conditionCreated, Config: json.RawMessage(`{}`)}},
+		[]models.SLAGoal{{Position: 0, QLQuery: "priority = 'SLA Low'", ImportStatus: "native",
+			Targets: []models.SLAGoalTarget{{Position: 0, TargetMs: 4 * 3600_000, CalendarID: fixture.calendarID}}}},
+	)
+	fixture.observe(t, fixture.createdFact())
+
+	// Eight wall-clock hours later the priority changes and the goal matches.
+	clock.now = saturday.Add(8 * time.Hour)
+	if _, err := fixture.db.Exec(`UPDATE items SET priority_id = ? WHERE id = ?`, lowPriority, fixture.itemID); err != nil {
+		t.Fatalf("update item priority: %v", err)
+	}
+	fixture.observe(t, itemevents.RecordedFact{
+		Type: itemevents.Updated, ItemID: fixture.itemID, WorkspaceID: fixture.workspaceID,
+		Snapshot: itemevents.ItemSnapshot{ID: fixture.itemID, WorkspaceID: fixture.workspaceID, StatusID: &fixture.statusOpen, PriorityID: &lowPriority},
+		Changes:  []itemevents.FieldChange{{Field: "priority_id", OldValue: fixture.priorityAPI, NewValue: lowPriority}},
+		Metadata: itemevents.Metadata{ActorKind: "user"},
+	})
+
+	state := derivedState(t, fixture, metricID)
+	if state.Ongoing == nil {
+		t.Fatal("no ongoing cycle")
+	}
+	if state.Ongoing.ElapsedMs != 0 {
+		t.Fatalf("elapsed = %d for a goal matched outside service hours, want 0", state.Ongoing.ElapsedMs)
+	}
+	if state.Ongoing.Breached {
+		t.Fatal("a goal matched outside service hours inherited wall-clock elapsed and breached")
+	}
+	wantDeadline := time.Date(2026, 10, 19, 13, 0, 0, 0, time.UTC) // Monday 09:00 + 4h
+	if state.Ongoing.NextDeadlineAt == nil || !state.Ongoing.NextDeadlineAt.Equal(wantDeadline) {
+		t.Fatalf("deadline = %v, want %v", state.Ongoing.NextDeadlineAt, wantDeadline)
 	}
 }

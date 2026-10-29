@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -99,8 +98,58 @@ func (p *blockingOAuthProvider) RefreshToken(context.Context, string) (*OAuthTok
 	return &OAuthTokens{AccessToken: "new-access", RefreshToken: "new-refresh", ExpiresAt: &expiresAt}, nil
 }
 
-func (*blockingOAuthProvider) GetUserEmail(context.Context, string) (string, error) {
-	return "user@example.com", nil
+func TestSaveOAuthTokensStoresConfiguredMailbox(t *testing.T) {
+	db, err := database.NewSQLiteDB(filepath.Join(t.TempDir(), "save-oauth.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.Initialize(); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	stored := models.ChannelConfig{
+		EmailAuthMethod:        "oauth",
+		EmailOAuthProviderType: models.EmailProviderTypeMicrosoft,
+		EmailOAuthClientID:     "client",
+		EmailOAuthMailbox:      "support@example.com",
+	}
+	raw, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatalf("marshal channel config: %v", err)
+	}
+	var channelID int
+	if err := db.QueryRow(`
+		INSERT INTO channels(name, type, direction, config)
+		VALUES ('Email', 'email', 'inbound', ?) RETURNING id
+	`, string(raw)).Scan(&channelID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	expiresAt := time.Now().Add(time.Hour)
+	manager := NewCredentialManager(db, testEncryptor{})
+	if _, err := manager.SaveOAuthTokens(context.Background(), channelID, &OAuthTokens{
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		ExpiresAt:    &expiresAt,
+	}, "support@example.com", nil); err != nil {
+		t.Fatalf("SaveOAuthTokens: %v", err)
+	}
+
+	var rawConfig string
+	if err := db.QueryRow(`SELECT config FROM channels WHERE id = ?`, channelID).Scan(&rawConfig); err != nil {
+		t.Fatalf("read channel config: %v", err)
+	}
+	var saved models.ChannelConfig
+	if err := json.Unmarshal([]byte(rawConfig), &saved); err != nil {
+		t.Fatalf("unmarshal channel config: %v", err)
+	}
+	if saved.EmailOAuthMailbox != "support@example.com" || saved.EmailOAuthEmail != "support@example.com" {
+		t.Fatalf("saved mailbox/email = (%q, %q), want both support@example.com", saved.EmailOAuthMailbox, saved.EmailOAuthEmail)
+	}
+	if saved.EmailOAuthRefreshToken == "" {
+		t.Fatal("refresh token was not persisted")
+	}
 }
 
 func TestCredentialLeaseSerializesRefreshAcrossManagers(t *testing.T) {
@@ -163,11 +212,7 @@ func TestCredentialLeaseSerializesRefreshAcrossManagers(t *testing.T) {
 		t.Fatal("first manager did not begin refresh")
 	}
 	go refresh(second)
-	// Yield scheduling so the second refresh gets the chance to enter the
-	// provider before the gate opens.
-	for i := 0; i < 100; i++ {
-		runtime.Gosched()
-	}
+	<-time.After(100 * time.Millisecond)
 	close(provider.release)
 	for range 2 {
 		if err := <-results; err != nil {

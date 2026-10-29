@@ -14,6 +14,7 @@ export const FIELD_TYPE_LABELS: Record<string, string> = {
   user: 'User',
   iteration: 'Iteration',
   milestone: 'Milestone',
+  multi_milestone: 'Multi Milestone',
   asset: 'Asset',
   portalcustomer: 'Portal Customer',
   customerorganisation: 'Customer Organisation',
@@ -147,7 +148,9 @@ export class CustomFieldsPage {
    * Mirrors deleteField()'s dropdown handling but picks "Edit".
    */
   async openFieldForEdit(name: string) {
+    await this.searchFields(name);
     const field = this.findFieldByName(name);
+    await expect(field).toBeVisible({ timeout: 10000 });
     const actionButton = field.getByTestId('custom-field-actions');
     await actionButton.click();
     const editMenuItem = this.page.getByTestId('custom-field-edit');
@@ -180,6 +183,15 @@ export class CustomFieldsPage {
   }
 
   /**
+   * Filter the table by name. The admin list paginates 25 rows per page, so a
+   * freshly created field is not guaranteed to be on page 1 once other specs
+   * have added fields during the same run.
+   */
+  async searchFields(query: string) {
+    await this.page.getByTestId('custom-fields-search').fill(query);
+  }
+
+  /**
    * Find a field row by name
    */
   findFieldByName(name: string) {
@@ -190,6 +202,7 @@ export class CustomFieldsPage {
    * Verify a field exists in the table
    */
   async verifyFieldExists(name: string) {
+    await this.searchFields(name);
     const field = this.findFieldByName(name);
     await expect(field).toBeVisible({ timeout: 10000 });
   }
@@ -206,6 +219,7 @@ export class CustomFieldsPage {
    * Verify a field does not exist in the table
    */
   async verifyFieldDoesNotExist(name: string) {
+    await this.searchFields(name);
     const field = this.page.getByTestId('custom-field-row').filter({ hasText: name });
     await expect(field).not.toBeVisible({ timeout: 5000 });
   }
@@ -214,7 +228,9 @@ export class CustomFieldsPage {
    * Delete a field via the row's action dropdown
    */
   async deleteField(name: string) {
+    await this.searchFields(name);
     const field = this.findFieldByName(name);
+    await expect(field).toBeVisible({ timeout: 10000 });
 
     // Click the action dropdown trigger (three-dot button) on the row
     const actionButton = field.getByTestId('custom-field-actions');

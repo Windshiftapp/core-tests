@@ -389,8 +389,6 @@ func TestPushServiceSerializesSameUserAndBoundsGlobalWorkers(t *testing.T) {
 			maxByEndpoint[subscription.Endpoint] = activeByEndpoint[subscription.Endpoint]
 		}
 		mu.Unlock()
-		// Hold the slot briefly to exercise destination concurrency; simulated
-		// work has no completion signal.
 		<-time.After(20 * time.Millisecond)
 		mu.Lock()
 		activeByEndpoint[subscription.Endpoint]--
@@ -444,10 +442,8 @@ func TestPushServiceShutdownDeadlineReportsUndrainedWork(t *testing.T) {
 		t.Fatal("shutdown deadline returned nil")
 	}
 	deadline := time.Now().Add(time.Second)
-	tick := time.NewTicker(time.Millisecond)
-	defer tick.Stop()
 	for time.Now().Before(deadline) && service.GetStats()["active_workers"] != 0 {
-		<-tick.C
+		<-time.After(time.Millisecond)
 	}
 	if active := service.GetStats()["active_workers"]; active != 0 {
 		t.Fatalf("active workers after cancellation = %d", active)

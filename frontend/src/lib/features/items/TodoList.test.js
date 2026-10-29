@@ -1,19 +1,29 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { items } from '../../api/items.js';
+import { statusCategories } from '../../api/workflows.js';
+import { workspaces } from '../../api/workspaces.js';
 
-vi.mock('../../api.js', () => ({
-  api: {
-    items: {
-      create: vi.fn(),
-      getAll: vi.fn(),
-      transition: vi.fn(),
-    },
-    statusCategories: { getAll: vi.fn() },
-    workspaces: { getStatuses: vi.fn() },
-  },
+
+
+
+vi.mock('../../api/items.js', () => ({
+  items: {
+        create: vi.fn(),
+        getAll: vi.fn(),
+        transition: vi.fn(),
+      },
+}))
+
+vi.mock('../../api/workflows.js', () => ({
+  statusCategories: { getAll: vi.fn() },
+}))
+
+vi.mock('../../api/workspaces.js', () => ({
+  workspaces: { getStatuses: vi.fn() },
 }));
 
-vi.mock('../../stores', () => ({
+vi.mock('../../stores/auth.svelte.js', () => ({
   authStore: { currentUser: { id: 7 } },
 }));
 
@@ -35,7 +45,7 @@ vi.mock('../personal/PersonalTaskDetail.svelte', () => ({ default: function Mock
 vi.mock('../../components/Checkbox.svelte', () => ({ default: function MockComponent() {} }));
 vi.mock('../../components/EmptyState.svelte', () => ({ default: function MockComponent() {} }));
 
-const { api } = await import('../../api.js');
+
 const { i18n } = await import('../../stores/i18n.svelte.js');
 const { default: TodoList } = await import('./TodoList.svelte');
 
@@ -48,9 +58,9 @@ describe('TodoList completed-task history filter', () => {
 
   beforeEach(() => {
     localStorage.clear();
-    api.items.getAll.mockResolvedValue({ items: [] });
-    api.statusCategories.getAll.mockResolvedValue([]);
-    api.workspaces.getStatuses.mockResolvedValue([]);
+    items.getAll.mockResolvedValue({ items: [] });
+    statusCategories.getAll.mockResolvedValue([]);
+    workspaces.getStatuses.mockResolvedValue([]);
   });
 
   it('explains that the range only limits completed task history', async () => {
@@ -74,14 +84,14 @@ describe('TodoList completed-task history filter', () => {
     render(TodoList, { props: { workspaceId: 42 } });
     await screen.findByTestId('todo-done-filter');
 
-    api.items.getAll.mockClear();
+    items.getAll.mockClear();
     await fireEvent.click(screen.getByTestId('done-range-none'));
 
     // completed_since must exclude every completed item while leaving the
     // open-task side of the query untouched, so it has to be in the future.
     const requestedAt = Date.now();
-    expect(api.items.getAll).toHaveBeenCalled();
-    for (const call of api.items.getAll.mock.calls) {
+    expect(items.getAll).toHaveBeenCalled();
+    for (const call of items.getAll.mock.calls) {
       expect(call[0].completed_since).toBeTruthy();
       expect(new Date(call[0].completed_since).getTime()).toBeGreaterThan(requestedAt);
     }
@@ -98,8 +108,8 @@ describe('TodoList completed-task history filter', () => {
     render(TodoList, { props: { workspaceId: 42 } });
     await screen.findByTestId('todo-done-filter');
 
-    expect(api.items.getAll).toHaveBeenCalledTimes(2); // personal + assigned loads
-    for (const call of api.items.getAll.mock.calls) {
+    expect(items.getAll).toHaveBeenCalledTimes(2); // personal + assigned loads
+    for (const call of items.getAll.mock.calls) {
       expect(new Date(call[0].completed_since).getTime()).toBeGreaterThan(Date.now());
     }
   });

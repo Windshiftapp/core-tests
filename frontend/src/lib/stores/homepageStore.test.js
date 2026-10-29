@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { homepage } from '../api/misc.js';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -6,10 +7,8 @@ const mocks = vi.hoisted(() => ({
   updateLayout: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    homepage: mocks,
-  },
+vi.mock('../api/misc.js', () => ({
+  homepage: mocks,
 }));
 
 const { homepageStore } = await import('./homepageStore.svelte.js');
@@ -196,5 +195,90 @@ describe('homepage route snapshot', () => {
 
     expect(mocks.get).toHaveBeenCalledTimes(2);
     expect(homepageStore.totalItemCount).toBe(10);
+  });
+});
+
+describe('homepage dashboard background', () => {
+  it('restores a saved gradient and background image from the layout snapshot', () => {
+    homepageStore.applyLayout({
+      gradient: 4,
+      background_image_url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80',
+      sections: [{ id: 'main', display_order: 0, widget_ids: [] }],
+      widgets: [],
+    });
+
+    expect(homepageStore.gradient).toBe(4);
+    expect(homepageStore.backgroundImageUrl).toBe(
+      'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80'
+    );
+    expect(homepageStore.hasCustomBackground).toBe(true);
+  });
+
+  it('persists the gradient and clears the background image when a gradient is selected', async () => {
+    mocks.updateLayout.mockResolvedValue({ sections: [], widgets: [] });
+    homepageStore.applyLayout({
+      background_image_url: 'https://images.unsplash.com/photo-1?w=1920&q=80',
+      sections: [{ id: 'main', display_order: 0, widget_ids: [] }],
+      widgets: [],
+    });
+
+    homepageStore.selectGradient(5);
+    await homepageStore.saveLayout();
+
+    expect(homepageStore.backgroundImageUrl).toBeNull();
+    expect(homepageStore.hasBackgroundImage).toBe(false);
+    expect(mocks.updateLayout).toHaveBeenCalledWith(
+      expect.objectContaining({ gradient: 5, background_image_url: '' })
+    );
+  });
+
+  it('persists the background image and clears the gradient when an image is selected', async () => {
+    mocks.updateLayout.mockResolvedValue({ sections: [], widgets: [] });
+    homepageStore.applyLayout({
+      gradient: 2,
+      sections: [{ id: 'main', display_order: 0, widget_ids: [] }],
+      widgets: [],
+    });
+
+    homepageStore.selectBackgroundImage('https://images.unsplash.com/photo-2?w=1920&q=80');
+    await homepageStore.saveLayout();
+
+    expect(homepageStore.gradient).toBe(0);
+    expect(mocks.updateLayout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gradient: 0,
+        background_image_url: 'https://images.unsplash.com/photo-2?w=1920&q=80',
+      })
+    );
+  });
+
+  it('removes the background image and returns to the default surface', async () => {
+    mocks.updateLayout.mockResolvedValue({ sections: [], widgets: [] });
+    homepageStore.applyLayout({
+      background_image_url: 'https://images.unsplash.com/photo-3?w=1920&q=80',
+      sections: [{ id: 'main', display_order: 0, widget_ids: [] }],
+      widgets: [],
+    });
+
+    homepageStore.removeBackgroundImage();
+    await homepageStore.saveLayout();
+
+    expect(homepageStore.backgroundImageUrl).toBeNull();
+    expect(homepageStore.hasCustomBackground).toBe(false);
+    expect(homepageStore.backgroundStyle).toBe('background-color: var(--ds-surface);');
+  });
+
+  it('exposes a gradient background style once a gradient is selected', () => {
+    homepageStore.applyLayout({
+      sections: [{ id: 'main', display_order: 0, widget_ids: [] }],
+      widgets: [],
+    });
+    expect(homepageStore.hasCustomBackground).toBe(false);
+
+    homepageStore.selectGradient(1);
+
+    expect(homepageStore.hasCustomBackground).toBe(true);
+    expect(homepageStore.backgroundStyle).toMatch(/^background: linear-gradient/);
+    expect(homepageStore.backgroundTextStyle).toBe('color: white;');
   });
 });

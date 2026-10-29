@@ -82,29 +82,29 @@ describe('crossTabSync', () => {
     expect(tabId.length).toBeGreaterThan(0);
   });
 
-  it('initCrossTabSync calls the injected refresh handler on foreign messages', async () => {
+  it('initCrossTabSync calls the injected invalidation handler on foreign messages', async () => {
     vi.useFakeTimers();
     const { initCrossTabSync } = await freshModule();
-    const refreshCollectionDeltas = vi.fn().mockResolvedValue(undefined);
-    const dispose = initCrossTabSync({ refreshCollectionDeltas });
+    const onInvalidate = vi.fn().mockResolvedValue(undefined);
+    const dispose = initCrossTabSync({ onInvalidate });
 
     const peer = new FakeBroadcastChannel('windshift-work-items');
     peer.postMessage({ type: 'update', itemId: 5, origin: 'other-tab' });
 
     // Trailing-debounced: nothing until the window elapses.
-    expect(refreshCollectionDeltas).not.toHaveBeenCalled();
+    expect(onInvalidate).not.toHaveBeenCalled();
     vi.advanceTimersByTime(200);
-    expect(refreshCollectionDeltas).toHaveBeenCalledTimes(1);
+    expect(onInvalidate).toHaveBeenCalledTimes(1);
 
     dispose();
     peer.close();
   });
 
-  it('coalesces a burst of foreign messages into a single refresh', async () => {
+  it('coalesces a burst of foreign messages into a single invalidation', async () => {
     vi.useFakeTimers();
     const { initCrossTabSync } = await freshModule();
-    const refreshCollectionDeltas = vi.fn().mockResolvedValue(undefined);
-    const dispose = initCrossTabSync({ refreshCollectionDeltas });
+    const onInvalidate = vi.fn().mockResolvedValue(undefined);
+    const dispose = initCrossTabSync({ onInvalidate });
 
     const peer = new FakeBroadcastChannel('windshift-work-items');
     // Simulate a bulk mutation in another tab: N notices back-to-back.
@@ -112,9 +112,9 @@ describe('crossTabSync', () => {
       peer.postMessage({ type: 'update', itemId: i, origin: 'bulk-tab' });
     }
 
-    expect(refreshCollectionDeltas).not.toHaveBeenCalled();
+    expect(onInvalidate).not.toHaveBeenCalled();
     vi.advanceTimersByTime(200);
-    expect(refreshCollectionDeltas).toHaveBeenCalledTimes(1);
+    expect(onInvalidate).toHaveBeenCalledTimes(1);
 
     dispose();
     peer.close();
@@ -122,13 +122,13 @@ describe('crossTabSync', () => {
 
   it('ignores messages originating from its own tab', async () => {
     const { initCrossTabSync, tabId } = await freshModule();
-    const refreshCollectionDeltas = vi.fn();
-    const dispose = initCrossTabSync({ refreshCollectionDeltas });
+    const onInvalidate = vi.fn();
+    const dispose = initCrossTabSync({ onInvalidate });
 
     const peer = new FakeBroadcastChannel('windshift-work-items');
     peer.postMessage({ type: 'update', itemId: 5, origin: tabId }); // self origin
 
-    expect(refreshCollectionDeltas).not.toHaveBeenCalled();
+    expect(onInvalidate).not.toHaveBeenCalled();
     dispose();
     peer.close();
   });
@@ -136,15 +136,34 @@ describe('crossTabSync', () => {
   it('is idempotent — multiple init calls register a single listener', async () => {
     vi.useFakeTimers();
     const { initCrossTabSync } = await freshModule();
-    const refreshCollectionDeltas = vi.fn();
-    initCrossTabSync({ refreshCollectionDeltas });
-    initCrossTabSync({ refreshCollectionDeltas });
+    const onInvalidate = vi.fn();
+    initCrossTabSync({ onInvalidate });
+    initCrossTabSync({ onInvalidate });
 
     const peer = new FakeBroadcastChannel('windshift-work-items');
     peer.postMessage({ type: 'update', itemId: 1, origin: 'x' });
 
     vi.advanceTimersByTime(200);
-    expect(refreshCollectionDeltas).toHaveBeenCalledTimes(1);
+    expect(onInvalidate).toHaveBeenCalledTimes(1);
+    peer.close();
+  });
+
+  it('swaps in the handler from a repeat init without duplicating the listener', async () => {
+    // Mirrors HMR re-executing the injecting module: the newest closure must be
+    // the one that runs, and messages must still be handled once.
+    vi.useFakeTimers();
+    const { initCrossTabSync } = await freshModule();
+    const stale = vi.fn();
+    const fresh = vi.fn();
+    initCrossTabSync({ onInvalidate: stale });
+    initCrossTabSync({ onInvalidate: fresh });
+
+    const peer = new FakeBroadcastChannel('windshift-work-items');
+    peer.postMessage({ type: 'update', itemId: 1, origin: 'x' });
+
+    vi.advanceTimersByTime(200);
+    expect(stale).not.toHaveBeenCalled();
+    expect(fresh).toHaveBeenCalledTimes(1);
     peer.close();
   });
 
@@ -156,7 +175,7 @@ describe('crossTabSync', () => {
 
     expect(() => {
       notifyItemMutation({ type: 'update', itemId: 1 });
-      initCrossTabSync({ refreshCollectionDeltas: vi.fn() });
+      initCrossTabSync({ onInvalidate: vi.fn() });
     }).not.toThrow();
   });
 });

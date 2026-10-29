@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
 	createWorkspaceViaAPI,
-	listItemTypesViaAPI,
+	listWorkspaceItemTypesViaAPI,
 } from "../fixtures/api-helpers";
 import { type APIRequestContext, expect, test } from "../fixtures/context-path";
 import { generateWorkspace } from "../fixtures/test-data";
@@ -43,7 +43,12 @@ test("map quick-add creates and persists a child item", async ({
 		request,
 		generateWorkspace(suffix),
 	);
-	const itemTypes = (await listItemTypesViaAPI(request)) as ItemType[];
+	// Use the workspace's bound catalog: global types are not necessarily
+	// available in a freshly created workspace.
+	const itemTypes = (await listWorkspaceItemTypesViaAPI(
+		request,
+		workspace.id,
+	)) as ItemType[];
 	const parentType = itemTypes.find(
 		(candidate) =>
 			candidate.hierarchy_level >= 0 &&

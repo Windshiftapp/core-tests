@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    llmConnections: {
-      getAll: vi.fn(),
-      test: vi.fn(),
-    },
-    llmProviders: {
-      getProviders: vi.fn(),
-    },
-    actionCapabilities: {
-      getAll: vi.fn(),
-    },
-  },
+vi.mock('../api/ai.js', () => ({
+  llmConnections: {
+        getAll: vi.fn(),
+        test: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+  llmProviders: {
+        getProviders: vi.fn(),
+      },
+  actionCapabilities: {
+        getAll: vi.fn(),
+      },
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
@@ -31,7 +31,7 @@ vi.mock('../composables/useConfirm.js', () => ({
   confirm: vi.fn(),
 }));
 
-import { api } from '../api.js';
+import { actionCapabilities, llmConnections, llmProviders } from '../api/ai.js';
 import { errorToast } from '../stores/toasts.svelte.js';
 import LLMConnectionManager from './LLMConnectionManager.svelte';
 
@@ -49,20 +49,20 @@ const connection = {
 describe('LLMConnectionManager connection test errors', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.llmConnections.getAll.mockResolvedValue([connection]);
-    api.llmProviders.getProviders.mockResolvedValue([
+    llmConnections.getAll.mockResolvedValue([connection]);
+    llmProviders.getProviders.mockResolvedValue([
       {
         type: 'local',
         name: 'Local / Custom',
         models: [{ id: connection.model, name: connection.model }],
       },
     ]);
-    api.actionCapabilities.getAll.mockResolvedValue([]);
+    actionCapabilities.getAll.mockResolvedValue([]);
   });
 
   it('shows only the provider message in an error toast and keeps it out of the modal', async () => {
     const providerMessage = 'Could not finish the message because max_tokens was reached.';
-    api.llmConnections.test.mockRejectedValue(
+    llmConnections.test.mockRejectedValue(
       new Error(
         `Connection test failed: failed to connect to LLM service: LLM API error: status 400 - ${JSON.stringify(
           { error: { message: providerMessage, type: 'invalid_request_error' } }
@@ -80,5 +80,89 @@ describe('LLMConnectionManager connection test errors', () => {
     });
     expect(screen.queryByText(providerMessage)).not.toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('LLMConnectionManager provider guidance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    llmConnections.getAll.mockResolvedValue([
+      {
+        ...connection,
+        id: 9,
+        name: 'OpenCode Go',
+        provider_type: 'opencode-go',
+        model: 'kimi-k2.7-code',
+        base_url: '',
+      },
+    ]);
+    llmProviders.getProviders.mockResolvedValue([
+      {
+        type: 'opencode-go',
+        name: 'OpenCode Go',
+        models_endpoint: '/v1/models',
+        usage_note: 'OpenCode Go is intended for coding agents.',
+        models: [],
+      },
+    ]);
+    actionCapabilities.getAll.mockResolvedValue([]);
+  });
+
+  it('renders the provider usage guidance in the connection form', async () => {
+    render(LLMConnectionManager);
+
+    await fireEvent.click(await screen.findByTestId('llm-connection-edit'));
+
+    const note = await screen.findByTestId('llm-provider-usage-note');
+    expect(note).toHaveTextContent('OpenCode Go is intended for coding agents.');
+  });
+});
+
+describe('LLMConnectionManager max output tokens', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    llmConnections.getAll.mockResolvedValue([connection]);
+    llmConnections.update.mockResolvedValue({});
+    llmProviders.getProviders.mockResolvedValue([
+      {
+        type: 'local',
+        name: 'Local / Custom',
+        models: [{ id: connection.model, name: connection.model }],
+      },
+    ]);
+    actionCapabilities.getAll.mockResolvedValue([]);
+  });
+
+  it('saves the max output tokens override into provider_config', async () => {
+    render(LLMConnectionManager);
+
+    await fireEvent.click(await screen.findByTestId('llm-connection-edit'));
+    const input = document.getElementById('llm-connection-max-output-tokens');
+    expect(input).not.toBeNull();
+    await fireEvent.input(input, { target: { value: '65536' } });
+    await fireEvent.click(screen.getByTestId('entity-form-confirm'));
+
+    await waitFor(() => {
+      expect(llmConnections.update).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ provider_config: JSON.stringify({ max_output_tokens: 65536 }) })
+      );
+    });
+  });
+
+  it('does not forward an empty override', async () => {
+    render(LLMConnectionManager);
+
+    await fireEvent.click(await screen.findByTestId('llm-connection-edit'));
+    const input = document.getElementById('llm-connection-max-output-tokens');
+    await fireEvent.input(input, { target: { value: '' } });
+    await fireEvent.click(screen.getByTestId('entity-form-confirm'));
+
+    await waitFor(() => {
+      expect(llmConnections.update).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ provider_config: '' })
+      );
+    });
   });
 });

@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-const completionCatalog = {
+
+const { completionCatalog, getCatalog, getValues } = vi.hoisted(() => {
+  const completionCatalog = {
   logical_operators: ['AND', 'OR'],
   fields: [
     {
@@ -29,8 +31,8 @@ const completionCatalog = {
   ],
 };
 
-const getCatalog = vi.fn(async () => completionCatalog);
-const getValues = vi.fn(async (valueHelp) =>
+  const getCatalog = vi.fn(async () => completionCatalog);
+  const getValues = vi.fn(async (valueHelp) =>
   valueHelp.source === 'labels'
     ? [{ value: 'Frontend', label: 'Frontend' }]
     : [
@@ -39,8 +41,11 @@ const getValues = vi.fn(async (valueHelp) =>
       ]
 );
 
-vi.mock('../../api.js', () => ({
-  api: { queryLanguage: { getCatalog, getValues } },
+  return { completionCatalog, getCatalog, getValues };
+});
+
+vi.mock('../../api/queryLanguage.js', () => ({
+  queryLanguage: { getCatalog, getValues },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({

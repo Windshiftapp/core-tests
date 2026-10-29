@@ -8,16 +8,21 @@ const mocks = vi.hoisted(() => ({
   getStatuses: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    items: { getAll: mocks.getItems },
-    iterations: { getAll: mocks.getIterations },
-    milestones: { getAll: mocks.getMilestones },
-    statuses: { getAll: mocks.getStatuses },
-  },
+vi.mock('../api/items.js', () => ({
+  items: { getAll: mocks.getItems },
+}))
+
+vi.mock('../api/milestones.js', () => ({
+  iterations: { getAll: mocks.getIterations },
+  milestones: { getAll: mocks.getMilestones },
+  milestoneCategories: { getAll: vi.fn().mockResolvedValue([]) },
+}))
+
+vi.mock('../api/workflows.js', () => ({
+  statuses: { getAll: mocks.getStatuses },
 }));
 
-vi.mock('../stores', async () => {
+vi.mock('../stores/auth.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   return {
     authStore: writable({ currentUser: { id: 42 } }),
@@ -45,6 +50,11 @@ vi.mock('./dashboard/DueMark.svelte', () => ({
 import MyTasksWidget from './MyTasksWidget.svelte';
 import OverdueItemsWidget from './OverdueItemsWidget.svelte';
 import UpcomingDeadlinesWidget from './UpcomingDeadlinesWidget.svelte';
+import { items } from '../api/items.js';
+import { iterations, milestones } from '../api/milestones.js';
+import { statuses } from '../api/workflows.js';
+
+
 
 beforeEach(() => {
   mocks.getItems.mockResolvedValue({ data: [] });

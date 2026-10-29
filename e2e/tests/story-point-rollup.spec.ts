@@ -15,7 +15,7 @@ import { expect, test } from '../fixtures/context-path';
  * Story points is not on the default screen; add it to the screen layout the
  * item's type actually renders with (resolved from the item's own
  * detail-summary screen context; workspaces without explicit bindings fall
- * back to screen 1 via resolveEffectiveScreenIds).
+ * back to screen 1 via the canonical effective-config resolution).
  */
 async function enableStoryPointsOnScreen(
 	request: APIRequestContext,

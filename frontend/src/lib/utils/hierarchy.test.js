@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-	canItemTypeBeChildOf,
-	childItemTypesForParent,
-	GENERIC_SUBTASK_HIERARCHY_LEVEL,
-	isGenericSubtaskType,
-	sortItemTypesByHierarchy,
-} from "./hierarchy.js";
+import { canItemTypeBeChildOf, childItemTypesForParent, GENERIC_SUBTASK_HIERARCHY_LEVEL, isGenericSubtaskType, sortItemTypesByHierarchy } from "./hierarchy.js";
 
 const epic = { id: 1, name: "Epic", hierarchy_level: 0, sort_order: 1 };
 const story = { id: 2, name: "Story", hierarchy_level: 1, sort_order: 2 };

@@ -18,10 +18,10 @@ case "$mode" in
       echo "Error: the quick frontend suite does not accept arguments" >&2
       exit 2
     fi
-    bun --bun run test:coverage
+    node_modules/.bin/vitest run --coverage
     ;;
   all)
-    bun --bun vitest run --config vitest.all.config.js --coverage "$@"
+    node_modules/.bin/vitest run --config vitest.all.config.js --coverage "$@"
     ;;
   *)
     echo "Error: unknown frontend mode '$mode'" >&2

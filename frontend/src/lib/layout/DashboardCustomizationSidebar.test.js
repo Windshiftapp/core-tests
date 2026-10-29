@@ -1,30 +1,44 @@
-import { cleanup, render, within } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../stores/i18n.svelte.js', async (importOriginal) => ({
-  ...(await importOriginal()),
-  t: (key) => key,
+const aiState = { available: true, enabled: true };
+
+vi.mock('../stores/aiStore.svelte.js', () => ({
+  aiStore: {
+    get available() {
+      return aiState.available;
+    },
+    isFeatureEnabled: () => aiState.enabled,
+    load: vi.fn(),
+  },
 }));
+
+vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 
 import DashboardCustomizationSidebar from './DashboardCustomizationSidebar.svelte';
 
-afterEach(cleanup);
+beforeEach(() => {
+  aiState.available = true;
+  aiState.enabled = true;
+});
 
-describe('DashboardCustomizationSidebar', () => {
-  it('shows the widget name and description in its draggable card', () => {
-    const { container } = render(DashboardCustomizationSidebar, {
-      isOpen: true,
-      activeCategory: 'activity',
-    });
+// Custom widgets are LLM-generated, so the catalog must not offer them when the
+// feature is unavailable.
+describe('DashboardCustomizationSidebar custom widget gating', () => {
+  it('offers the custom category when generation is available', () => {
+    render(DashboardCustomizationSidebar, { isOpen: true, activeCategory: 'activity' });
+    expect(screen.getByTestId('customization-category-custom')).toBeInTheDocument();
+  });
 
-    const dailyBriefing = container.querySelector('[data-widget-type="daily-briefing"]');
-    expect(dailyBriefing).not.toBeNull();
-    expect(dailyBriefing).toHaveAttribute('data-dashboard-widget-card');
-    expect(
-      within(dailyBriefing).getByText('dashboard.widgetCatalog.dailyBriefing.name')
-    ).toBeInTheDocument();
-    expect(
-      within(dailyBriefing).getByText('dashboard.widgetCatalog.dailyBriefing.description')
-    ).toBeInTheDocument();
+  it('hides the custom category when no model is configured', () => {
+    aiState.available = false;
+    render(DashboardCustomizationSidebar, { isOpen: true, activeCategory: 'activity' });
+    expect(screen.queryByTestId('customization-category-custom')).not.toBeInTheDocument();
+  });
+
+  it('hides the custom category when the feature is disabled', () => {
+    aiState.enabled = false;
+    render(DashboardCustomizationSidebar, { isOpen: true, activeCategory: 'activity' });
+    expect(screen.queryByTestId('customization-category-custom')).not.toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -164,16 +165,33 @@ func TestRequeueRateLimitedEmails(t *testing.T) {
 		AssertStatusCode(t, resp, http.StatusOK)
 
 		var body struct {
-			Requeued bool `json:"requeued"`
-			FromUID  int  `json:"from_uid"`
+			Requeued      bool `json:"requeued"`
+			FromUID       int  `json:"from_uid"`
+			RequeuedCount int  `json:"requeued_count"`
 		}
 		DecodeJSON(t, resp, &body)
 		if !body.Requeued || body.FromUID != 2 {
 			t.Fatalf("requeue = (requeued:%v from_uid:%d), want (true, 2)", body.Requeued, body.FromUID)
 		}
+		if body.RequeuedCount != 1 {
+			t.Fatalf("requeued_count = %d, want 1", body.RequeuedCount)
+		}
 		lastUID, validity := getEmailWatermark(t, server, channelID)
 		if lastUID != 1 || validity != 42 {
 			t.Fatalf("watermark = %d/%d, want 1/42", lastUID, validity)
+		}
+		// The claim lease must be invalidated so the next poll reclaims the
+		// message instead of deferring behind the 5-minute stale-claim window.
+		var processedAt time.Time
+		if err := server.DB().QueryRow(
+			`SELECT processed_at FROM email_message_tracking WHERE channel_id = ? AND rate_limited_at IS NOT NULL`,
+			channelID,
+		).Scan(&processedAt); err != nil {
+			t.Fatalf("read rate-limited processed_at: %v", err)
+		}
+		// Mirrors the processor's unexported 5-minute trackingClaimStaleAfter.
+		if !processedAt.Before(time.Now().Add(-5 * time.Minute)) {
+			t.Fatalf("processed_at = %v, want a claim older than the stale window", processedAt)
 		}
 	})
 
@@ -229,8 +247,8 @@ func TestRequeueRateLimitedEmailsRequiresChannelManagement(t *testing.T) {
 	otherToken := CreateBearerTokenForUser(t, server, otherUsername, otherPassword)
 
 	for _, tc := range []struct {
-		name    string
-		method  string
+		name     string
+		method   string
 		endpoint string
 	}{
 		{"requeue denied", http.MethodPost, fmt.Sprintf("/channels/%d/email/requeue-rate-limited", channelID)},
@@ -247,4 +265,146 @@ func TestRequeueRateLimitedEmailsRequiresChannelManagement(t *testing.T) {
 	if lastUID, _ := getEmailWatermark(t, server, channelID); lastUID != 2 {
 		t.Fatalf("watermark after denial = %d, want unchanged 2", lastUID)
 	}
+}
+
+// seedRateLimitedIntakeEmail inserts a flood-declined tracking row owned by a
+// specific intake. The production API cannot create rate-limited state without
+// a live IMAP mailbox, so this is the documented direct-write exception.
+func seedRateLimitedIntakeEmail(t *testing.T, server *TestServer, channelID, intakeID int, dedupKey string, uid, uidValidity int) {
+	t.Helper()
+	if _, err := server.DB().ExecWrite(`
+		INSERT INTO email_message_tracking
+			(channel_id, intake_id, message_id, dedup_key, from_email, from_name, subject, direction, uid, uid_validity, rate_limited_at, processed_at)
+		VALUES (?, ?, ?, ?, 'flooder@example.com', 'Flooder', 'Flood', 'inbound', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, channelID, intakeID, "<"+dedupKey+"@example.com>", dedupKey, uid, uidValidity); err != nil {
+		t.Fatalf("seed rate-limited intake tracking row: %v", err)
+	}
+}
+
+func setIntakeWatermark(t *testing.T, server *TestServer, intakeID, lastUID int) {
+	t.Helper()
+	if _, err := server.DB().ExecWrite(`
+		INSERT INTO email_intake_state (intake_id, last_uid, uid_validity)
+		VALUES (?, ?, 42)
+		ON CONFLICT(intake_id) DO UPDATE SET last_uid = excluded.last_uid, uid_validity = 42
+	`, intakeID, lastUID); err != nil {
+		t.Fatalf("set intake watermark: %v", err)
+	}
+}
+
+func getIntakeWatermark(t *testing.T, server *TestServer, intakeID int) (lastUID, uidValidity int) {
+	t.Helper()
+	if err := server.DB().QueryRow(
+		`SELECT last_uid, COALESCE(uid_validity, 0) FROM email_intake_state WHERE intake_id = ?`,
+		intakeID,
+	).Scan(&lastUID, &uidValidity); err != nil {
+		t.Fatalf("read intake watermark: %v", err)
+	}
+	return lastUID, uidValidity
+}
+
+// TestRequeueRateLimitedEmailsPerIntake covers the WI-1644 split: a mailbox
+// with an intake keeps its cursor on email_intake_state, so requeue must rewind
+// that row rather than the unused channel watermark. Pre-split rows
+// (intake_id NULL) still use the channel watermark.
+func TestRequeueRateLimitedEmailsPerIntake(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	server, cleanup := StartTestServer(t, GetDBType())
+	defer cleanup()
+	CreateBearerToken(t, server)
+
+	workspaceID, _ := CreateTestWorkspace(t, server, "Intake requeue", "IRQ")
+	configSetID := GetDefaultConfigurationSet(t, server)
+	itemTypes := GetItemTypes(t, server, configSetID)
+	itemTypeID := RequireItemTypeID(t, itemTypes, "Task")
+	AssociateWorkspaceWithConfigSet(t, server, workspaceID, configSetID)
+
+	channelID := CreateInboundEmailChannel(t, server, EmailChannelConfig{
+		Name:            "Intake requeue mailbox",
+		WorkspaceID:     workspaceID,
+		ItemTypeID:      itemTypeID,
+		EmailProviderID: CreateEmailProvider(t, server, "Intake requeue provider", "generic"),
+		IMAPHost:        "localhost",
+		IMAPPort:        993,
+		Username:        "testuser",
+		Password:        "testpass",
+		Encryption:      "ssl",
+	})
+
+	intakeResp := MakeAuthRequest(t, server, http.MethodPost, fmt.Sprintf("/channels/%d/intakes", channelID), map[string]interface{}{
+		"folder":       "INBOX",
+		"workspace_id": workspaceID,
+		"item_type_id": itemTypeID,
+	})
+	if intakeResp.StatusCode != http.StatusCreated && intakeResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(intakeResp.Body)
+		intakeResp.Body.Close()
+		t.Fatalf("create intake: status=%d body=%s", intakeResp.StatusCode, body)
+	}
+	var intake map[string]interface{}
+	DecodeJSON(t, intakeResp, &intake)
+	intakeResp.Body.Close()
+	intakeID := ExtractIDFromResponse(t, intake)
+
+	// The intake advanced to UID 2 and declined the message there.
+	setIntakeWatermark(t, server, intakeID, 2)
+	seedRateLimitedIntakeEmail(t, server, channelID, intakeID, "rate-intake-1", 2, 42)
+	// A pre-split row stays on the channel watermark.
+	setEmailWatermark(t, server, channelID, 7)
+	seedRateLimitedEmail(t, server, channelID, "rate-legacy-1", 7, 42)
+
+	t.Run("email log reports per-intake watermark", func(t *testing.T) {
+		resp := MakeAuthRequest(t, server, http.MethodGet, fmt.Sprintf("/channels/%d/email-log", channelID), nil)
+		defer resp.Body.Close()
+		AssertStatusCode(t, resp, http.StatusOK)
+
+		var body struct {
+			State struct {
+				Intakes []struct {
+					IntakeID         int `json:"intake_id"`
+					LastUID          int `json:"last_uid"`
+					UIDValidity      int `json:"uid_validity"`
+					RateLimitedCount int `json:"rate_limited_count"`
+				} `json:"intakes"`
+			} `json:"state"`
+		}
+		DecodeJSON(t, resp, &body)
+		if len(body.State.Intakes) != 1 {
+			t.Fatalf("intakes = %d, want 1", len(body.State.Intakes))
+		}
+		got := body.State.Intakes[0]
+		if got.IntakeID != intakeID || got.LastUID != 2 || got.UIDValidity != 42 {
+			t.Fatalf("intake state = %+v, want id=%d last_uid=2 validity=42", got, intakeID)
+		}
+		if got.RateLimitedCount != 1 {
+			t.Fatalf("intake rate_limited_count = %d, want 1", got.RateLimitedCount)
+		}
+	})
+
+	t.Run("requeue rewinds the intake and channel watermarks", func(t *testing.T) {
+		resp := MakeAuthRequest(t, server, http.MethodPost, fmt.Sprintf("/channels/%d/email/requeue-rate-limited", channelID), nil)
+		defer resp.Body.Close()
+		AssertStatusCode(t, resp, http.StatusOK)
+
+		var body struct {
+			Requeued      bool `json:"requeued"`
+			FromUID       int  `json:"from_uid"`
+			RequeuedCount int  `json:"requeued_count"`
+		}
+		DecodeJSON(t, resp, &body)
+		if !body.Requeued || body.FromUID != 2 || body.RequeuedCount != 2 {
+			t.Fatalf("requeue = %+v, want requeued=true from_uid=2 count=2", body)
+		}
+
+		lastUID, validity := getIntakeWatermark(t, server, intakeID)
+		if lastUID != 1 || validity != 42 {
+			t.Fatalf("intake watermark = %d/%d, want 1/42", lastUID, validity)
+		}
+		channelLastUID, _ := getEmailWatermark(t, server, channelID)
+		if channelLastUID != 6 {
+			t.Fatalf("channel watermark = %d, want 6", channelLastUID)
+		}
+	})
 }

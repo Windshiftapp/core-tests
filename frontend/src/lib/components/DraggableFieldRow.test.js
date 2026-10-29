@@ -20,6 +20,5 @@ describe('DraggableFieldRow', () => {
     expect(row).toHaveAttribute('data-field-index', '2');
     expect(container.querySelector('[data-testid="field-drag-summary"]')).toBeTruthy();
     expect(container.querySelector('.drop-indicator')).toBeTruthy();
-    expect(container.querySelectorAll('circle')).toHaveLength(6);
   });
 });

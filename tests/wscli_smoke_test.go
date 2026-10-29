@@ -16,7 +16,7 @@ import (
 // TestWSCLI_Smoke_SeedAndListItems is the canary for the whole stack:
 //   - SeedWorld creates the deterministic dataset
 //   - wscli.Run exercises the in-process Cobra tree
-//   - the CLI hits the bearer-v2 items endpoint
+//   - the CLI hits the same /api/items endpoint as the rest of the suite
 //   - JSON output matches the SeedWorld expectations
 //
 // Failures here mean the refactor or fixtures need attention before we trust
@@ -28,7 +28,8 @@ func TestWSCLI_Smoke_SeedAndListItems(t *testing.T) {
 	w := SeedWorld(t, ts)
 
 	// Sanity: the fixture-side accounting must agree with what the API
-	// returns through the paginated session-v2 items endpoint.
+	// returns. `GET /api/items?workspace_id=` is the auth-side, paged
+	// response we'd hit before MCP/CLI; wire up against it first.
 	gotPaged := GetItemsByWorkspace(t, ts, w.Alpha.ID)
 	if len(gotPaged) != len(w.ItemsInWorkspace(w.Alpha.ID)) {
 		t.Fatalf("seed sanity: GET /items returned %d, fixture has %d", len(gotPaged), len(w.ItemsInWorkspace(w.Alpha.ID)))

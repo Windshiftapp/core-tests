@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -18,19 +19,37 @@ import (
 // preserves the (fromEmail, fromName, ThreadedEmailParams) shape that the
 // existing tests are written against without forcing them to construct
 // mimeOptions inline.
-func buildThreadedMimeMessage(fromEmail, fromName string, p ThreadedEmailParams) string {
-	return buildMime(mimeOptions{
-		FromEmail:  fromEmail,
-		FromName:   fromName,
-		ToEmail:    p.ToEmail,
-		ToName:     p.ToName,
-		Subject:    p.Subject,
-		HTMLBody:   p.HTMLBody,
-		TextBody:   p.TextBody,
-		MessageID:  p.MessageID,
-		InReplyTo:  p.InReplyTo,
-		References: p.References,
+func buildThreadedMimeMessage(t *testing.T, fromEmail, fromName string, p ThreadedEmailParams) string {
+	t.Helper()
+	message, err := buildMime(mimeOptions{
+		FromEmail:    fromEmail,
+		FromName:     fromName,
+		ToEmail:      p.ToEmail,
+		ToName:       p.ToName,
+		ReplyToEmail: p.ReplyToEmail,
+		ReplyToName:  p.ReplyToName,
+		Subject:      p.Subject,
+		HTMLBody:     p.HTMLBody,
+		TextBody:     p.TextBody,
+		MessageID:    p.MessageID,
+		InReplyTo:    p.InReplyTo,
+		References:   p.References,
 	})
+	if err != nil {
+		t.Fatalf("buildMime: %v", err)
+	}
+	return string(message)
+}
+
+// buildTestMime builds a message directly from mimeOptions and returns it as a
+// string for the assertions that still inspect the wire form.
+func buildTestMime(t *testing.T, opts mimeOptions) string {
+	t.Helper()
+	message, err := buildMime(opts)
+	if err != nil {
+		t.Fatalf("buildMime: %v", err)
+	}
+	return string(message)
 }
 
 func TestBuildThreadedMimeMessage_ContainsHeaders(t *testing.T) {
@@ -45,7 +64,7 @@ func TestBuildThreadedMimeMessage_ContainsHeaders(t *testing.T) {
 		References: []string{"<orig-456@example.com>", "<reply-789@example.com>"},
 	}
 
-	msg := buildThreadedMimeMessage("from@example.com", "Sender", params)
+	msg := buildThreadedMimeMessage(t, "from@example.com", "Sender", params)
 
 	if !strings.Contains(msg, "Message-ID: <msg-123@example.com>") {
 		t.Error("Expected Message-ID header in output")
@@ -70,7 +89,7 @@ func TestBuildThreadedMimeMessage_OmitsEmptyHeaders(t *testing.T) {
 		// MessageID, InReplyTo, References all empty
 	}
 
-	msg := buildThreadedMimeMessage("from@example.com", "", params)
+	msg := buildThreadedMimeMessage(t, "from@example.com", "", params)
 
 	if strings.Contains(msg, "Message-ID:") {
 		t.Error("Expected no Message-ID header when MessageID is empty")
@@ -91,22 +110,13 @@ func TestBuildThreadedMimeMessage_MultipartStructure(t *testing.T) {
 		TextBody: "Plain text content",
 	}
 
-	msg := buildThreadedMimeMessage("from@example.com", "Sender", params)
+	parsed := parseGeneratedMime(t, []byte(buildThreadedMimeMessage(t, "from@example.com", "Sender", params)))
 
-	if !strings.Contains(msg, "Content-Type: multipart/alternative") {
-		t.Error("Expected multipart/alternative content type")
+	if got := parsed.parts["text/plain"]; got != params.TextBody {
+		t.Fatalf("text/plain part = %q, want %q", got, params.TextBody)
 	}
-	if !strings.Contains(msg, "Content-Type: text/plain; charset=UTF-8") {
-		t.Error("Expected text/plain part")
-	}
-	if !strings.Contains(msg, "Content-Type: text/html; charset=UTF-8") {
-		t.Error("Expected text/html part")
-	}
-	if !strings.Contains(msg, "Plain text content") {
-		t.Error("Expected text body content in message")
-	}
-	if !strings.Contains(msg, "<p>HTML content</p>") {
-		t.Error("Expected HTML body content in message")
+	if got := parsed.parts["text/html"]; got != params.HTMLBody {
+		t.Fatalf("text/html part = %q, want %q", got, params.HTMLBody)
 	}
 }
 
@@ -120,35 +130,36 @@ func TestBuildThreadedMimeMessage_FromName(t *testing.T) {
 	}
 
 	t.Run("WithFromName", func(t *testing.T) {
-		msg := buildThreadedMimeMessage("from@example.com", "Sender Name", params)
-		if !strings.Contains(msg, "From: Sender Name <from@example.com>") {
-			t.Error("Expected From header with display name")
+		parsed := parseGeneratedMime(t, []byte(buildThreadedMimeMessage(t, "from@example.com", "Sender Name", params)))
+		from := singleMailbox(t, parsed.header, "From")
+		if from.Address != "from@example.com" || from.Name != "Sender Name" {
+			t.Fatalf("From = %q <%q>, want Sender Name <from@example.com>", from.Name, from.Address)
 		}
 	})
 
 	t.Run("WithoutFromName", func(t *testing.T) {
-		msg := buildThreadedMimeMessage("from@example.com", "", params)
-		if !strings.Contains(msg, "From: from@example.com") {
-			t.Error("Expected From header with email only")
-		}
-		if strings.Contains(msg, "From:  <from@example.com>") {
-			t.Error("Should not have empty name in From header")
+		parsed := parseGeneratedMime(t, []byte(buildThreadedMimeMessage(t, "from@example.com", "", params)))
+		from := singleMailbox(t, parsed.header, "From")
+		if from.Address != "from@example.com" || from.Name != "" {
+			t.Fatalf("From = %q <%q>, want bare from@example.com", from.Name, from.Address)
 		}
 	})
 
 	t.Run("ToWithName", func(t *testing.T) {
-		msg := buildThreadedMimeMessage("from@example.com", "", params)
-		if !strings.Contains(msg, "To: Recipient Name <to@example.com>") {
-			t.Error("Expected To header with display name")
+		parsed := parseGeneratedMime(t, []byte(buildThreadedMimeMessage(t, "from@example.com", "", params)))
+		to := singleMailbox(t, parsed.header, "To")
+		if to.Address != "to@example.com" || to.Name != "Recipient Name" {
+			t.Fatalf("To = %q <%q>, want Recipient Name <to@example.com>", to.Name, to.Address)
 		}
 	})
 
 	t.Run("ToWithoutName", func(t *testing.T) {
 		paramsNoName := params
 		paramsNoName.ToName = ""
-		msg := buildThreadedMimeMessage("from@example.com", "", paramsNoName)
-		if !strings.Contains(msg, "To: to@example.com") {
-			t.Error("Expected To header with email only")
+		parsed := parseGeneratedMime(t, []byte(buildThreadedMimeMessage(t, "from@example.com", "", paramsNoName)))
+		to := singleMailbox(t, parsed.header, "To")
+		if to.Address != "to@example.com" || to.Name != "" {
+			t.Fatalf("To = %q <%q>, want bare to@example.com", to.Name, to.Address)
 		}
 	})
 }
@@ -221,7 +232,7 @@ func TestDispatch_RejectsEmptyEncryption(t *testing.T) {
 		SMTPFromEmail:  "from@example.com",
 		SMTPEncryption: "",
 	}
-	err := s.dispatch(cfg, "to@example.com", "BODY")
+	err := s.dispatchContext(context.Background(), cfg, "to@example.com", []byte("BODY"))
 	if err == nil {
 		t.Fatal("expected error for empty SMTPEncryption, got nil")
 	}
@@ -238,7 +249,7 @@ func TestDispatch_RejectsUnknownEncryption(t *testing.T) {
 		SMTPFromEmail:  "from@example.com",
 		SMTPEncryption: "plain", // typo
 	}
-	err := s.dispatch(cfg, "to@example.com", "BODY")
+	err := s.dispatchContext(context.Background(), cfg, "to@example.com", []byte("BODY"))
 	if err == nil {
 		t.Fatal("expected error for unknown SMTPEncryption, got nil")
 	}
@@ -269,7 +280,7 @@ func TestDispatch_RejectsPlaintextAuthentication(t *testing.T) {
 				SMTPEncryption: "none",
 			}
 
-			err := s.dispatch(cfg, "to@example.com", "BODY")
+			err := s.dispatchContext(context.Background(), cfg, "to@example.com", []byte("BODY"))
 			if err == nil {
 				t.Fatal("expected plaintext authentication to be rejected")
 			}
@@ -296,7 +307,7 @@ func TestDispatch_RejectsLoopbackHost(t *testing.T) {
 				SMTPFromEmail:  "from@example.com",
 				SMTPEncryption: mode,
 			}
-			err := s.dispatch(cfg, "to@example.com", "BODY")
+			err := s.dispatchContext(context.Background(), cfg, "to@example.com", []byte("BODY"))
 			if err == nil {
 				t.Fatal("expected SSRF guard to reject loopback, got nil error")
 			}

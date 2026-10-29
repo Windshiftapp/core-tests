@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  findOrphansByMissingParent,
-  indexCollectionHierarchy,
-  mergeAncestorContext,
-} from './collectionHierarchy.js';
+import { findOrphansByMissingParent, indexCollectionHierarchy, mergeAncestorContext } from './collectionHierarchy.js';
 
 describe('indexCollectionHierarchy', () => {
   it('indexes roots and children in one pass while preserving order', () => {

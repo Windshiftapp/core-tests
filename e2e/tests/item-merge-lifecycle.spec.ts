@@ -36,17 +36,18 @@ test.describe('ticket merge lifecycle', () => {
 		);
 		expect(commentResponse.ok()).toBeTruthy();
 
-		// Open the canonical ticket and merge the duplicate in by key.
+		// Open the canonical ticket and merge the duplicate via the work-item picker.
 		await page.goto(`/workspaces/${workspace.id}/items/${canonical.id}`);
 		await expect(page.getByTestId('item-detail-ready')).toBeVisible({ timeout: 10_000 });
 
 		await page.getByTestId('item-detail-actions-menu').click();
 		await page.getByTestId('item-merge-open').click();
 
-		const duplicateKey = `${workspace.key}-${duplicate.workspace_item_number}`;
-		const input = page.getByTestId('item-merge-duplicate-input');
-		await expect(input).toBeVisible();
-		await input.fill(duplicateKey);
+		const dialog = page.getByTestId('item-merge-dialog');
+		await dialog.getByTestId('item-picker-trigger').click();
+		// The picker menu is portalled to <body>, outside the dialog subtree.
+		await page.getByTestId('item-merge-duplicate-search').fill(`Duplicate request ${stamp}`);
+		await page.getByTestId(`item-merge-duplicate-option-${duplicate.id}`).click();
 		await page.getByTestId('item-merge-confirm').click();
 		await expect(page.getByTestId('item-merge-confirm')).toBeHidden({ timeout: 10_000 });
 

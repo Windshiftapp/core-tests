@@ -46,11 +46,12 @@ test("navigates and drills into the same hierarchy across tree, map, and roadmap
 
 	await page.goto(`${collectionBase}/tree`);
 	await expect(page.getByTestId("tree-view")).toBeVisible();
-	await page.getByTestId(`tree-item-${parent.id}`).click();
-	await expect(page).toHaveURL(
-		new RegExp(`${collectionBase}/items/${parent.id}$`),
-	);
-	await expect(page.getByTestId("item-title-edit")).toHaveText(parent.title);
+	// The key cell keeps a real href but opens the global item modal on a plain
+	// left click, so assert the modal instead of a route change.
+	await page.getByTestId(`list-cell-key-${parent.id}`).click();
+	const modal = page.getByTestId("item-detail-modal");
+	await expect(modal).toBeVisible();
+	await expect(modal.getByTestId("item-title-edit")).toHaveText(parent.title);
 
 	await page.goto(`${collectionBase}/map`);
 	await expect(page.getByTestId("map-view")).toBeVisible();
@@ -66,7 +67,60 @@ test("navigates and drills into the same hierarchy across tree, map, and roadmap
 	await page.goto(`${collectionBase}/roadmap`);
 	await expect(page.getByTestId("roadmap-view")).toBeVisible();
 	await page.getByTestId(`roadmap-item-${child.id}`).click();
-	await expect(page.getByTestId("item-title-edit")).toHaveText(child.title);
+	await expect(modal).toBeVisible();
+	await expect(modal.getByTestId("item-title-edit")).toHaveText(child.title);
+});
+
+test("indents nested tree rows by hierarchy depth", async ({
+	page,
+	request,
+}) => {
+	const stamp = Date.now();
+	const workspace = await createWorkspaceViaAPI(request, {
+		name: `Tree indent ${stamp}`,
+		key: `TI${stamp.toString().slice(-6)}`.toUpperCase(),
+		description: "Playwright tree indentation coverage",
+	});
+	const parent = await createItemViaAPI(request, workspace.id, {
+		title: `Indent parent ${stamp}`,
+	});
+	const child = await createItemViaAPI(request, workspace.id, {
+		title: `Indent child ${stamp}`,
+		parent_id: parent.id,
+	});
+	const grandchild = await createItemViaAPI(request, workspace.id, {
+		title: `Indent grandchild ${stamp}`,
+		parent_id: child.id,
+	});
+	const collection = await createCollectionViaAPI(request, {
+		name: `Indent collection ${stamp}`,
+		workspace_id: workspace.id,
+		ql_query: `title ~ "${stamp}"`,
+	});
+
+	await page.goto(
+		`/workspaces/${workspace.id}/collections/${collection.id}/tree`,
+	);
+	await expect(page.getByTestId(`tree-row-${parent.id}`)).toBeVisible();
+	// Roots with children start expanded, so the child row is already there.
+	await expect(page.getByTestId(`tree-row-${child.id}`)).toBeVisible();
+	await page.getByTestId(`tree-expand-${child.id}`).click();
+	await expect(page.getByTestId(`tree-row-${grandchild.id}`)).toBeVisible();
+
+	const titleX = (id: number) =>
+		page
+			.getByTestId(`workspace-item-title-${id}`)
+			.evaluate((element) => element.getBoundingClientRect().x);
+	const parentX = await titleX(parent.id);
+	const childX = await titleX(child.id);
+	const grandchildX = await titleX(grandchild.id);
+
+	// Each depth steps the title right by the same indent instead of leaving
+	// every title at the expander column's x position.
+	const firstStep = childX - parentX;
+	const secondStep = grandchildX - childX;
+	expect(firstStep).toBeGreaterThan(0);
+	expect(secondStep).toBeCloseTo(firstStep, 1);
 });
 
 test("dragging at the map edge scrolls the hierarchy horizontally", {

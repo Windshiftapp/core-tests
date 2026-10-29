@@ -19,25 +19,26 @@ const mocks = vi.hoisted(() => ({
   upload: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    attachments: { upload: mocks.upload },
-    createApiToken: mocks.createApiToken,
-    createMyAgent: mocks.createMyAgent,
-    deleteMyAgent: mocks.deleteMyAgent,
-    getApiTokens: mocks.getApiTokens,
-    getMyAgents: mocks.getMyAgents,
-    revokeApiToken: mocks.revokeApiToken,
-    updateMyAgent: mocks.updateMyAgent,
-    updateUserAvatar: mocks.updateUserAvatar,
-    updateUserRegionalSettings: mocks.updateUserRegionalSettings,
-  },
+vi.mock('../api/misc.js', () => ({
+  attachments: { upload: mocks.upload },
   createCalendarFeedToken: mocks.createCalendarFeedToken,
   getCalendarFeedToken: mocks.getCalendarFeedToken,
   revokeCalendarFeedToken: mocks.revokeCalendarFeedToken,
+}))
+
+vi.mock('../api/users.js', () => ({
+  createApiToken: mocks.createApiToken,
+  createMyAgent: mocks.createMyAgent,
+  deleteMyAgent: mocks.deleteMyAgent,
+  getApiTokens: mocks.getApiTokens,
+  getMyAgents: mocks.getMyAgents,
+  revokeApiToken: mocks.revokeApiToken,
+  updateMyAgent: mocks.updateMyAgent,
+  updateUserAvatar: mocks.updateUserAvatar,
+  updateUserRegionalSettings: mocks.updateUserRegionalSettings,
 }));
 
-vi.mock('../stores', () => ({
+vi.mock('../stores/auth.svelte.js', () => ({
   authStore: { patchCurrentUser: mocks.patchCurrentUser },
 }));
 
@@ -56,6 +57,14 @@ import ProfileAgentsTab from './ProfileAgentsTab.svelte';
 import ProfileAvatarTab from './ProfileAvatarTab.svelte';
 import ProfileCalendarTab from './ProfileCalendarTab.svelte';
 import ProfileRegionalSettingsTab from './ProfileRegionalSettingsTab.svelte';
+import {
+  attachments,
+  createCalendarFeedToken,
+  getCalendarFeedToken,
+  revokeCalendarFeedToken,
+} from '../api/misc.js';
+import { createApiToken, createMyAgent, deleteMyAgent, getApiTokens, getMyAgents, revokeApiToken, updateMyAgent, updateUserAvatar, updateUserRegionalSettings } from '../api/users.js';
+
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -78,6 +78,15 @@ var MatrixRoutes = []MatrixRoute{
 		},
 	},
 
+	{
+		Method: "POST",
+		Path:   "/api/v2/users/display-batch",
+		Class:  "global.user.display",
+		Body: func(fx MatrixFixtures) any {
+			return map[string]any{"ids": []int{1}}
+		},
+	},
+
 	// --- Policy-intent classifications (drift guard only, not re-exercised) ---
 	//
 	// Routes below share a policy class with one of the representatives above.
@@ -107,7 +116,6 @@ var MatrixRoutes = []MatrixRoute{
 	{Method: "GET", Path: "/api/items/{id}/worklogs", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/time-rollup", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/labels", Class: "workspace.item.view"},
-	{Method: "GET", Path: "/api/items/{id}/personal-labels", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/approvals", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/integration-links", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/scm-connection-status", Class: "workspace.item.view"},
@@ -115,6 +123,8 @@ var MatrixRoutes = []MatrixRoute{
 	{Method: "GET", Path: "/api/items/{id}/scm-repositories", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/webhooks", Class: "workspace.item.view"},
 	{Method: "GET", Path: "/api/items/{id}/agent-runs", Class: "workspace.item.view"},
+	// Duplicate-candidates panel (WI-1548).
+	{Method: "GET", Path: "/api/items/{id}/requester-open-tickets", Class: "workspace.item.view"},
 	// Incident reads allow workspace viewers or the incident team's responders.
 	{Method: "GET", Path: "/api/items/{id}/incident", Class: "workspace.item.view"},
 
@@ -138,8 +148,6 @@ var MatrixRoutes = []MatrixRoute{
 	{Method: "POST", Path: "/api/items/{id}/diagrams", Class: "workspace.item.edit"},
 	{Method: "PUT", Path: "/api/items/{id}/labels", Class: "workspace.item.edit"},
 	{Method: "POST", Path: "/api/items/{id}/labels", Class: "workspace.item.edit"},
-	{Method: "PUT", Path: "/api/items/{id}/personal-labels", Class: "workspace.item.edit"},
-	{Method: "POST", Path: "/api/items/{id}/personal-labels", Class: "workspace.item.edit"},
 	// Declaring an incident requires item edit permission; the item's team
 	// supplies the escalation policy.
 	{Method: "POST", Path: "/api/items/{id}/incident", Class: "workspace.item.edit"},
@@ -149,6 +157,7 @@ var MatrixRoutes = []MatrixRoute{
 	// via CheckItemPermission (zammad.go): reads on view, ticket creation and
 	// linking on edit.
 	{Method: "GET", Path: "/api/items/{id}/zammad-links", Class: "workspace.item.view"},
+	{Method: "GET", Path: "/api/items/{id}/zammad-history", Class: "workspace.item.view"},
 	{Method: "POST", Path: "/api/items/{id}/zammad-tickets", Class: "workspace.item.edit"},
 	{Method: "POST", Path: "/api/items/{id}/zammad-ticket-links", Class: "workspace.item.edit"},
 	{Method: "POST", Path: "/api/items/{id}/scm-links", Class: "workspace.item.edit"},

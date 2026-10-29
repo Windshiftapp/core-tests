@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,26 +8,38 @@ const { getManyAncestors } = vi.hoisted(() => ({
 
 vi.mock('../../stores/collectionContext.js', async () => {
   const { collectionTreeStore } = await import('./collectionTreeStoreMock.svelte.js');
-  return { collectionStore: collectionTreeStore };
+  return { collectionStore: collectionTreeStore, scheduleCollectionReconciliation: vi.fn() };
 });
-vi.mock('../../stores/index.js', () => ({
+vi.mock('../../stores/auth.svelte.js', () => ({
+  authStore: { currentUser: { id: 1 } },
+}))
+
+vi.mock('../../stores/itemTestCaseLinksStore.svelte.js', () => ({
   itemTestCaseLinksStore: {
-    initialize: vi.fn(),
-    loadForItems: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockReturnValue(null),
-  },
+      initialize: vi.fn(),
+      loadForItems: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockReturnValue(null),
+    },
+}))
+
+vi.mock('../../stores/workspaceDataStore.svelte.js', () => ({
   workspaceDataStore: {
-    workspace: { id: 1, name: 'Windshift', key: 'WS' },
-    itemTypes: [],
-    statuses: [],
-    statusCategories: [],
-    priorities: [],
-    initialize: vi.fn().mockResolvedValue(undefined),
-    initializeGlobal: vi.fn().mockResolvedValue(undefined),
-  },
+      workspace: { id: 1, name: 'Windshift', key: 'WS' },
+      itemTypes: [],
+      statuses: [],
+      statusCategories: [],
+      priorities: [],
+      users: [],
+      milestones: [],
+      iterations: [],
+      projects: [],
+      customFieldDefinitions: [],
+      initialize: vi.fn().mockResolvedValue(undefined),
+      initializeGlobal: vi.fn().mockResolvedValue(undefined),
+    },
 }));
-vi.mock('../../api.js', () => ({
-  api: { items: { getManyAncestors } },
+vi.mock('../../api/items.js', () => ({
+  items: { getManyAncestors },
 }));
 vi.mock('../../stores/workspaceGradient.svelte.js', () => ({
   useGradientStyles: () => ({
@@ -44,8 +56,9 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
     const strings = {
       'layout.items': 'items',
       'collections.itemsShown': '{count} shown',
-      'collectionTree.showingRootItems': 'Top-level items {start}-{end} of {total}',
-      'collectionTree.pageOfTotal': 'Page {current} of {total}',
+      'common.loadMore': 'Load more',
+      'common.loading': 'Loading',
+      'common.remaining': 'remaining',
     };
     let text = strings[key] ?? key;
     for (const [name, value] of Object.entries(params)) {
@@ -60,6 +73,7 @@ vi.mock('../../dialogs/TestCaseViewModal.svelte', () => import('./EmptyBacklogCh
 
 import CollectionTree from './CollectionTree.svelte';
 import { collectionTreeStore } from './collectionTreeStoreMock.svelte.js';
+import { items } from '../../api/items.js';
 
 function item(id, parentId, title = `Item ${id}`) {
   return {
@@ -81,8 +95,8 @@ function deferred() {
 }
 
 function rowIndent(testId) {
-  const row = screen.getByTestId(testId).closest('.tree-row');
-  return row.firstElementChild.style.marginLeft;
+  const id = testId.replace('tree-row-', '');
+  return screen.getByTestId(`tree-indent-${id}`).style.paddingLeft;
 }
 
 afterEach(() => {
@@ -91,6 +105,9 @@ afterEach(() => {
   collectionTreeStore.items = [];
   collectionTreeStore.itemsPagination = null;
   collectionTreeStore.collectionTotal = null;
+  collectionTreeStore.itemsHasMore = false;
+  collectionTreeStore.itemsLoadingMore = false;
+  collectionTreeStore.itemsRemainingCount = 0;
   vi.clearAllMocks();
 });
 
@@ -102,20 +119,20 @@ describe('CollectionTree ancestor context', () => {
 
     render(CollectionTree, { workspaceId: 1 });
 
-    expect(await screen.findByTestId('tree-item-20')).toBeInTheDocument();
-    expect(screen.queryByTestId('tree-item-13')).not.toBeInTheDocument();
-    expect(rowIndent('tree-item-20')).toBe('0px');
+    expect(await screen.findByTestId('tree-row-20')).toBeInTheDocument();
+    expect(screen.queryByTestId('tree-row-13')).not.toBeInTheDocument();
+    expect(rowIndent('tree-row-20')).toBe('0rem');
 
     parentChain.resolve([{ item_id: 20, ancestors: [item(13, null, 'BizNut racing game')] }]);
-    expect(await screen.findByTestId('tree-item-13')).toBeInTheDocument();
+    expect(await screen.findByTestId('tree-row-13')).toBeInTheDocument();
 
-    const parentRow = screen.getByTestId('tree-item-13').closest('.tree-row');
-    const childRow = screen.getByTestId('tree-item-20').closest('.tree-row');
+    const parentRow = screen.getByTestId('tree-row-13').closest('.tree-row');
+    const childRow = screen.getByTestId('tree-row-20').closest('.tree-row');
     expect(
       parentRow.compareDocumentPosition(childRow) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(rowIndent('tree-item-13')).toBe('0px');
-    expect(rowIndent('tree-item-20')).toBe('24px');
+    expect(rowIndent('tree-row-13')).toBe('0rem');
+    expect(rowIndent('tree-row-20')).toBe('1.5rem');
     // The new parent is expanded so the child stays visible.
     expect(within(parentRow).getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(getManyAncestors).toHaveBeenCalledTimes(1);
@@ -131,12 +148,12 @@ describe('CollectionTree ancestor context', () => {
 
     render(CollectionTree, { workspaceId: 1 });
 
-    expect(await screen.findByTestId('tree-item-13')).toBeInTheDocument();
-    expect(await screen.findByTestId('tree-item-40')).toBeInTheDocument();
+    expect(await screen.findByTestId('tree-row-13')).toBeInTheDocument();
+    expect(await screen.findByTestId('tree-row-40')).toBeInTheDocument();
     expect(getManyAncestors).toHaveBeenCalledTimes(1);
     // One representative orphan per missing parent: siblings share a chain.
     expect(getManyAncestors).toHaveBeenCalledWith([20, 30]);
-    expect(rowIndent('tree-item-21')).toBe('24px');
+    expect(rowIndent('tree-row-21')).toBe('1.5rem');
   });
 
   it('keeps a multi-level chain nested from root to leaf', async () => {
@@ -150,11 +167,11 @@ describe('CollectionTree ancestor context', () => {
 
     render(CollectionTree, { workspaceId: 1 });
 
-    expect(await screen.findByTestId('tree-item-30')).toBeInTheDocument();
-    expect(rowIndent('tree-item-5')).toBe('0px');
-    expect(rowIndent('tree-item-12')).toBe('24px');
-    expect(rowIndent('tree-item-20')).toBe('48px');
-    expect(rowIndent('tree-item-30')).toBe('72px');
+    expect(await screen.findByTestId('tree-row-30')).toBeInTheDocument();
+    expect(rowIndent('tree-row-5')).toBe('0rem');
+    expect(rowIndent('tree-row-12')).toBe('1.5rem');
+    expect(rowIndent('tree-row-20')).toBe('3rem');
+    expect(rowIndent('tree-row-30')).toBe('4.5rem');
   });
 
   it('covers a page of many distinct missing parents with one batched request', async () => {
@@ -172,13 +189,13 @@ describe('CollectionTree ancestor context', () => {
 
     render(CollectionTree, { workspaceId: 1 });
 
-    expect(await screen.findByTestId('tree-item-1111')).toBeInTheDocument();
+    expect(await screen.findByTestId('tree-row-1111')).toBeInTheDocument();
     expect(getManyAncestors).toHaveBeenCalledTimes(1);
     expect(getManyAncestors).toHaveBeenCalledWith([
       100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
     ]);
     for (let id = 100; id < 112; id++) {
-      expect(screen.getByTestId(`tree-item-${id + 1000}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`tree-row-${id + 1000}`)).toBeInTheDocument();
     }
   });
 
@@ -188,8 +205,8 @@ describe('CollectionTree ancestor context', () => {
 
     render(CollectionTree, { workspaceId: 1 });
 
-    expect(await screen.findByTestId('tree-item-20')).toBeInTheDocument();
-    expect(rowIndent('tree-item-20')).toBe('24px');
+    expect(await screen.findByTestId('tree-row-20')).toBeInTheDocument();
+    expect(rowIndent('tree-row-20')).toBe('1.5rem');
     expect(getManyAncestors).not.toHaveBeenCalled();
   });
 
@@ -200,15 +217,15 @@ describe('CollectionTree ancestor context', () => {
     collectionTreeStore.items = [item(20, 13)];
 
     render(CollectionTree, { workspaceId: 1 });
-    expect(await screen.findByTestId('tree-item-13')).toBeInTheDocument();
+    expect(await screen.findByTestId('tree-row-13')).toBeInTheDocument();
 
     // Simulate toggling the completed filter: the reload now includes the
     // parent, so the fetched context must be dropped without a refetch.
     collectionTreeStore.items = [item(13, null), item(20, 13)];
     await tick();
 
-    expect(rowIndent('tree-item-13')).toBe('0px');
-    expect(rowIndent('tree-item-20')).toBe('24px');
+    expect(rowIndent('tree-row-13')).toBe('0rem');
+    expect(rowIndent('tree-row-20')).toBe('1.5rem');
     expect(getManyAncestors).toHaveBeenCalledTimes(1);
   });
 
@@ -237,19 +254,32 @@ describe('CollectionTree ancestor context', () => {
     expect(screen.getByTestId('page-header-subtitle')).not.toHaveTextContent('shown');
   });
 
-  it('describes pagination as top-level items across pages', async () => {
+  it('renders every loaded root instead of a client page of them', async () => {
     getManyAncestors.mockResolvedValue([]);
-    collectionTreeStore.items = Array.from({ length: 114 }, (_, index) => item(index + 1, null));
-    collectionTreeStore.collectionTotal = 114;
-    collectionTreeStore.itemsPagination = { total_items: 114, page: 1 };
+    collectionTreeStore.items = Array.from({ length: 60 }, (_, index) => item(index + 1, null));
+    collectionTreeStore.collectionTotal = 60;
+    collectionTreeStore.itemsPagination = { total_items: 60, page: 1 };
 
     render(CollectionTree, { workspaceId: 1 });
 
-    expect(await screen.findByTestId('page-header-subtitle')).toHaveTextContent('114 items');
-    expect(screen.getByText('Top-level items 1-50 of 114')).toBeInTheDocument();
-    // Rendered twice: top controls and bottom pagination.
-    expect(screen.getAllByText('Page 1 of 3')).toHaveLength(2);
-    // The old wording collided with the header's "shown" counter.
-    expect(screen.queryByText(/Showing .* of 114 root items/)).not.toBeInTheDocument();
+    expect(await screen.findByTestId('tree-row-60')).toBeInTheDocument();
+    expect(screen.queryByText(/Top-level items/)).not.toBeInTheDocument();
+  });
+
+  it('offers a server continuation when more items remain', async () => {
+    getManyAncestors.mockResolvedValue([]);
+    collectionTreeStore.items = [item(1, null)];
+    collectionTreeStore.itemsPagination = { total_items: 300, page: 1 };
+    collectionTreeStore.itemsHasMore = true;
+    collectionTreeStore.itemsRemainingCount = 200;
+
+    render(CollectionTree, { workspaceId: 1 });
+
+    const button = await screen.findByTestId('tree-load-more-button');
+    expect(button).toHaveTextContent('Load more');
+    expect(button).toHaveTextContent('200 remaining');
+
+    await fireEvent.click(button);
+    expect(collectionTreeStore.loadMoreItems).toHaveBeenCalledTimes(1);
   });
 });

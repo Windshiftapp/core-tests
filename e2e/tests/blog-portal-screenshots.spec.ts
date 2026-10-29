@@ -33,15 +33,15 @@ test('generate customer portal blog screenshots', async ({ page, request }) => {
     description: 'A customer portal connected directly to the delivery workspace.',
   });
 
-  const onboarding = await createRequestType(request, channel.id, {
+  const onboarding = await createRequestType(request, channel.id, workspace.id, {
     name: 'New customer onboarding',
     description: 'Collect company details, environments, access, and approvals in one guided request.',
   });
-  const incident = await createRequestType(request, channel.id, {
+  const incident = await createRequestType(request, channel.id, workspace.id, {
     name: 'Report a production issue',
     description: 'Tell the team what is affected and how urgent it is.',
   });
-  const feature = await createRequestType(request, channel.id, {
+  const feature = await createRequestType(request, channel.id, workspace.id, {
     name: 'Suggest a product change',
     description: 'Share product feedback or request a change for a future release.',
   });
@@ -147,6 +147,7 @@ async function createPortalChannel(
 async function createRequestType(
   request: APIRequestContext,
   channelId: number,
+  workspaceId: number,
   opts: { name: string; description: string }
 ) {
   const resp = await request.post(`/api/channels/${channelId}/request-types`, {
@@ -158,6 +159,7 @@ async function createRequestType(
       is_active: true,
       icon: 'FileText',
       color: '#2563eb',
+      workspace_id: workspaceId,
     },
   });
   expect(resp.ok(), `create request type: ${resp.status()} ${await resp.text()}`).toBeTruthy();

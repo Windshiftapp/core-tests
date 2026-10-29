@@ -99,7 +99,7 @@ func TestSecuritySettingsHandler_WorkspaceManagedAgentsSharesModuleSetting(t *te
 		t.Fatalf("expected shared setting false, got %q", stored)
 	}
 
-	setup := NewSetupHandler(tdb.GetDatabase(), nil, nil)
+	setup := NewSetupHandler(tdb.GetDatabase(), nil, nil, nil)
 	moduleSettings, err := setup.ModuleSettings()
 	if err != nil {
 		t.Fatalf("load module settings: %v", err)

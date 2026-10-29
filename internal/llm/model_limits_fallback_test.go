@@ -26,12 +26,12 @@ func TestApplyFallbackModelLimits(t *testing.T) {
 		{
 			name:      "nothing resolved falls back to both floors",
 			contextIn: 0, outputIn: 0,
-			wantContext: fallbackContextWindow, wantOutput: fallbackMaxOutputTokens, wantApplied: true,
+			wantContext: fallbackContextWindow, wantOutput: FallbackMaxOutputTokens, wantApplied: true,
 		},
 		{
-			name:      "advertised context keeps its value while output falls back",
+			name:      "advertised context caps the output fallback",
 			contextIn: 32000, outputIn: 0,
-			wantContext: 32000, wantOutput: fallbackMaxOutputTokens, wantApplied: true,
+			wantContext: 32000, wantOutput: 32000, wantApplied: true,
 		},
 		{
 			name:      "output floor never exceeds a smaller advertised context",
@@ -104,10 +104,10 @@ func TestConnectionRuntimeResolvesModelsWithoutCatalogLimits(t *testing.T) {
 		name                    string
 		wantContext, wantOutput int
 	}{
-		{connection: 1, name: "local", wantContext: fallbackContextWindow, wantOutput: fallbackMaxOutputTokens},
-		{connection: 2, name: "anthropic", wantContext: fallbackContextWindow, wantOutput: fallbackMaxOutputTokens},
+		{connection: 1, name: "local", wantContext: fallbackContextWindow, wantOutput: FallbackMaxOutputTokens},
+		{connection: 2, name: "anthropic", wantContext: fallbackContextWindow, wantOutput: FallbackMaxOutputTokens},
 		// A partially advertised model keeps what the catalog did supply.
-		{connection: 3, name: "openrouter", wantContext: 200000, wantOutput: fallbackMaxOutputTokens},
+		{connection: 3, name: "openrouter", wantContext: 200000, wantOutput: FallbackMaxOutputTokens},
 		// A fully catalogued model must not be touched by the fallback.
 		{connection: 4, name: "catalog", wantContext: 128000, wantOutput: 16384},
 	} {

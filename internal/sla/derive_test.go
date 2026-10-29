@@ -150,6 +150,9 @@ func TestDeriveNoGoalHasNoRemaining(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
+	if derived.ElapsedMs != 0 {
+		t.Fatalf("elapsed = %d for a cycle without a goal, want 0", derived.ElapsedMs)
+	}
 	if derived.RemainingMs != nil {
 		t.Fatalf("remaining = %v, want nil", derived.RemainingMs)
 	}

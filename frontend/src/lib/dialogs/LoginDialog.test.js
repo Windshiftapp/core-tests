@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   startLogin: vi.fn(),
 }));
 
-vi.mock('../stores', async () => {
+vi.mock('../stores/auth.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   const authStore = Object.assign(writable({ loading: false, error: null }), {
     clearError: mocks.clearError,
@@ -27,10 +27,36 @@ vi.mock('../stores', async () => {
       startLogin: mocks.startLogin,
     }
   );
-  return { authStore, ssoStore };
+  return {
+    authStore,
+  };
+})
+
+vi.mock('../stores/sso.svelte.js', async () => {
+  const { writable } = await import('svelte/store');
+  const authStore = Object.assign(writable({ loading: false, error: null }), {
+    clearError: mocks.clearError,
+    login: vi.fn(),
+  });
+  const ssoStore = Object.assign(
+    writable({
+      enabled: true,
+      providerName: 'Acme SSO',
+      providers: [{ slug: 'acme', name: 'Acme SSO', provider_type: 'oidc' }],
+      statusLoading: false,
+    }),
+    {
+      initStatus: mocks.initStatus,
+      checkForError: vi.fn().mockReturnValue(null),
+      startLogin: mocks.startLogin,
+    }
+  );
+  return {
+    ssoStore,
+  };
 });
 
-vi.mock('../api.js', () => ({ api: {} }));
+;
 vi.mock('../api/admin.js', () => ({
   authPolicy: { getPublicStatus: mocks.getPublicStatus },
 }));
@@ -62,6 +88,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
 }));
 
 import LoginDialog from './LoginDialog.svelte';
+import { authPolicy } from '../api/admin.js';
 
 beforeEach(() => {
   mocks.clearError.mockClear();

@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { currentRoute, initRouter, navigate, setNavigationInterceptor } from './router.js';
+import { currentRoute, initRouter, matchRoute, navigate, setNavigationInterceptor } from './router.js';
 
 beforeAll(() => {
   initRouter();
@@ -121,13 +121,51 @@ describe('navigation interceptor (mobile editor back guard)', () => {
   });
 });
 
-describe('channel manager route', () => {
-  it('resolves outside the system administration route', () => {
+describe('same-URL navigation recovery', () => {
+  it('republishes the route when the URL matches but the route store has drifted', () => {
+    navigate('/workspaces/1');
+    expect(get(currentRoute).path).toBe('/workspaces/1');
+
+    // A direct history write changes the URL without publishing a route.
+    window.history.replaceState({}, '', '/workspaces/1/items/102');
+
+    navigate('/workspaces/1/items/102');
+
+    expect(get(currentRoute)).toMatchObject({
+      path: '/workspaces/1/items/102',
+      view: 'item-detail',
+    });
+  });
+
+  it('does not add a history entry when repairing a drifted route', () => {
+    navigate('/workspaces/1');
+    window.history.replaceState({}, '', '/workspaces/1/items/102');
+    const lengthBefore = window.history.length;
+
+    navigate('/workspaces/1/items/102');
+
+    expect(window.history.length).toBe(lengthBefore);
+  });
+});
+
+describe('delegated admin route', () => {
+  it('resolves /manage outside the system administration route', () => {
+    navigate('/manage');
+
+    expect(get(currentRoute)).toMatchObject({
+      path: '/manage',
+      view: 'delegated-admin',
+      params: {},
+    });
+  });
+
+  it('resolves a delegated surface tab', () => {
     navigate('/manage/channels');
 
     expect(get(currentRoute)).toMatchObject({
       path: '/manage/channels',
-      view: 'channel-manager',
+      view: 'delegated-admin',
+      params: { tab: 'channels' },
     });
   });
 });
@@ -235,5 +273,29 @@ describe('portal request routes', () => {
         'prefill.device': '431',
       },
     });
+  });
+});
+
+describe('matchRoute', () => {
+  it('resolves exact routes without parameters', () => {
+    expect(matchRoute('/notifications')).toEqual({ view: 'notifications', params: {} });
+  });
+
+  it('captures parameters from parameterized routes', () => {
+    expect(matchRoute('/workspaces/42/board')).toEqual({
+      view: 'workspace-board',
+      params: { id: '42' },
+    });
+  });
+
+  it('prefers the exact route over a parameterized match', () => {
+    expect(matchRoute('/workspaces/7/pages/archived')).toEqual({
+      view: 'workspace-pages-archived',
+      params: { id: '7' },
+    });
+  });
+
+  it('returns null for unknown paths so callers can apply their own fallback', () => {
+    expect(matchRoute('/definitely-not-a-route')).toBeNull();
   });
 });

@@ -3,10 +3,100 @@ package services
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/emailutil"
 )
+
+// capturingMagicLinkSender records the template payload so tests can assert
+// the verify URL the customer receives without touching SMTP.
+type capturingMagicLinkSender struct {
+	templateName string
+	data         any
+}
+
+func (c *capturingMagicLinkSender) IsSMTPConfigured() bool { return true }
+
+func (c *capturingMagicLinkSender) SendTransactional(_ string, templateName string, data any) error {
+	c.templateName = templateName
+	c.data = data
+	return nil
+}
+
+func TestSendMagicLinkEmailEmbedsValidatedNextDestination(t *testing.T) {
+	tests := []struct {
+		name string
+		next string
+		want string
+	}{
+		{
+			name: "without next the fragment carries only the token",
+			next: "",
+			want: "https://portal.example.com/portal/acme/verify#token=tok",
+		},
+		{
+			name: "query separators are encoded so the fragment stays parseable",
+			next: "/portal/acme?view=requests&id=42&prefill.title=a b",
+			want: "https://portal.example.com/portal/acme/verify#token=tok&next=%2Fportal%2Facme%3Fview%3Drequests%26id%3D42%26prefill.title%3Da%20b",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &capturingMagicLinkSender{}
+			service := NewMagicLinkService(nil, sender, "https://portal.example.com")
+
+			if err := service.SendMagicLinkEmail("customer@example.com", "Customer", "tok", "acme", tc.next); err != nil {
+				t.Fatalf("SendMagicLinkEmail: %v", err)
+			}
+			if sender.templateName != emailutil.TemplateMagicLink {
+				t.Fatalf("template = %q, want %q", sender.templateName, emailutil.TemplateMagicLink)
+			}
+			payload, ok := sender.data.(struct {
+				FirstName    string
+				MagicLinkURL string
+				ExpiresIn    string
+			})
+			if !ok {
+				t.Fatalf("unexpected payload type %T", sender.data)
+			}
+			if payload.MagicLinkURL != tc.want {
+				t.Fatalf("MagicLinkURL = %q, want %q", payload.MagicLinkURL, tc.want)
+			}
+		})
+	}
+}
+
+func TestPortalNextPathAcceptsOnlySamePortalPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "empty is dropped", raw: "", want: ""},
+		{name: "same portal home is kept", raw: "/portal/acme", want: "/portal/acme"},
+		{name: "same portal nested path is kept", raw: "/portal/acme/approvals/17", want: "/portal/acme/approvals/17"},
+		{name: "same portal query is kept", raw: "/portal/acme?view=requests&id=42", want: "/portal/acme?view=requests&id=42"},
+		{name: "whitespace is trimmed", raw: "  /portal/acme/kb  ", want: "/portal/acme/kb"},
+		{name: "other portal is rejected", raw: "/portal/other/approvals/17", want: ""},
+		{name: "prefix collision is rejected", raw: "/portal/acmex", want: ""},
+		{name: "external URL is rejected", raw: "https://evil.example.com/", want: ""},
+		{name: "protocol relative is rejected", raw: "//evil.example.com/portal/acme", want: ""},
+		{name: "root is rejected", raw: "/", want: ""},
+		{name: "non portal path is rejected", raw: "/admin", want: ""},
+		{name: "over long value is dropped", raw: "/portal/acme/" + strings.Repeat("a", 2048), want: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PortalNextPath(tc.raw, "acme"); got != tc.want {
+				t.Fatalf("PortalNextPath(%q) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestFindOrCreatePortalCustomerGrantsChannelAccessIdempotently(t *testing.T) {
 	db, err := database.NewSQLiteDB(filepath.Join(t.TempDir(), "magic-link-customer.db"))

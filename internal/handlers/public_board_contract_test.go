@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"windshift/internal/blobstore"
 	"windshift/internal/models"
 	"windshift/internal/services"
 	"windshift/internal/testutils"
@@ -114,7 +115,7 @@ func newPublicBoardContractFixture(t *testing.T) *publicBoardContractFixture {
 	}
 
 	return &publicBoardContractFixture{
-		db: db, handler: NewPublicBoardHandler(db, nil, t.TempDir()),
+		db: db, handler: NewPublicBoardHandler(db, nil, blobstore.NewLocal(t.TempDir())),
 		collectionID: collectionID, statusA: statusA, statusB: statusB, newestItemID: newestItemID,
 	}
 }
@@ -259,5 +260,168 @@ func TestPublicBoardAttachmentRejectsItemsOutsideCollection(t *testing.T) {
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("cache-control = %q, want no-store", recorder.Header().Get("Cache-Control"))
+	}
+}
+
+// Public milestone swimlanes are an owner-configured presentation choice. The
+// flat board must not ship milestone data, and enabling the flag must expose
+// only the milestones referenced by returned cards, ordered by target date.
+func TestPublicBoardMilestoneSwimlanesAreOptIn(t *testing.T) {
+	db := testutils.CreateTestDB(t, true)
+	if !testutils.IsPostgres() {
+		t.Cleanup(func() { _ = db.Close() })
+	}
+
+	var workspaceID, statusA, statusB int
+	if err := db.QueryRow(`INSERT INTO workspaces (name, key) VALUES ('Milestone public board', 'PMB') RETURNING id`).Scan(&workspaceID); err != nil {
+		t.Fatalf("insert workspace: %v", err)
+	}
+	rows, err := db.Query(`SELECT id FROM statuses ORDER BY id LIMIT 2`)
+	if err != nil {
+		t.Fatalf("load statuses: %v", err)
+	}
+	defer rows.Close()
+	statuses := []int{}
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan status: %v", err)
+		}
+		statuses = append(statuses, id)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("seeded statuses = %v, want two", statuses)
+	}
+	statusA, statusB = statuses[0], statuses[1]
+
+	var collectionID int
+	if err := db.QueryRow(`
+		INSERT INTO collections (name, ql_query, is_public, workspace_id, public_slug)
+		VALUES ('Milestone board', 'workspace_id = ' || ? || ' AND id > 0', true, ?, 'milestone-board')
+		RETURNING id
+	`, workspaceID, workspaceID).Scan(&collectionID); err != nil {
+		t.Fatalf("insert collection: %v", err)
+	}
+	var configID int
+	if err := db.QueryRow(`
+		INSERT INTO board_configurations (collection_id) VALUES (?) RETURNING id
+	`, collectionID).Scan(&configID); err != nil {
+		t.Fatalf("insert board configuration: %v", err)
+	}
+	insertColumn := func(name string, order, statusID int) {
+		t.Helper()
+		var columnID int
+		if err := db.QueryRow(`
+			INSERT INTO board_columns (board_configuration_id, name, display_order, color)
+			VALUES (?, ?, ?, '#64748b') RETURNING id
+		`, configID, name, order).Scan(&columnID); err != nil {
+			t.Fatalf("insert column %s: %v", name, err)
+		}
+		if _, err := db.ExecWrite(`
+			INSERT INTO board_column_statuses (board_column_id, status_id) VALUES (?, ?)
+		`, columnID, statusID); err != nil {
+			t.Fatalf("map column %s: %v", name, err)
+		}
+	}
+	insertColumn("Primary", 0, statusA)
+	insertColumn("Secondary", 1, statusB)
+
+	var gaID, betaID int
+	if err := db.QueryRow(`
+		INSERT INTO milestones (name, target_date, status, is_global)
+		VALUES ('GA', '2026-12-01', 'planning', true) RETURNING id
+	`).Scan(&gaID); err != nil {
+		t.Fatalf("insert GA milestone: %v", err)
+	}
+	if err := db.QueryRow(`
+		INSERT INTO milestones (name, target_date, status, is_global)
+		VALUES ('Beta', '2026-11-01', 'planning', true) RETURNING id
+	`).Scan(&betaID); err != nil {
+		t.Fatalf("insert Beta milestone: %v", err)
+	}
+
+	f := factory.NewTestFactory(db.GetDatabase())
+	assignedID, err := f.CreateItem(factory.CreateItemOpts{
+		WorkspaceID: workspaceID,
+		Title:       "Assigned card",
+		StatusID:    &statusA,
+	})
+	if err != nil {
+		t.Fatalf("insert assigned item: %v", err)
+	}
+	if _, err := f.CreateItem(factory.CreateItemOpts{
+		WorkspaceID: workspaceID,
+		Title:       "Unassigned card",
+		StatusID:    &statusA,
+	}); err != nil {
+		t.Fatalf("insert unassigned item: %v", err)
+	}
+	for _, milestoneID := range []int{gaID, betaID} {
+		if _, err := db.ExecWrite(`
+			INSERT INTO item_milestones (item_id, milestone_id, created_at)
+			VALUES (?, ?, CURRENT_TIMESTAMP)
+		`, assignedID, milestoneID); err != nil {
+			t.Fatalf("attach milestone %d: %v", milestoneID, err)
+		}
+	}
+
+	handler := NewPublicBoardHandler(db, nil, blobstore.NewLocal(t.TempDir()))
+	getBoard := func() publicBoardResponse {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, "/api/public/board/milestone-board", nil)
+		request.SetPathValue("slug", "milestone-board")
+		recorder := httptest.NewRecorder()
+		handler.GetPublicBoard(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+		}
+		var response publicBoardResponse
+		if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+			t.Fatalf("decode board: %v", err)
+		}
+		return response
+	}
+
+	flat := getBoard()
+	if flat.Swimlanes {
+		t.Fatal("swimlanes = true before the owner enabled them")
+	}
+	if len(flat.Milestones) != 0 {
+		t.Fatalf("flat board milestones = %+v, want none", flat.Milestones)
+	}
+	for _, card := range flat.Columns[0].Items {
+		if len(card.MilestoneIDs) != 0 {
+			t.Fatalf("flat card %s milestone_ids = %v, want none", card.Key, card.MilestoneIDs)
+		}
+	}
+
+	if _, err := db.ExecWrite(`UPDATE collections SET public_milestone_swimlanes = true WHERE id = ?`, collectionID); err != nil {
+		t.Fatalf("enable milestone swimlanes: %v", err)
+	}
+
+	grouped := getBoard()
+	if !grouped.Swimlanes {
+		t.Fatal("swimlanes = false after the owner enabled them")
+	}
+	if len(grouped.Milestones) != 2 || grouped.Milestones[0].Name != "Beta" || grouped.Milestones[1].Name != "GA" {
+		t.Fatalf("milestones = %+v, want Beta then GA", grouped.Milestones)
+	}
+	wantIDs := []int{gaID, betaID}
+	// Item milestone rows are ordered by name on read, so assert as a set.
+	got := map[int]bool{}
+	for _, card := range grouped.Columns[0].Items {
+		if card.Title == "Assigned card" {
+			for _, id := range card.MilestoneIDs {
+				got[id] = true
+			}
+		}
+	}
+	for _, id := range wantIDs {
+		if !got[id] {
+			t.Fatalf("assigned card milestone_ids = %v, want %v", got, wantIDs)
+		}
+	}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("assigned card milestone_ids = %v, want exactly %v", got, wantIDs)
 	}
 }

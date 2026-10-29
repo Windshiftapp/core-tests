@@ -47,7 +47,7 @@ test.describe('Portal request attachments', () => {
       slug,
       name: `Attachments ${stamp}`,
     });
-    const rt = await createSimpleRequestType(request, channel.channelId, {
+    const rt = await createSimpleRequestType(request, channel, {
       name: 'General request',
     });
     await attachRequestTypesToSection(request, channel, [rt.id]);
@@ -154,7 +154,7 @@ test.describe('Portal request attachments', () => {
       slug,
       name: `Attach deny ${stamp}`,
     });
-    const rt = await createSimpleRequestType(request, channel.channelId, {
+    const rt = await createSimpleRequestType(request, channel, {
       name: 'General request',
     });
     await attachRequestTypesToSection(request, channel, [rt.id]);

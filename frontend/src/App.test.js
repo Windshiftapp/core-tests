@@ -11,7 +11,7 @@ vi.mock('./lib/router.js', async () => {
   };
 });
 
-vi.mock('./lib/stores', async () => {
+vi.mock('./lib/stores/auth.svelte.js', async () => {
   const { writable } = await import('svelte/store');
   const authStore = writable({
     isAuthenticated: false,
@@ -22,18 +22,18 @@ vi.mock('./lib/stores', async () => {
   Object.defineProperty(authStore, 'currentUser', {
     get: () => null,
   });
-  return { authStore };
+  return {
+    authStore,
+  };
 });
 
 vi.mock('./lib/stores/moduleSettings.js', () => ({
   moduleSettings: { load: vi.fn(), reload: vi.fn() },
 }));
 
-vi.mock('./lib/api.js', () => ({
-  api: {
-    setup: { getStatus: vi.fn() },
-    themes: { getActive: vi.fn() },
-  },
+vi.mock('./lib/api/admin.js', () => ({
+  setup: { getStatus: vi.fn() },
+  themes: { getActive: vi.fn() },
 }));
 
 vi.mock('./lib/stores/theme.svelte.js', () => ({
@@ -99,8 +99,8 @@ vi.mock('./lib/features/pages/PagePrintView.svelte', async () => ({
 }));
 
 import App from './App.svelte';
-import { api } from './lib/api.js';
-import { authStore } from './lib/stores';
+import { setup, themes } from './lib/api/admin.js';
+import { authStore } from './lib/stores/auth.svelte.js';
 import { i18n } from './lib/stores/i18n.svelte.js';
 import { themeStore } from './lib/stores/theme.svelte.js';
 
@@ -117,8 +117,8 @@ describe('App startup recovery', () => {
       authStore.set(authenticatedState);
       return { status: 'authenticated' };
     });
-    api.setup.getStatus.mockReset().mockResolvedValue({ setup_completed: true });
-    api.themes.getActive.mockReset().mockResolvedValue({});
+    setup.getStatus.mockReset().mockResolvedValue({ setup_completed: true });
+    themes.getActive.mockReset().mockResolvedValue({});
     themeStore.init.mockClear();
     themeStore.setActiveTheme.mockClear();
     i18n.init.mockReset().mockResolvedValue(undefined);
@@ -144,12 +144,12 @@ describe('App startup recovery', () => {
   });
 
   it('renders the authenticated shell without waiting for theme loading', async () => {
-    api.themes.getActive.mockReturnValue(new Promise(() => {}));
+    themes.getActive.mockReturnValue(new Promise(() => {}));
 
     render(App);
 
     expect(await screen.findByTestId('app-shell-ready')).toBeInTheDocument();
-    expect(api.themes.getActive).toHaveBeenCalledWith({ timeout: 10_000 });
+    expect(themes.getActive).toHaveBeenCalledWith({ timeout: 10_000 });
   });
 
   it('loads the active theme after an interactive login', async () => {
@@ -160,16 +160,16 @@ describe('App startup recovery', () => {
       nav_text_color_dark: '#eeeeee',
     };
     authStore.init.mockResolvedValue({ status: 'unauthenticated' });
-    api.themes.getActive.mockResolvedValue(activeTheme);
+    themes.getActive.mockResolvedValue(activeTheme);
 
     render(App);
 
     expect(await screen.findByTestId('dialog-stub')).toBeInTheDocument();
-    expect(api.themes.getActive).not.toHaveBeenCalled();
+    expect(themes.getActive).not.toHaveBeenCalled();
 
     authStore.set(authenticatedState);
 
-    await waitFor(() => expect(api.themes.getActive).toHaveBeenCalledWith({ timeout: 10_000 }));
+    await waitFor(() => expect(themes.getActive).toHaveBeenCalledWith({ timeout: 10_000 }));
     expect(themeStore.setActiveTheme).toHaveBeenLastCalledWith(activeTheme);
   });
 
@@ -184,12 +184,12 @@ describe('App startup recovery', () => {
     const themeRequest = new Promise((resolve) => {
       resolveTheme = resolve;
     });
-    api.themes.getActive.mockReturnValue(themeRequest);
+    themes.getActive.mockReturnValue(themeRequest);
 
     render(App);
 
     expect(await screen.findByTestId('app-shell-ready')).toBeInTheDocument();
-    await waitFor(() => expect(api.themes.getActive).toHaveBeenCalledOnce());
+    await waitFor(() => expect(themes.getActive).toHaveBeenCalledOnce());
 
     authStore.set({ isAuthenticated: false, loading: false, currentUser: null });
     await waitFor(() =>
@@ -206,7 +206,7 @@ describe('App startup recovery', () => {
   });
 
   it('shows a connection error and retries bootstrap in place', async () => {
-    api.setup.getStatus
+    setup.getStatus
       .mockRejectedValueOnce(Object.assign(new Error('offline'), { code: 'NETWORK_ERROR' }))
       .mockResolvedValueOnce({ setup_completed: true });
 
@@ -218,7 +218,7 @@ describe('App startup recovery', () => {
     await fireEvent.click(screen.getByTestId('startup-retry'));
 
     await waitFor(() => expect(screen.getByTestId('app-shell-ready')).toBeInTheDocument());
-    expect(api.setup.getStatus).toHaveBeenCalledTimes(2);
+    expect(setup.getStatus).toHaveBeenCalledTimes(2);
   });
 
   it('times out a stalled locale chunk instead of loading forever', async () => {
@@ -231,6 +231,6 @@ describe('App startup recovery', () => {
     expect(screen.getByTestId('startup-error')).toHaveTextContent(
       'The request timed out. Please try again.'
     );
-    expect(api.setup.getStatus).not.toHaveBeenCalled();
+    expect(setup.getStatus).not.toHaveBeenCalled();
   });
 });

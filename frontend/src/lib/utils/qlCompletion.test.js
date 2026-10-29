@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  applyQlSuggestion,
-  buildQlSuggestions,
-  completionValues,
-  getQlCompletionContext,
-} from './qlCompletion.js';
+import { applyQlSuggestion, buildQlSuggestions, completionValues, getQlCompletionContext } from './qlCompletion.js';
 
 const catalog = {
   logical_operators: ['AND', 'OR'],

@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { links } from '../api/configuration.js';
 
-vi.mock('../api.js', () => ({
-  api: {
-    links: { getForItems: vi.fn() },
-  },
+
+vi.mock('../api/configuration.js', () => ({
+  links: { getForItems: vi.fn() },
 }));
 
-const { api } = await import('../api.js');
+
 const { CollectionFieldLinksStore } = await import('./collectionFieldLinks.svelte.js');
 
 describe('CollectionFieldLinksStore', () => {
@@ -15,7 +15,7 @@ describe('CollectionFieldLinksStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     store = new CollectionFieldLinksStore();
-    api.links.getForItems.mockImplementation(async (ids) =>
+    links.getForItems.mockImplementation(async (ids) =>
       Object.fromEntries(ids.map((id) => [id, { outgoing: [], incoming: [] }]))
     );
   });
@@ -23,10 +23,13 @@ describe('CollectionFieldLinksStore', () => {
   it('hydrates a visible page with one custom-field-aware batch request', async () => {
     await store.loadForItems(Array.from({ length: 100 }, (_, index) => index + 1));
 
-    expect(api.links.getForItems).toHaveBeenCalledTimes(1);
-    expect(api.links.getForItems).toHaveBeenCalledWith(
+    expect(links.getForItems).toHaveBeenCalledTimes(1);
+    expect(links.getForItems).toHaveBeenCalledWith(
       Array.from({ length: 100 }, (_, index) => index + 1),
-      { includeCustomFields: true }
+      expect.objectContaining({
+        includeCustomFields: true,
+        readPolicy: { priority: 'background' },
+      })
     );
   });
 
@@ -35,12 +38,12 @@ describe('CollectionFieldLinksStore', () => {
     await store.loadForItems(ids);
     await store.loadForItems(ids);
 
-    expect(api.links.getForItems).toHaveBeenCalledTimes(3);
-    expect(api.links.getForItems.mock.calls.map(([chunk]) => chunk.length)).toEqual([200, 200, 1]);
+    expect(links.getForItems).toHaveBeenCalledTimes(3);
+    expect(links.getForItems.mock.calls.map(([chunk]) => chunk.length)).toEqual([200, 200, 1]);
   });
 
   it('selects primary and mirror links for the requested field and item', async () => {
-    api.links.getForItems.mockResolvedValue({
+    links.getForItems.mockResolvedValue({
       10: {
         outgoing: [
           { id: 1, custom_field_id: 7, source_type: 'item', source_id: 10, target_id: 20 },
@@ -62,7 +65,7 @@ describe('CollectionFieldLinksStore', () => {
 
   it('refreshes both item rows affected by a field-link mutation', async () => {
     await store.loadForItems([10, 20]);
-    api.links.getForItems.mockResolvedValue({
+    links.getForItems.mockResolvedValue({
       10: {
         outgoing: [
           { id: 4, custom_field_id: 7, source_type: 'item', source_id: 10, target_id: 20 },
@@ -79,10 +82,14 @@ describe('CollectionFieldLinksStore', () => {
 
     await store.refreshForItems([10, 20, 20]);
 
-    expect(api.links.getForItems).toHaveBeenCalledTimes(2);
-    expect(api.links.getForItems).toHaveBeenLastCalledWith([10, 20], {
-      includeCustomFields: true,
-    });
+    expect(links.getForItems).toHaveBeenCalledTimes(2);
+    expect(links.getForItems).toHaveBeenLastCalledWith(
+      [10, 20],
+      expect.objectContaining({
+        includeCustomFields: true,
+        readPolicy: { priority: 'background' },
+      })
+    );
     expect(store.getFieldLinks(10, 7)).toEqual([expect.objectContaining({ id: 4 })]);
     expect(store.getFieldLinks(20, 99, '{"mirror_of_field_id":7}')).toEqual([
       expect.objectContaining({ id: 4 }),
@@ -91,7 +98,7 @@ describe('CollectionFieldLinksStore', () => {
 
   it('does not restore a previous account response after reset', async () => {
     let resolveOldRequest;
-    api.links.getForItems.mockReturnValueOnce(
+    links.getForItems.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveOldRequest = resolve;
       })

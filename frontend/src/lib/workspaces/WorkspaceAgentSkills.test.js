@@ -1,15 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { agentSkills } from "../api.js";
-import WorkspaceAgentSkills from "./WorkspaceAgentSkills.svelte";
 
-vi.mock("../api.js", () => ({
-	agentSkills: {
-		listForWorkspace: vi.fn(),
-		create: vi.fn(),
-		update: vi.fn(),
-		remove: vi.fn(),
-	},
+import WorkspaceAgentSkills from "./WorkspaceAgentSkills.svelte";
+import { agentSkills } from '../api/agentSkills.js';
+
+vi.mock('../api/agentSkills.js', () => ({
+  agentSkills: {
+  		listForWorkspace: vi.fn(),
+  		create: vi.fn(),
+  		update: vi.fn(),
+  		remove: vi.fn(),
+  	},
 }));
 
 describe("WorkspaceAgentSkills snapshot editor", () => {

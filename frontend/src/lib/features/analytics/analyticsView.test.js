@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  defaultAnalyticsRange,
-  formatDateOnly,
-  inclusiveDateRangeDays,
-  shiftDateString,
-  validateAnalyticsRange,
-} from './analyticsView.js';
+import { defaultAnalyticsRange, formatDateOnly, inclusiveDateRangeDays, shiftDateString, validateAnalyticsRange } from './analyticsView.js';
 
 describe('analytics date helpers', () => {
   it('builds an inclusive twelve-week default from the local calendar date', () => {

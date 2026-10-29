@@ -123,6 +123,7 @@ func TestPortalWorkflow(t *testing.T) {
 			"name":         "Bug Report",
 			"description":  "Report a software bug or defect",
 			"item_type_id": bugItemTypeID,
+			"workspace_id": workspaceID,
 			"icon":         "Bug",
 			"color":        "#ef4444",
 			"is_active":    true,
@@ -158,6 +159,7 @@ func TestPortalWorkflow(t *testing.T) {
 			"name":         "Feature Request",
 			"description":  "Request a new feature or enhancement",
 			"item_type_id": storyItemTypeID,
+			"workspace_id": workspaceID,
 			"icon":         "Lightbulb",
 			"color":        "#3b82f6",
 			"is_active":    true,
@@ -186,6 +188,7 @@ func TestPortalWorkflow(t *testing.T) {
 			"name":         "Support Request",
 			"description":  "Get help with a technical issue",
 			"item_type_id": taskItemTypeID,
+			"workspace_id": workspaceID,
 			"icon":         "HelpCircle",
 			"color":        "#8b5cf6",
 			"is_active":    true,
@@ -453,14 +456,17 @@ func TestPortalWorkflow(t *testing.T) {
 		var requestTypes []map[string]interface{}
 		DecodeJSON(t, resp, &requestTypes)
 
-		if len(requestTypes) != 3 {
-			t.Errorf("Expected 3 request types, got %d", len(requestTypes))
+		// Three admin-created request types plus the system Email request type
+		// provisioned with the portal.
+		if len(requestTypes) != 4 {
+			t.Errorf("Expected 4 request types (3 custom + system Email), got %d", len(requestTypes))
 		}
 
 		// Verify all request types are present
 		foundBug := false
 		foundFeature := false
 		foundSupport := false
+		foundEmail := false
 
 		for _, rt := range requestTypes {
 			name, _ := rt["name"].(string)
@@ -471,10 +477,12 @@ func TestPortalWorkflow(t *testing.T) {
 				foundFeature = true
 			case "Support Request":
 				foundSupport = true
+			case "Email":
+				foundEmail = true
 			}
 		}
 
-		if !foundBug || !foundFeature || !foundSupport {
+		if !foundBug || !foundFeature || !foundSupport || !foundEmail {
 			t.Error("Not all request types found in listing")
 		}
 

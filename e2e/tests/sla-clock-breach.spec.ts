@@ -59,7 +59,6 @@ test.describe('SLA clock breach', () => {
 							targets: [
 								{
 									position: 0,
-									is_fallback: true,
 									target_ms: 3_600_000,
 									calendar_id: calendar.id,
 								},

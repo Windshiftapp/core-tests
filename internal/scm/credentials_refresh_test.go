@@ -207,3 +207,184 @@ func TestGetCredentialsByConnectionID_TransientRefreshFailureKeepsExistingToken(
 		t.Errorf("expected one refresh attempt, got %d", got)
 	}
 }
+
+// testEncryption returns the same secret the refresh fixture uses, so tests
+// can decrypt persisted tokens.
+func testEncryption() *sso.SecretEncryption {
+	return sso.NewSecretEncryption("credentials-refresh-test-secret-with-enough-length")
+}
+
+// seedUserTokenFromWorkspace copies the workspace connection's encrypted token
+// pair into a user row, mirroring the OAuth callback which stores one grant at
+// both levels.
+func seedUserTokenFromWorkspace(t *testing.T, tdb *testutils.TestDB, userID, connectionID int, expiresAt *time.Time) {
+	t.Helper()
+	var providerID int
+	var accessEnc, refreshEnc string
+	if err := tdb.QueryRow(`
+		SELECT scm_provider_id, oauth_access_token_encrypted, oauth_refresh_token_encrypted
+		FROM workspace_scm_connections WHERE id = ?
+	`, connectionID).Scan(&providerID, &accessEnc, &refreshEnc); err != nil {
+		t.Fatalf("read workspace token: %v", err)
+	}
+	if _, err := tdb.Exec(`
+		INSERT INTO user_scm_oauth_tokens
+			(user_id, scm_provider_id, oauth_access_token_encrypted, oauth_refresh_token_encrypted, oauth_token_expires_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, userID, providerID, accessEnc, refreshEnc, expiresAt); err != nil {
+		t.Fatalf("seed user token: %v", err)
+	}
+}
+
+func decryptToken(t *testing.T, value string) string {
+	t.Helper()
+	plain, err := testEncryption().Decrypt(value)
+	if err != nil {
+		t.Fatalf("decrypt token: %v", err)
+	}
+	return plain
+}
+
+// TestGetCredentialsByConnectionID_RefreshMirrorsOntoUserToken pins the
+// invariant that a workspace-level refresh keeps the user-level copy of the
+// same OAuth grant usable. Gitea/Forgejo rotate the refresh token and
+// invalidate the previous access token, so a diverged user copy would fail
+// the next user-initiated action.
+func TestGetCredentialsByConnectionID_RefreshMirrorsOntoUserToken(t *testing.T) {
+	var hits atomic.Int32
+	srv := giteaTokenEndpoint(t, &hits, http.StatusOK,
+		`{"access_token":"new-access-token","token_type":"bearer","refresh_token":"new-refresh-token","expires_in":3600}`)
+
+	soon := time.Now().Add(2 * time.Minute)
+	resolver, tdb := newCredentialsRefreshFixture(t, srv.URL, &soon)
+	seedUserTokenFromWorkspace(t, tdb, 1, 7, &soon)
+
+	creds, err := resolver.GetCredentialsByConnectionID(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("GetCredentialsByConnectionID: %v", err)
+	}
+	if creds.OAuthAccessToken != "new-access-token" {
+		t.Fatalf("resolved access token = %q, want new-access-token", creds.OAuthAccessToken)
+	}
+
+	var userAccessEnc, userRefreshEnc string
+	if err := tdb.QueryRow(`
+		SELECT oauth_access_token_encrypted, oauth_refresh_token_encrypted
+		FROM user_scm_oauth_tokens WHERE user_id = 1
+	`).Scan(&userAccessEnc, &userRefreshEnc); err != nil {
+		t.Fatalf("read user token: %v", err)
+	}
+	if got := decryptToken(t, userAccessEnc); got != "new-access-token" {
+		t.Errorf("user access token = %q, want new-access-token", got)
+	}
+	if got := decryptToken(t, userRefreshEnc); got != "new-refresh-token" {
+		t.Errorf("user refresh token = %q, want new-refresh-token", got)
+	}
+}
+
+// TestGetCredentialsForUser_RefreshMirrorsOntoWorkspaceToken is the reverse:
+// a user-initiated refresh must keep the workspace connection usable for the
+// background sync.
+func TestGetCredentialsForUser_RefreshMirrorsOntoWorkspaceToken(t *testing.T) {
+	var hits atomic.Int32
+	srv := giteaTokenEndpoint(t, &hits, http.StatusOK,
+		`{"access_token":"new-access-token","token_type":"bearer","refresh_token":"new-refresh-token","expires_in":3600}`)
+
+	soon := time.Now().Add(2 * time.Minute)
+	resolver, tdb := newCredentialsRefreshFixture(t, srv.URL, &soon)
+	seedUserTokenFromWorkspace(t, tdb, 1, 7, &soon)
+
+	creds, err := resolver.GetCredentialsForUser(context.Background(), 7, 1)
+	if err != nil {
+		t.Fatalf("GetCredentialsForUser: %v", err)
+	}
+	if creds.OAuthAccessToken != "new-access-token" {
+		t.Fatalf("resolved access token = %q, want new-access-token", creds.OAuthAccessToken)
+	}
+
+	var wsAccessEnc, wsRefreshEnc string
+	if err := tdb.QueryRow(`
+		SELECT oauth_access_token_encrypted, oauth_refresh_token_encrypted
+		FROM workspace_scm_connections WHERE id = 7
+	`).Scan(&wsAccessEnc, &wsRefreshEnc); err != nil {
+		t.Fatalf("read workspace token: %v", err)
+	}
+	if got := decryptToken(t, wsAccessEnc); got != "new-access-token" {
+		t.Errorf("workspace access token = %q, want new-access-token", got)
+	}
+	if got := decryptToken(t, wsRefreshEnc); got != "new-refresh-token" {
+		t.Errorf("workspace refresh token = %q, want new-refresh-token", got)
+	}
+}
+
+// TestGetCredentialsByConnectionID_RefreshDoesNotClobberDifferentUserToken
+// guards the comparison: a user row connected through a separate authorization
+// must keep its own refresh token.
+func TestGetCredentialsByConnectionID_RefreshDoesNotClobberDifferentUserToken(t *testing.T) {
+	var hits atomic.Int32
+	srv := giteaTokenEndpoint(t, &hits, http.StatusOK,
+		`{"access_token":"new-access-token","token_type":"bearer","refresh_token":"new-refresh-token","expires_in":3600}`)
+
+	soon := time.Now().Add(2 * time.Minute)
+	resolver, tdb := newCredentialsRefreshFixture(t, srv.URL, &soon)
+
+	enc := testEncryption()
+	accessEnc, err := enc.Encrypt("independent-access-token")
+	if err != nil {
+		t.Fatalf("encrypt access: %v", err)
+	}
+	refreshEnc, err := enc.Encrypt("independent-refresh-token")
+	if err != nil {
+		t.Fatalf("encrypt refresh: %v", err)
+	}
+	if _, err := tdb.Exec(`
+		INSERT INTO user_scm_oauth_tokens
+			(user_id, scm_provider_id, oauth_access_token_encrypted, oauth_refresh_token_encrypted, oauth_token_expires_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, 1, 1, accessEnc, refreshEnc, soon); err != nil {
+		t.Fatalf("seed independent user token: %v", err)
+	}
+
+	if _, err := resolver.GetCredentialsByConnectionID(context.Background(), 7); err != nil {
+		t.Fatalf("GetCredentialsByConnectionID: %v", err)
+	}
+
+	var storedAccessEnc, storedRefreshEnc string
+	if err := tdb.QueryRow(`
+		SELECT oauth_access_token_encrypted, oauth_refresh_token_encrypted
+		FROM user_scm_oauth_tokens WHERE user_id = 1
+	`).Scan(&storedAccessEnc, &storedRefreshEnc); err != nil {
+		t.Fatalf("read user token: %v", err)
+	}
+	if got := decryptToken(t, storedAccessEnc); got != "independent-access-token" {
+		t.Errorf("independent user access token = %q, want independent-access-token", got)
+	}
+	if got := decryptToken(t, storedRefreshEnc); got != "independent-refresh-token" {
+		t.Errorf("independent user refresh token = %q, want independent-refresh-token", got)
+	}
+}
+
+// TestGetCredentialsByConnectionID_KeepsRefreshTokenWhenResponseOmitsIt
+// covers providers that do not echo a new refresh token on every refresh.
+func TestGetCredentialsByConnectionID_KeepsRefreshTokenWhenResponseOmitsIt(t *testing.T) {
+	var hits atomic.Int32
+	srv := giteaTokenEndpoint(t, &hits, http.StatusOK,
+		`{"access_token":"new-access-token","token_type":"bearer","expires_in":3600}`)
+
+	soon := time.Now().Add(2 * time.Minute)
+	resolver, tdb := newCredentialsRefreshFixture(t, srv.URL, &soon)
+
+	if _, err := resolver.GetCredentialsByConnectionID(context.Background(), 7); err != nil {
+		t.Fatalf("GetCredentialsByConnectionID: %v", err)
+	}
+
+	var refreshEnc string
+	if err := tdb.QueryRow(`
+		SELECT oauth_refresh_token_encrypted FROM workspace_scm_connections WHERE id = 7
+	`).Scan(&refreshEnc); err != nil {
+		t.Fatalf("read workspace refresh token: %v", err)
+	}
+	if got := decryptToken(t, refreshEnc); got != "old-refresh-token" {
+		t.Fatalf("stored refresh token = %q, want old-refresh-token", got)
+	}
+}

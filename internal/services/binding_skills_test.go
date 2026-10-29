@@ -259,7 +259,7 @@ func TestBindingService_UpdateAgentConfig(t *testing.T) {
 		t.Fatalf("seed binding: %v", err)
 	}
 
-	if err := st.BS.UpdateAgentConfig(ctx, 1, bindingID, "You are a reviewer.", nil, []int{skill}); err != nil {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, bindingID, "You are a reviewer.", nil, []int{skill}, nil); err != nil {
 		t.Fatalf("update config: %v", err)
 	}
 	b, err := st.Bindings.Get(ctx, bindingID)
@@ -278,10 +278,10 @@ func TestBindingService_UpdateAgentConfig(t *testing.T) {
 	}
 
 	// Wrong workspace → not found; oversize instructions → typed error.
-	if err := st.BS.UpdateAgentConfig(ctx, 99, bindingID, "", nil, nil); !errors.Is(err, ErrBindingNotFound) {
+	if err := st.BS.UpdateAgentConfig(ctx, 99, bindingID, "", nil, nil, nil); !errors.Is(err, ErrBindingNotFound) {
 		t.Errorf("wrong workspace: want ErrBindingNotFound, got %v", err)
 	}
-	if err := st.BS.UpdateAgentConfig(ctx, 1, bindingID, strings.Repeat("x", 8001), nil, nil); !errors.Is(err, ErrBindingInstructionsTooLong) {
+	if err := st.BS.UpdateAgentConfig(ctx, 1, bindingID, strings.Repeat("x", 8001), nil, nil, nil); !errors.Is(err, ErrBindingInstructionsTooLong) {
 		t.Errorf("oversize: want ErrBindingInstructionsTooLong, got %v", err)
 	}
 }

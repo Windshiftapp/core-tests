@@ -4,32 +4,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	getComments: vi.fn(),
+	getCannedResponses: vi.fn(),
 }));
 
-vi.mock("../../api.js", () => ({
-	api: {
-		getComments: mocks.getComments,
-	},
+vi.mock('../../api/misc.js', () => ({
+  getComments: mocks.getComments,
+}))
+
+vi.mock('../../api/configuration.js', () => ({
+  cannedResponses: {
+  			getAll: mocks.getCannedResponses,
+  		},
 }));
 
-vi.mock("../../stores", () => ({
-	authStore: {
-		currentUser: { id: 7 },
-	},
+vi.mock('../../stores/auth.svelte.js', () => ({
+  authStore: {
+  		currentUser: { id: 7 },
+  	},
 }));
 
 vi.mock("../../stores/notifications.js", () => ({
 	subscribeToNewNotifications: () => () => {},
-}));
-
-vi.mock("../../composables/usePoller.svelte.js", () => ({
-	usePoller: () => ({ poll: vi.fn() }),
-}));
-
-vi.mock("../../stores/itemLiveUpdates.svelte.js", () => ({
-	itemLiveUpdates: {
-		isLive: () => true,
-	},
 }));
 
 vi.mock("../../editors/LazyMilkdownEditor.svelte", () => ({
@@ -42,6 +37,9 @@ vi.mock("../../stores/i18n.svelte.js", () => ({
 }));
 
 import Comments from "./Comments.svelte";
+import { getComments } from '../../api/misc.js';
+import { cannedResponses } from '../../api/configuration.js';
+
 
 function deferred() {
 	let resolve;
@@ -152,5 +150,86 @@ describe("Comments render window (WI-1451)", () => {
 
 		expect(screen.getAllByTestId("comment-item").length).toBe(250);
 		expect(screen.queryByTestId("comments-load-more")).toBeNull();
+	});
+});
+
+describe("Comments canned response visibility", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getComments.mockResolvedValue({ comments: [], total: 0, has_more: false });
+		mocks.getCannedResponses.mockResolvedValue([
+			{ id: 1, name: "greeting", body: "Hello there", is_private: false },
+		]);
+	});
+
+	it("shows the canned response picker for external requests", async () => {
+		render(Comments, {
+			props: { itemId: 42, workspaceId: 5, isExternalRequest: true },
+		});
+
+		expect(await screen.findByTestId("canned-response-picker")).toBeTruthy();
+	});
+
+	it("hides the canned response picker on internal items", async () => {
+		render(Comments, { props: { itemId: 42, workspaceId: 5 } });
+
+		await waitFor(() => expect(mocks.getComments).toHaveBeenCalled());
+		expect(mocks.getCannedResponses).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("canned-response-picker")).toBeNull();
+	});
+});
+
+describe("Comments timestamp tooltip", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("exposes the absolute timestamp in the comment time tooltip", async () => {
+		mocks.getComments.mockResolvedValue({
+			comments: [
+				{
+					id: 5,
+					author_id: 8,
+					author_name: "Author",
+					content: "Hello",
+					created_at: "2026-08-17T08:00:00Z",
+					updated_at: "2026-08-17T08:00:00Z",
+					source: "user",
+					is_agent: false,
+					is_private: false,
+				},
+			],
+			total: 1,
+			has_more: false,
+		});
+
+		render(Comments, { props: { itemId: 42 } });
+
+		const time = await screen.findByTestId("comment-time");
+		await fireEvent.focus(time.parentElement);
+
+		expect(await screen.findByTestId("tooltip")).toHaveTextContent(
+			"Aug 17, 2026 at 8:00 AM UTC",
+		);
+	});
+});
+
+describe("Comments internal note visibility", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getComments.mockResolvedValue({ comments: [], total: 0, has_more: false });
+	});
+
+	it("shows the internal note toggle for external requests", async () => {
+		render(Comments, { props: { itemId: 42, isExternalRequest: true } });
+
+		expect(await screen.findByTestId("comment-internal-note")).toBeTruthy();
+	});
+
+	it("hides the internal note toggle for internal items", async () => {
+		render(Comments, { props: { itemId: 42 } });
+
+		await waitFor(() => expect(mocks.getComments).toHaveBeenCalled());
+		expect(screen.queryByTestId("comment-internal-note")).toBeNull();
 	});
 });

@@ -7,27 +7,31 @@ vi.mock('../../api/agentRuns.js', () => ({
   },
 }));
 
-vi.mock('../../api.js', () => ({
-  api: {
-    items: {
-      getStatusDurations: vi.fn(),
-    },
-  },
+vi.mock('../../api/items.js', () => ({
+  items: {
+        getStatusDurations: vi.fn(),
+      },
 }));
 
-vi.mock('../../stores', () => ({
+vi.mock('../../stores/workItemStalenessSettings.svelte.js', () => ({
   workItemStalenessSettings: {
-    staleAfterDays: 30,
-  },
+      staleAfterDays: 30,
+    },
+}))
+
+vi.mock('../../stores/itemDetailStore.svelte.js', () => ({
   itemDetailStore: {
-    includeChildItems: false,
-    timeRollup: null,
-    timeRollupLoading: false,
-    loadTimeRollup: vi.fn(),
-  },
+      includeChildItems: false,
+      timeRollup: null,
+      timeRollupLoading: false,
+      loadTimeRollup: vi.fn(),
+    },
+}))
+
+vi.mock('../../stores/workspaceDataStore.svelte.js', () => ({
   workspaceDataStore: {
-    statuses: [],
-  },
+      statuses: [],
+    },
 }));
 
 vi.mock('../../utils/serverClock.js', () => ({
@@ -103,12 +107,17 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 
 vi.mock('../../utils/authenticatedDateFormatter.js', () => ({
   formatAuthenticatedDateTime: (value) => value || '',
-  formatAuthenticatedInstant: (value) => value || '',
+  formatAuthenticatedInstant: (value) => {
+    const date = new Date(value);
+    return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+  },
 }));
 
 import { agentRuns } from '../../api/agentRuns.js';
-import { api } from '../../api.js';
-import { itemDetailStore, workItemStalenessSettings, workspaceDataStore } from '../../stores';
+import { items } from '../../api/items.js';
+import { itemDetailStore } from '../../stores/itemDetailStore.svelte.js';
+import { workItemStalenessSettings } from '../../stores/workItemStalenessSettings.svelte.js';
+import { workspaceDataStore } from '../../stores/workspaceDataStore.svelte.js';
 import ItemDetailTabs from './ItemDetailTabs.svelte';
 
 const baseItem = {
@@ -152,7 +161,7 @@ function renderTime(worklogs, item = baseItem) {
 
 beforeEach(() => {
   agentRuns.listForItem.mockResolvedValue([]);
-  api.items.getStatusDurations.mockResolvedValue({
+  items.getStatusDurations.mockResolvedValue({
     statuses: [
       { status_id: 1, status_name: 'Open', duration_seconds: 432000, is_current: false },
       { status_id: 2, status_name: 'In Progress', duration_seconds: 1209600, is_current: true },
@@ -196,6 +205,42 @@ describe('ItemDetailTabs complete worklog totals', () => {
 
     expect(screen.getByText('2d items.logged')).toBeInTheDocument();
     expect(screen.queryByText('1h items.logged')).not.toBeInTheDocument();
+  });
+});
+
+describe('ItemDetailTabs worklog table layout', () => {
+  const worklog = {
+    id: 1,
+    description: 'A very long worklog description that used to wrap across many lines in the table',
+    user_name: 'Stefan',
+    duration_minutes: 120,
+    start_time: Date.UTC(2026, 9, 11, 12, 0, 0) / 1000,
+    end_time: Date.UTC(2026, 9, 11, 14, 0, 0) / 1000,
+    project_name: 'Windshift Development',
+  };
+
+  test('drops the start, end, and project columns', () => {
+    renderTime([worklog]);
+
+    expect(screen.queryByTestId('table-column-start_time')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('table-column-end_time')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('table-column-project_name')).not.toBeInTheDocument();
+  });
+
+  test('clamps the description to two lines', () => {
+    renderTime([worklog]);
+
+    expect(screen.getByText(worklog.description)).toHaveClass('line-clamp-2');
+  });
+
+  test('reveals the start and end times as a tooltip over the duration', async () => {
+    renderTime([worklog]);
+
+    const duration = screen.getByText('2h 0m');
+    await fireEvent.focus(duration.parentElement);
+
+    const tooltip = await screen.findByTestId('tooltip');
+    expect(tooltip).toHaveTextContent('12:00 — 14:00');
   });
 });
 
@@ -322,7 +367,7 @@ describe('ItemDetailTabs details health', () => {
 
   test('lets the user retry a failed status-duration calculation', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    api.items.getStatusDurations
+    items.getStatusDurations
       .mockRejectedValueOnce(new Error('temporary failure'))
       .mockResolvedValueOnce({
         statuses: [
@@ -336,6 +381,6 @@ describe('ItemDetailTabs details health', () => {
 
     const current = await screen.findByTestId('item-status-duration-2');
     expect(within(current).getByText('1h')).toBeInTheDocument();
-    expect(api.items.getStatusDurations).toHaveBeenCalledTimes(2);
+    expect(items.getStatusDurations).toHaveBeenCalledTimes(2);
   });
 });

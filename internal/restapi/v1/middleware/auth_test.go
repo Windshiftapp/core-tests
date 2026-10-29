@@ -14,7 +14,7 @@ import (
 )
 
 func TestRequireAuthRejectsSessionBearer(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	nextCalled := false
 	handler := ba.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		nextCalled = true
@@ -35,7 +35,7 @@ func TestRequireAuthRejectsSessionBearer(t *testing.T) {
 }
 
 func TestRequirePermission(t *testing.T) {
-	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil)
+	ba := middleware.NewBearerAuthWithPermissions(&auth.TokenManager{}, nil, nil)
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

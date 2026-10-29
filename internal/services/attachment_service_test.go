@@ -35,7 +35,8 @@ func TestCreateRecord_NullsItemIDForBrandingTypes(t *testing.T) {
 			uploaded_by_portal_customer_id INTEGER,
 			has_thumbnail INTEGER,
 			thumbnail_path TEXT,
-			category TEXT
+			category TEXT,
+			is_internal BOOLEAN NOT NULL DEFAULT false
 		)
 	`); err != nil {
 		t.Fatalf("create attachments table: %v", err)

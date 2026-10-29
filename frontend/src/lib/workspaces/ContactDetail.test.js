@@ -8,12 +8,12 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   delete: vi.fn(),
   confirm: vi.fn(),
+  contactRolesGetAll: vi.fn(),
 }));
 
-vi.mock('../api.js', () => ({
-  api: {
-    portalCustomers: mocks,
-  },
+vi.mock('../api/portal.js', () => ({
+  portalCustomers: mocks,
+  contactRoles: { getAll: mocks.contactRolesGetAll },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -36,10 +36,12 @@ vi.mock('../utils/dateFormatter.js', () => ({
 }));
 
 import ContactDetail from './ContactDetail.svelte';
+import { contactRoles, portalCustomers } from '../api/portal.js';
 
 describe('ContactDetail activity', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.contactRolesGetAll.mockResolvedValue([]);
     mocks.getById.mockResolvedValue({
       id: 7,
       name: 'Leandro Rivas',
@@ -52,19 +54,9 @@ describe('ContactDetail activity', () => {
         workspace_item_number: 19,
         workspace_name: 'Support',
         workspace_key: 'SUP',
-        can_view: true,
         title: 'Visible request',
         status_name: 'Open',
         status_color: '#0f766e',
-      },
-      {
-        id: 43,
-        workspace_id: 6,
-        workspace_item_number: 0,
-        workspace_name: '',
-        workspace_key: '',
-        can_view: false,
-        title: 'Restricted request',
       },
     ]);
     mocks.getChannels.mockResolvedValue([
@@ -88,6 +80,44 @@ describe('ContactDetail activity', () => {
     expect(await screen.findByLabelText(/workspaces\.customers\.fields\.name/)).toHaveValue('Leandro Rivas');
   });
 
+  it('renders custom field editors when the customer has no stored value', async () => {
+    const fields = [
+      { id: 11, name: 'account_tier', label: 'Account tier', field_type: 'text' },
+    ];
+
+    render(ContactDetail, { props: { contactId: 7, canManage: true, portalCustomerFields: fields } });
+    await fireEvent.click(await screen.findByTestId('customer-detail-actions'));
+    await fireEvent.click(await screen.findByTestId('customer-detail-edit'));
+
+    expect(await screen.findByTestId('custom-field-input-11')).toHaveValue('');
+  });
+
+  it('assigns contact levels and saves role_ids', async () => {
+    mocks.contactRolesGetAll.mockResolvedValue([
+      { id: 3, name: 'Manager' },
+      { id: 4, name: 'Viewer' },
+    ]);
+    mocks.getById.mockResolvedValue({
+      id: 7,
+      name: 'Leandro Rivas',
+      email: 'leandro@example.com',
+      roles: [{ id: 3, name: 'Manager' }],
+    });
+    mocks.update.mockResolvedValue({});
+
+    render(ContactDetail, { props: { contactId: 7, canManage: true } });
+    await fireEvent.click(await screen.findByTestId('customer-detail-actions'));
+    await fireEvent.click(await screen.findByTestId('customer-detail-edit'));
+
+    // Manager is pre-checked from the loaded roles; add Viewer.
+    await fireEvent.click(await screen.findByTestId('contact-role-4'));
+    await fireEvent.click(screen.getByText('common.saveChanges'));
+
+    await waitFor(() => {
+      expect(mocks.update).toHaveBeenCalledWith(7, expect.objectContaining({ role_ids: [3, 4] }));
+    });
+  });
+
   it('confirms deletion and returns to the customer list after success', async () => {
     const onBack = vi.fn();
     render(ContactDetail, { props: { contactId: 7, canManage: true, onBack } });
@@ -105,20 +135,20 @@ describe('ContactDetail activity', () => {
     });
   });
 
-  it('links visible submissions by workspace key without linking restricted workspaces', async () => {
+  it('renders the submissions the API returns and links each to its item', async () => {
     render(ContactDetail, { props: { contactId: 7 } });
     await screen.findByTestId('customer-detail-overview-tab');
     await fireEvent.click(screen.getByTestId('customer-detail-submissions-tab'));
 
     const visible = await screen.findByTestId('customer-submission-42');
     expect(visible).toHaveAttribute('href', '/workspaces/5/items/42');
+    expect(within(visible).getByText('Visible request')).toBeInTheDocument();
     expect(within(visible).getByText('SUP-19')).toBeInTheDocument();
     expect(within(visible).getByText('Support')).toBeInTheDocument();
 
-    const restricted = screen.getByTestId('customer-submission-43');
-    expect(restricted.tagName).toBe('DIV');
-    expect(restricted).not.toHaveAttribute('href');
-    expect(within(restricted).queryByText(/SUP-|Support/)).not.toBeInTheDocument();
+    // The backend omits submissions from workspaces the caller cannot view, so
+    // the component must not invent a restricted row of its own.
+    expect(screen.queryByTestId('customer-submission-43')).not.toBeInTheDocument();
   });
 
   it('renders channel identity from the customer-channel payload', async () => {

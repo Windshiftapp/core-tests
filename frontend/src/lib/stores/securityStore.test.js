@@ -1,20 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    getUser: vi.fn(),
-    getUserCredentials: vi.fn(),
-    getApiTokens: vi.fn(),
-    getScopeCatalog: vi.fn(),
-    createApiToken: vi.fn(),
-    startFIDORegistration: vi.fn(),
-    completeFIDORegistration: vi.fn(),
-  },
+vi.mock('../api/users.js', () => ({
+  getUser: vi.fn(),
+  getUserCredentials: vi.fn(),
+  getApiTokens: vi.fn(),
+  getScopeCatalog: vi.fn(),
+  createApiToken: vi.fn(),
+  startFIDORegistration: vi.fn(),
+  completeFIDORegistration: vi.fn(),
 }));
 
-import { api } from '../api.js';
+import { completeFIDORegistration, createApiToken, getApiTokens, getUser, getUserCredentials, startFIDORegistration } from '../api/users.js';
 import { capabilitiesStore } from './capabilities.svelte.js';
 import { securityStore } from './securityStore.svelte.js';
+import { getScopeCatalog } from '../api/users.js';
 
 describe('securityStore API tokens', () => {
   beforeEach(() => {
@@ -26,12 +25,12 @@ describe('securityStore API tokens', () => {
     securityStore.newTokenName = 'Automation';
     securityStore.newTokenScopes = ['items:read'];
     securityStore.newTokenExpiry = '2030-06-15';
-    api.createApiToken.mockResolvedValue({ token: 'crw_secret' });
-    api.getApiTokens.mockResolvedValue([]);
+    createApiToken.mockResolvedValue({ token: 'crw_secret' });
+    getApiTokens.mockResolvedValue([]);
 
     await securityStore.createApiToken();
 
-    expect(api.createApiToken).toHaveBeenCalledWith({
+    expect(createApiToken).toHaveBeenCalledWith({
       name: 'Automation',
       permissions: ['items:read'],
       expires_on: '2030-06-15',
@@ -42,12 +41,12 @@ describe('securityStore API tokens', () => {
   it('sends null when no expiration date is selected', async () => {
     securityStore.newTokenName = 'Automation';
     securityStore.newTokenScopes = ['items:read'];
-    api.createApiToken.mockResolvedValue({ token: 'crw_secret' });
-    api.getApiTokens.mockResolvedValue([]);
+    createApiToken.mockResolvedValue({ token: 'crw_secret' });
+    getApiTokens.mockResolvedValue([]);
 
     await securityStore.createApiToken();
 
-    expect(api.createApiToken).toHaveBeenCalledWith({
+    expect(createApiToken).toHaveBeenCalledWith({
       name: 'Automation',
       permissions: ['items:read'],
       expires_on: null,
@@ -77,9 +76,9 @@ describe('securityStore passkey enrollment mode', () => {
     expect(securityStore.showEnrollmentBanner).toBe(true);
     expect(securityStore.showAddCredential).toBe(true);
     expect(securityStore.credentialType).toBe('fido');
-    expect(api.getUser).not.toHaveBeenCalled();
-    expect(api.getUserCredentials).not.toHaveBeenCalled();
-    expect(api.getApiTokens).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+    expect(getUserCredentials).not.toHaveBeenCalled();
+    expect(getApiTokens).not.toHaveBeenCalled();
   });
 
   it('reuses the shell feature snapshot instead of fetching features again', async () => {
@@ -101,9 +100,9 @@ describe('securityStore passkey enrollment mode', () => {
     expect(securityStore.currentUserId).toBe(2);
     expect(securityStore.credentials).toEqual([]);
     expect(securityStore.enrollmentOnly).toBe(true);
-    expect(api.getUser).not.toHaveBeenCalled();
-    expect(api.getUserCredentials).not.toHaveBeenCalled();
-    expect(api.getApiTokens).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+    expect(getUserCredentials).not.toHaveBeenCalled();
+    expect(getApiTokens).not.toHaveBeenCalled();
   });
 
   it('cannot dismiss or cancel required enrollment', () => {
@@ -123,14 +122,14 @@ describe('securityStore passkey enrollment mode', () => {
     securityStore.setCurrentUserId(42, { enrollmentOnly: true });
     securityStore.newCredentialName = 'Laptop passkey';
 
-    api.startFIDORegistration.mockResolvedValue({
+    startFIDORegistration.mockResolvedValue({
       sessionId: 'registration-session',
       publicKey: { challenge: 'challenge' },
     });
-    api.completeFIDORegistration.mockResolvedValue({ status: 'success' });
-    api.getUser.mockResolvedValue({ id: 42, username: 'user' });
-    api.getUserCredentials.mockResolvedValue([{ id: 'credential-1' }]);
-    api.getApiTokens.mockResolvedValue([]);
+    completeFIDORegistration.mockResolvedValue({ status: 'success' });
+    getUser.mockResolvedValue({ id: 42, username: 'user' });
+    getUserCredentials.mockResolvedValue([{ id: 'credential-1' }]);
+    getApiTokens.mockResolvedValue([]);
 
     const create = vi.fn().mockResolvedValue({ id: 'browser-credential' });
     vi.stubGlobal('navigator', { credentials: { create } });
@@ -140,7 +139,7 @@ describe('securityStore passkey enrollment mode', () => {
       () => ({ id: 'processed-credential' })
     );
 
-    expect(api.completeFIDORegistration).toHaveBeenCalledWith(42, {
+    expect(completeFIDORegistration).toHaveBeenCalledWith(42, {
       sessionId: 'registration-session',
       credentialName: 'Laptop passkey',
       response: { id: 'processed-credential' },
@@ -149,8 +148,8 @@ describe('securityStore passkey enrollment mode', () => {
     expect(securityStore.enrollmentOnly).toBe(false);
     expect(securityStore.showEnrollmentBanner).toBe(false);
     expect(securityStore.showAddCredential).toBe(false);
-    expect(api.getUser).toHaveBeenCalledTimes(1);
-    expect(api.getUserCredentials).toHaveBeenCalledTimes(1);
-    expect(api.getApiTokens).toHaveBeenCalledTimes(1);
+    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(getUserCredentials).toHaveBeenCalledTimes(1);
+    expect(getApiTokens).toHaveBeenCalledTimes(1);
   });
 });

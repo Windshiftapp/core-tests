@@ -3,15 +3,14 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"windshift/internal/utils"
-	"strings"
-	"fmt"
 )
 
 func TestMergeProviderConfigJSONAddsFieldsWithoutOverwritingRequest(t *testing.T) {
@@ -78,42 +77,67 @@ func TestProviderConfigAPIContract(t *testing.T) {
 	}
 }
 
-func TestProviderConfigResponsesReasoning(t *testing.T) {
+func TestProviderConfigReasoningLevel(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  string
-		want *ResponsesReasoningConfig
+		want string
 	}{
-		{
-			name: "normalizes configured effort and summary",
-			raw:  `{"reasoning":{"effort":" high ","summary":" detailed ","budget_tokens":2048}}`,
-			want: &ResponsesReasoningConfig{Effort: "high", Summary: "detailed", BudgetTokens: 2048},
-		},
-		{name: "ignores missing reasoning", raw: `{"api_contract":"responses"}`},
-		{name: "ignores non-object reasoning", raw: `{"reasoning":"high"}`},
-		{name: "ignores malformed config", raw: `{"reasoning":`},
+		{name: "returns configured level", raw: `{"reasoning_level":"high"}`, want: ReasoningLevelHigh},
+		{name: "trims and lowercases", raw: `{"reasoning_level":"  Medium "}`, want: ReasoningLevelMedium},
+		{name: "default means unset", raw: `{"reasoning_level":"default"}`, want: ""},
+		{name: "ignores missing level", raw: `{"api_contract":"responses"}`},
+		{name: "ignores unknown level", raw: `{"reasoning_level":"extreme"}`},
+		{name: "ignores non-string level", raw: `{"reasoning_level":3}`},
+		{name: "ignores malformed config", raw: `{"reasoning_level":`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ProviderConfigResponsesReasoning(tt.raw); !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("ProviderConfigResponsesReasoning(%q) = %#v, want %#v", tt.raw, got, tt.want)
+			if got := ProviderConfigReasoningLevel(tt.raw); got != tt.want {
+				t.Fatalf("ProviderConfigReasoningLevel(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestValidateProviderConfigReasoning(t *testing.T) {
-	if err := ValidateProviderConfig(`{"reasoning":{"effort":"high","summary":"detailed"}}`); err != nil {
-		t.Fatalf("ValidateProviderConfig() rejected valid reasoning: %v", err)
+func TestProviderConfigHasReasoningOverride(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "no override", raw: `{"reasoning_level":"high"}`, want: false},
+		{name: "reasoning object", raw: `{"reasoning":{"effort":"high"}}`, want: true},
+		{name: "reasoning_effort", raw: `{"reasoning_effort":"low"}`, want: true},
+		{name: "thinking", raw: `{"thinking":{"type":"enabled","budget_tokens":1024}}`, want: true},
 	}
-	if err := ValidateProviderConfig(`{"reasoning":"high"}`); err == nil {
-		t.Fatal("ValidateProviderConfig() accepted non-object reasoning")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ProviderConfigHasReasoningOverride(tt.raw); got != tt.want {
+				t.Fatalf("ProviderConfigHasReasoningOverride(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
 	}
-	if err := ValidateProviderConfig(`{"reasoning":{"budget_tokens":-1}}`); err == nil {
-		t.Fatal("ValidateProviderConfig() accepted negative reasoning budget")
+}
+
+func TestValidateProviderConfigReasoningLevel(t *testing.T) {
+	for _, level := range []string{"default", "low", "medium", "high", " HIGH "} {
+		if err := ValidateProviderConfig(`{"reasoning_level":"` + level + `"}`); err != nil {
+			t.Errorf("ValidateProviderConfig() rejected level %q: %v", level, err)
+		}
 	}
-	if err := ValidateProviderConfig(`{"reasoning":{"budget_tokens":"large"}}`); err == nil {
-		t.Fatal("ValidateProviderConfig() accepted non-numeric reasoning budget")
+	if err := ValidateProviderConfig(`{"reasoning_level":"extreme"}`); err == nil {
+		t.Fatal("ValidateProviderConfig() accepted unsupported reasoning_level")
+	}
+	if err := ValidateProviderConfig(`{"reasoning_level":3}`); err == nil {
+		t.Fatal("ValidateProviderConfig() accepted non-string reasoning_level")
+	}
+	// Provider-native reasoning fields stay opaque: any shape passes through.
+	if err := ValidateProviderConfig(`{"reasoning":"high"}`); err != nil {
+		t.Fatalf("ValidateProviderConfig() rejected raw reasoning: %v", err)
+	}
+	if err := ValidateProviderConfig(`{"thinking":{"budget_tokens":-1}}`); err != nil {
+		t.Fatalf("ValidateProviderConfig() rejected raw thinking: %v", err)
 	}
 }
 

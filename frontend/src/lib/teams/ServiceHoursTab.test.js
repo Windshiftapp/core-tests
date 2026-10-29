@@ -1,16 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../api.js', () => ({
-  api: {
-    sla: {
-      getTeamCalendars: vi.fn(),
-      createTeamCalendar: vi.fn(),
-      updateTeamCalendar: vi.fn(),
-      deleteTeamCalendar: vi.fn(),
-      getTeamCalendarImpact: vi.fn(),
-    },
-  },
+vi.mock('../api/sla.js', () => ({
+  sla: {
+        getTeamCalendars: vi.fn(),
+        createTeamCalendar: vi.fn(),
+        updateTeamCalendar: vi.fn(),
+        deleteTeamCalendar: vi.fn(),
+        getTeamCalendarImpact: vi.fn(),
+      },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({
@@ -26,16 +24,16 @@ vi.mock('../composables/useConfirm.js', () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
-import { api } from '../api.js';
+import { sla } from '../api/sla.js';
 import ServiceHoursTab from './ServiceHoursTab.svelte';
 
 describe('ServiceHoursTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    api.sla.getTeamCalendars.mockResolvedValue([
+    sla.getTeamCalendars.mockResolvedValue([
       { id: 3, name: 'Support hours', timezone: 'UTC', is_default: true },
     ]);
-    api.sla.getTeamCalendarImpact.mockResolvedValue({
+    sla.getTeamCalendarImpact.mockResolvedValue({
       calendar_id: 3,
       workspaces: [
         {
@@ -51,7 +49,7 @@ describe('ServiceHoursTab', () => {
   it('lists the team calendars', async () => {
     render(ServiceHoursTab, { team: { id: 2 }, canEdit: true });
 
-    await waitFor(() => expect(api.sla.getTeamCalendars).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(sla.getTeamCalendars).toHaveBeenCalledWith(2));
     expect(await screen.findByTestId('team-calendar-row-3')).toBeTruthy();
     expect(screen.getByText('Support hours')).toBeTruthy();
   });
@@ -67,7 +65,7 @@ describe('ServiceHoursTab', () => {
     const impactAction = await screen.findByTestId('team-calendar-impact-3');
     await fireEvent.click(impactAction);
 
-    await waitFor(() => expect(api.sla.getTeamCalendarImpact).toHaveBeenCalledWith(2, 3));
+    await waitFor(() => expect(sla.getTeamCalendarImpact).toHaveBeenCalledWith(2, 3));
     expect(await screen.findByTestId('team-calendar-impact-workspace-7')).toBeTruthy();
     expect(screen.getByText('Support workspace')).toBeTruthy();
   });

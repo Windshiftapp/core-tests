@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  captureWorkspaceWidgetWidths,
-  normalizeWorkspaceWidgets,
-  restoreRejectedWorkspaceWidgetWidths,
-} from './workspaceWidgetLayout.js';
+import { captureWorkspaceWidgetWidths, normalizeWorkspaceWidgets, restoreRejectedWorkspaceWidgetWidths } from './workspaceWidgetLayout.js';
 
 describe('workspace widget layout widths', () => {
   it('normalizes loaded widths to the workspace API contract', () => {

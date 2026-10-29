@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,17 +136,10 @@ func TestListSchedulesIncludesCompleteOverviewForTeamMembers(t *testing.T) {
 
 	viewerRecorder := httptest.NewRecorder()
 	handler.ListSchedules(viewerRecorder, requestFor(viewerID))
-	if viewerRecorder.Code != http.StatusOK {
-		t.Fatalf("viewer status = %d, want 200; body=%s", viewerRecorder.Code, viewerRecorder.Body.String())
+	if viewerRecorder.Code != http.StatusForbidden {
+		t.Fatalf("viewer status = %d, want 403; body=%s", viewerRecorder.Code, viewerRecorder.Body.String())
 	}
-	var viewerSchedules []models.OnCallSchedule
-	if err := json.NewDecoder(viewerRecorder.Body).Decode(&viewerSchedules); err != nil {
-		t.Fatalf("decode viewer response: %v", err)
-	}
-	if len(viewerSchedules) != 1 || len(viewerSchedules[0].Layers) != 1 {
-		t.Fatalf("viewer schedules = %+v, want schedule and layer metadata", viewerSchedules)
-	}
-	if len(viewerSchedules[0].Layers[0].Members) != 0 || len(viewerSchedules[0].Overrides) != 0 || viewerSchedules[0].CurrentOnCall != nil {
-		t.Fatalf("viewer schedules = %+v, want no protected roster identities", viewerSchedules)
+	if strings.Contains(viewerRecorder.Body.String(), "Primary Schedule") {
+		t.Fatalf("forbidden list leaked schedule metadata: %s", viewerRecorder.Body.String())
 	}
 }
