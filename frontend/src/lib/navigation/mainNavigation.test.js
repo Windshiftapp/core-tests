@@ -1,4 +1,4 @@
-import { IconPlanet } from '@tabler/icons-svelte-runes';
+import { IconWorldSearch } from '@tabler/icons-svelte-runes';
 import { describe, expect, test } from 'vitest';
 import { mainNavItems } from './mainNavigation.js';
 
@@ -12,7 +12,7 @@ describe('portal hub navigation', () => {
   test('uses the portal hub icon', () => {
     const portalHub = mainNavItems.find((item) => item.id === 'portal-hub');
 
-    expect(portalHub?.icon).toBe(IconPlanet);
+    expect(portalHub?.icon).toBe(IconWorldSearch);
   });
 });
 
