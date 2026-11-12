@@ -202,6 +202,37 @@ describe('CollectionTree hierarchy loading', () => {
     expect(screen.getByTestId('tree-parent-1')).toHaveTextContent('WS-99');
   });
 
+  it('prefers the permission-checked parent key over the derived one', async () => {
+    getHierarchy.mockResolvedValue([group(1, [])]);
+    collectionTreeStore.items = [
+      item(1, 99, {
+        parent_title: 'Parent epic',
+        parent_key: 'OTHER-99',
+        parent_workspace_item_number: 99,
+      }),
+    ];
+
+    render(CollectionTree, { workspaceId: 1 });
+
+    expect(await screen.findByTestId('tree-parent-1')).toHaveTextContent('OTHER-99');
+  });
+
+  it('does not draw a parent reference for a masked parent', async () => {
+    getHierarchy.mockResolvedValue([group(1, [])]);
+    collectionTreeStore.items = [
+      item(1, 99, {
+        parent_key: '',
+        parent_title: '',
+        parent_workspace_item_number: null,
+      }),
+    ];
+
+    render(CollectionTree, { workspaceId: 1 });
+
+    await screen.findByTestId('workspace-item-title-1');
+    expect(screen.queryByTestId('tree-parent-1')).not.toBeInTheDocument();
+  });
+
   it('draws a depth guide only on nested rows', async () => {
     getHierarchy.mockResolvedValue([group(1, [item(20, 1)])]);
     collectionTreeStore.items = [item(1, null, { has_children: true })];

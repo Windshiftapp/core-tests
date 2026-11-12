@@ -50,3 +50,42 @@ describe('CardFieldChip custom fields', () => {
 	expect(screen.queryByText('NaN')).not.toBeInTheDocument();
   });
 });
+
+describe('CardFieldChip parent field', () => {
+  test('renders the permission-checked parent key', () => {
+    render(CardFieldChip, {
+      props: {
+        cardField: { field_type: 'system', field_identifier: 'parent' },
+        item: {
+          id: 42,
+          parent_id: 7,
+          parent_key: 'EPIC-7',
+          parent_title: 'Release the new workflow',
+          workspace_key: 'CHILD',
+        },
+      },
+    });
+
+    const chip = screen.getByTestId('work-item-parent-42');
+    expect(chip).toHaveTextContent('EPIC-7');
+    expect(chip).not.toHaveTextContent('CHILD-7');
+  });
+
+  test('renders nothing for a masked parent', () => {
+    render(CardFieldChip, {
+      props: {
+        cardField: { field_type: 'system', field_identifier: 'parent' },
+        item: {
+          id: 42,
+          parent_id: 7,
+          parent_key: '',
+          parent_title: '',
+          parent_workspace_item_number: null,
+          workspace_key: 'CHILD',
+        },
+      },
+    });
+
+    expect(screen.queryByTestId('work-item-parent-42')).not.toBeInTheDocument();
+  });
+});
