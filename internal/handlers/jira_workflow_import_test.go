@@ -98,6 +98,19 @@ func TestAuthoritativeJiraWorkflowEdgesPreserveTopologyAndOnlyLockKnownRules(t *
 				TriggerCount:   1,
 			},
 			{
+				ID:            "self",
+				Type:          jira.JiraWorkflowTransitionDirected,
+				FromStatusIDs: []string{"doing"},
+				ToStatusID:    "doing",
+			},
+			{
+				ID:             "guarded-self",
+				Type:           jira.JiraWorkflowTransitionDirected,
+				FromStatusIDs:  []string{"done"},
+				ToStatusID:     "done",
+				ValidatorCount: 1,
+			},
+			{
 				ID:         "global",
 				Type:       jira.JiraWorkflowTransitionGlobal,
 				ToStatusID: "open",
@@ -120,13 +133,15 @@ func TestAuthoritativeJiraWorkflowEdgesPreserveTopologyAndOnlyLockKnownRules(t *
 	if !initialTargets[11] {
 		t.Fatalf("initial targets = %#v, want status 11", initialTargets)
 	}
-	for _, want := range [][2]int{{11, 22}, {22, 11}, {33, 11}, {22, 33}} {
+	for _, want := range [][2]int{{11, 22}, {22, 11}, {33, 11}, {22, 33}, {22, 22}, {33, 33}} {
 		if !got[want] {
 			t.Errorf("missing directed edge %v; got %#v", want, got)
 		}
 	}
-	if got[[2]int{11, 11}] {
-		t.Fatal("global transition created a redundant self-edge")
+	// A global transition can be applied from the status it targets, so it now
+	// imports the same-status edge too.
+	if !got[[2]int{11, 11}] {
+		t.Fatal("global transition self-edge was dropped")
 	}
 	locked := make(map[[2]int]bool)
 	for _, edge := range edges {
@@ -140,8 +155,13 @@ func TestAuthoritativeJiraWorkflowEdgesPreserveTopologyAndOnlyLockKnownRules(t *
 	if !locked[[2]int{22, 33}] {
 		t.Fatal("explicitly guarded Jira transition was not review locked")
 	}
-	if group.guardedTransitions != 1 ||
-		group.unsupportedLoops != 1 ||
+	if locked[[2]int{22, 22}] {
+		t.Fatal("unguarded loop transition was review locked")
+	}
+	if !locked[[2]int{33, 33}] {
+		t.Fatal("guarded loop transition was not review locked")
+	}
+	if group.guardedTransitions != 2 ||
 		group.unsupportedActions != 2 ||
 		group.unsupportedTriggers != 1 {
 		t.Fatalf("fidelity counters = %#v", group)
@@ -653,5 +673,87 @@ func TestEnsureWorkflowsPreservesSourceIdentityGraphAndIssueTypeAssignment(t *te
 			bugConditionSetID,
 			taskConditionSetID,
 		)
+	}
+}
+
+func TestEnsureWorkflowsImportsSameStatusLoopTransition(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	defer tdb.Close()
+	insertJiraImportConnection(t, tdb.Database, "connection-loop")
+	insertJiraImportJob(t, tdb.Database, "job-loop", "connection-loop", "running", []string{"APP"})
+
+	insertID := func(query string, args ...interface{}) int {
+		t.Helper()
+		var id int
+		if err := tdb.QueryRow(query+" RETURNING id", args...).Scan(&id); err != nil {
+			t.Fatalf("insert fixture: %v", err)
+		}
+		return id
+	}
+	categoryID := insertID(`INSERT INTO status_categories (name, color) VALUES ('Jira Loop', '#123456')`)
+	reviewID := insertID(
+		`INSERT INTO statuses (name, description, category_id) VALUES ('Jira Loop Review', '', ?)`,
+		categoryID,
+	)
+	bugID := insertID(`INSERT INTO item_types (name) VALUES ('Jira Loop Bug')`)
+	workspaceID := insertID(`INSERT INTO workspaces (name, key) VALUES ('Jira Loop Workspace', 'APP')`)
+
+	client := &fakeJiraWorkflowImportClient{
+		project: jira.JiraProject{ID: "10000", Key: "APP", Name: "App"},
+		issueTypeStatuses: []jira.JiraIssueTypeWithStatuses{
+			{ID: "bug", Name: "Bug", Statuses: []jira.JiraStatus{{ID: "review", Name: "Review"}}},
+		},
+		configuration: &jira.JiraProjectWorkflowConfiguration{
+			IssueTypeWorkflowIDs: map[string]string{"bug": "wf-loop"},
+			Workflows: []jira.JiraWorkflowConfiguration{
+				{
+					ID:        "wf-loop",
+					Name:      "Loop flow",
+					StatusIDs: []string{"review"},
+					Transitions: []jira.JiraConfiguredWorkflowTransition{
+						{ID: "loop-init", Type: jira.JiraWorkflowTransitionInitial, ToStatusID: "review"},
+						{
+							ID:             "loop-self",
+							Type:           jira.JiraWorkflowTransitionDirected,
+							FromStatusIDs:  []string{"review"},
+							ToStatusID:     "review",
+							ValidatorCount: 1,
+						},
+					},
+				},
+			},
+			RulesComplete: true,
+		},
+	}
+	handler := NewJiraImportHandler(tdb.GetDatabase(), "jira-loop-test-secret-32-bytes", "", blobstore.Disabled())
+	if err := handler.ensureWorkflowsAndConfigSet(
+		context.Background(),
+		"job-loop",
+		"APP",
+		workspaceID,
+		map[string]int{"review": reviewID},
+		map[string]int{"bug": bugID},
+		client,
+	); err != nil {
+		t.Fatalf("ensureWorkflowsAndConfigSet() error = %v", err)
+	}
+
+	var workflowID int
+	if err := tdb.QueryRow(`
+		SELECT windshift_id FROM jira_import_id_mappings
+		WHERE job_id = 'job-loop' AND entity_type = 'workflow' AND jira_id = 'wf-loop'
+	`).Scan(&workflowID); err != nil {
+		t.Fatalf("query workflow mapping: %v", err)
+	}
+
+	var count int
+	if err := tdb.QueryRow(`
+		SELECT COUNT(*) FROM workflow_transitions
+		WHERE workflow_id = ? AND from_status_id = ? AND to_status_id = ?
+	`, workflowID, reviewID, reviewID).Scan(&count); err != nil {
+		t.Fatalf("count loop transition: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("loop transition count = %d, want 1", count)
 	}
 }

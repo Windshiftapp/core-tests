@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { canItemTypeBeChildOf, childItemTypesForParent, GENERIC_SUBTASK_HIERARCHY_LEVEL, isGenericSubtaskType, sortItemTypesByHierarchy } from "./hierarchy.js";
+import { canItemTypeBeChildOf, childItemTypesForLevel, childItemTypesForParent, GENERIC_SUBTASK_HIERARCHY_LEVEL, isGenericSubtaskType, sortItemTypesByHierarchy } from "./hierarchy.js";
 
 const epic = { id: 1, name: "Epic", hierarchy_level: 0, sort_order: 1 };
 const story = { id: 2, name: "Story", hierarchy_level: 1, sort_order: 2 };
@@ -49,5 +49,32 @@ describe("generic subtask hierarchy", () => {
 		expect(
 			sortItemTypesByHierarchy([genericSubtask, task, epic, story]),
 		).toEqual([epic, story, task, genericSubtask]);
+	});
+});
+
+describe("childItemTypesForLevel", () => {
+	test("returns the next level plus generic subtasks for a known level", () => {
+		expect(
+			childItemTypesForLevel([epic, story, task, genericSubtask], 0),
+		).toEqual([story, genericSubtask]);
+	});
+
+	test("treats a numeric string level like a number", () => {
+		expect(childItemTypesForLevel([epic, story, task], "1")).toEqual([task]);
+	});
+
+	test("returns nothing when the parent level is unknown", () => {
+		expect(childItemTypesForLevel([epic, story], null)).toEqual([]);
+		expect(childItemTypesForLevel([epic, story], undefined)).toEqual([]);
+		expect(childItemTypesForLevel([epic, story], "nope")).toEqual([]);
+	});
+
+	test("treats the generic subtask level as terminal", () => {
+		expect(
+			childItemTypesForLevel(
+				[epic, story, task, genericSubtask],
+				GENERIC_SUBTASK_HIERARCHY_LEVEL,
+			),
+		).toEqual([]);
 	});
 });

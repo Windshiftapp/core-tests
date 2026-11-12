@@ -560,3 +560,29 @@ describe('Jira import interactive mapping', () => {
     expect(jiraImport.canProceed()).toBe(true);
   });
 });
+
+describe('Jira import time limit', () => {
+  beforeEach(() => {
+    jiraImport.reset();
+    vi.clearAllMocks();
+  });
+
+  it('stops polling and surfaces the time-limit message when the backend reports timed_out', async () => {
+    jiraImport.import.jobId = 'job-timeout';
+    jiraImportApi.getJobStatus.mockResolvedValue({
+      status: 'timed_out',
+      phase: 'timed_out',
+      progress: { imported_issues: 1800, total_issues: 2535 },
+      error_message:
+        'Import stopped at the configured time limit after importing 1800 of 2535 issues.',
+    });
+
+    jiraImport.pollJobStatus();
+
+    await vi.waitFor(() => {
+      expect(jiraImport.import.error).toContain('time limit');
+    });
+    expect(jiraImport.import.result).toBeNull();
+    expect(jiraImportApi.getJobStatus).toHaveBeenCalledTimes(1);
+  });
+});

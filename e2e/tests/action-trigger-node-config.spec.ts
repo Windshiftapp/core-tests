@@ -8,9 +8,7 @@ test.describe('Action editor trigger/node config contracts', () => {
   test('saving an applied template in the UI preserves action trigger_config', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
 
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {

@@ -108,4 +108,32 @@ describe('durable Standard chat selection', () => {
       expect.objectContaining({ role: 'assistant', content: 'Fresh answer' }),
     ]);
   });
+
+  test('surfaces the admin-only provider error on a failed turn', async () => {
+    await chatStore.startNewGeneralChat();
+    const failure = new Error('The AI service could not complete this request.');
+    failure.details = { provider_error: 'temperature is deprecated for this model' };
+    ai.chat.mockRejectedValueOnce(failure);
+
+    await chatStore.sendMessage('Please answer');
+
+    expect(chatStore.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      error: 'The AI service could not complete this request.',
+      errorDetail: 'temperature is deprecated for this model',
+    });
+  });
+
+  test('leaves the provider detail empty when the server omits it', async () => {
+    await chatStore.startNewGeneralChat();
+    ai.chat.mockRejectedValueOnce(new Error('The AI service could not complete this request.'));
+
+    await chatStore.sendMessage('Please answer');
+
+    expect(chatStore.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      error: 'The AI service could not complete this request.',
+      errorDetail: '',
+    });
+  });
 });

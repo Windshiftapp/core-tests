@@ -190,6 +190,15 @@ func StartTestServerWithConfig(t *testing.T, dbType string, mutate func(*server.
 	// that still reads env vars directly rather than through config.Load).
 	_ = os.Setenv("SESSION_SECRET", "test-session-secret-for-integration-tests")
 
+	// These black-box tests create data in tight loops (hundreds to thousands of
+	// requests as one principal), so any meaningful request-rate backstop would
+	// trip them. They do not assert rate limiting; disable it for the process the
+	// same way the e2e harness does. A test that wants limits can set the var to
+	// "0" before starting the server.
+	if os.Getenv("WINDSHIFT_E2E_DISABLE_RATE_LIMITS") == "" {
+		_ = os.Setenv("WINDSHIFT_E2E_DISABLE_RATE_LIMITS", "1")
+	}
+
 	// Create server configuration for testing
 	cfg := server.Config{
 		Port:           "0",                             // Use port 0 for OS-assigned free port

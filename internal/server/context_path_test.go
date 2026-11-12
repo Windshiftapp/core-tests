@@ -163,14 +163,38 @@ func TestWithContextPathDisabledLeavesLocationAlone(t *testing.T) {
 
 func TestPrepareIndexHTMLPrefixesRootAssetsAndInjectsContextPath(t *testing.T) {
 	input := []byte(`<!doctype html><head><script>theme()</script><script type="module" src="/_app/app.js"></script><link href="/_app/app.css"><link href="/windshift-3.svg"></head><body></body>`)
-	got := string(prepareIndexHTML(input, "nonce123", "/windshift"))
+	got := string(prepareIndexHTML(input, "nonce123", indexBootstrap{
+		ContextPath:       "/windshift",
+		BaseURL:           "https://windshift.example.test",
+		BaseURLConfigured: true,
+	}))
 
 	for _, want := range []string{
 		`<script nonce="nonce123">theme()</script>`,
 		`window.__WINDSHIFT_CONTEXT_PATH__="/windshift"`,
+		`window.__WINDSHIFT_BASE_URL__="https://windshift.example.test"`,
+		`window.__WINDSHIFT_BASE_URL_CONFIGURED__=true`,
 		`src="/windshift/_app/app.js"`,
 		`href="/windshift/_app/app.css"`,
 		`href="/windshift/windshift-3.svg"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prepared HTML missing %q in %s", want, got)
+		}
+	}
+}
+
+func TestPrepareIndexHTMLInjectsUnconfiguredBaseURLFallback(t *testing.T) {
+	input := []byte(`<!doctype html><head></head><body></body>`)
+	got := string(prepareIndexHTML(input, "nonce123", indexBootstrap{
+		ContextPath:       "",
+		BaseURL:           "http://localhost:8080",
+		BaseURLConfigured: false,
+	}))
+
+	for _, want := range []string{
+		`window.__WINDSHIFT_BASE_URL__="http://localhost:8080"`,
+		`window.__WINDSHIFT_BASE_URL_CONFIGURED__=false`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prepared HTML missing %q in %s", want, got)

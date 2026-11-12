@@ -121,11 +121,128 @@ func TestItemCreationServiceValidatesAssignee(t *testing.T) {
 	}
 }
 
+func TestItemCreationService_ResolvesChildTypeWhenOmitted(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	t.Cleanup(func() { tdb.Close() })
+	data := tdb.SeedTestData(t)
+
+	// A top-level parent type and the type one hierarchy level below it.
+	var parentTypeID, parentLevel, childTypeID int
+	if err := tdb.QueryRow(`
+		SELECT id, hierarchy_level FROM item_types
+		WHERE hierarchy_level >= 0
+		ORDER BY hierarchy_level, id LIMIT 1
+	`).Scan(&parentTypeID, &parentLevel); err != nil {
+		t.Fatalf("load parent item type: %v", err)
+	}
+	if err := tdb.QueryRow(`
+		SELECT id FROM item_types
+		WHERE hierarchy_level = ?
+		ORDER BY id LIMIT 1
+	`, parentLevel+1).Scan(&childTypeID); err != nil {
+		t.Fatalf("load child item type: %v", err)
+	}
+	// The regression only bites when the workspace default is a different
+	// (top-level) type than the legal child type.
+	var defaultTypeID int
+	if err := tdb.QueryRow(`SELECT id FROM item_types WHERE is_default = true ORDER BY id LIMIT 1`).Scan(&defaultTypeID); err != nil {
+		t.Fatalf("load default item type: %v", err)
+	}
+	if defaultTypeID == childTypeID {
+		t.Skip("default item type already equals the legal child type")
+	}
+
+	perm, err := NewPermissionService(tdb.GetDatabase(), DefaultPermissionCacheConfig())
+	if err != nil {
+		t.Fatalf("create permission service: %v", err)
+	}
+	service := NewItemCreationService(tdb.GetDatabase(), perm)
+
+	parent, err := service.Create(data.UserID, "testuser", ItemCreateInput{
+		WorkspaceID: data.WorkspaceID,
+		ItemTypeID:  &parentTypeID,
+		Title:       "Parent for omitted child type",
+	})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	child, err := service.Create(data.UserID, "testuser", ItemCreateInput{
+		WorkspaceID: data.WorkspaceID,
+		ParentID:    &parent.Item.ID,
+		Title:       "Child without an explicit type",
+	})
+	if err != nil {
+		t.Fatalf("create child without a type: %v", err)
+	}
+	gotType := -1
+	if child.Item.ItemTypeID != nil {
+		gotType = *child.Item.ItemTypeID
+	}
+	if gotType != childTypeID {
+		t.Fatalf("child item type = %d, want next-level type %d", gotType, childTypeID)
+	}
+
+	var persistedTypeID, persistedLevel int
+	if err := tdb.QueryRow(`
+		SELECT i.item_type_id, it.hierarchy_level
+		FROM items i JOIN item_types it ON it.id = i.item_type_id
+		WHERE i.id = ?
+	`, child.Item.ID).Scan(&persistedTypeID, &persistedLevel); err != nil {
+		t.Fatalf("load persisted child type: %v", err)
+	}
+	if persistedTypeID != childTypeID || persistedLevel != parentLevel+1 {
+		t.Fatalf("persisted child type/level = %d/%d, want %d/%d", persistedTypeID, persistedLevel, childTypeID, parentLevel+1)
+	}
+}
+
 func (e *recordingItemCreatedEmitter) EmitItemCreated(item *models.Item, actorUserID int, actorUsername ...string) {
 	e.items = append(e.items, item)
 	e.actorUserID = actorUserID
 	if len(actorUsername) > 0 {
 		e.actorUsername = actorUsername[0]
+	}
+}
+
+// TestItemCreationServiceCreateImportedSuppressesLiveSideEffects asserts the
+// canonical validation/persistence path is still used for imports, but the
+// live emitter, the assignee trigger, and the canonical fact's actor all agree
+// that the write is historical.
+func TestItemCreationServiceCreateImportedSuppressesLiveSideEffects(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	t.Cleanup(func() { tdb.Close() })
+	data := tdb.SeedTestData(t)
+
+	emitter := &recordingItemCreatedEmitter{}
+	perm, err := NewPermissionService(tdb.GetDatabase(), DefaultPermissionCacheConfig())
+	if err != nil {
+		t.Fatalf("create permission service: %v", err)
+	}
+	service := NewItemCreationService(tdb.GetDatabase(), perm)
+	service.SetEmitter(emitter)
+
+	created, err := service.CreateImported(data.UserID, "importer", ItemCreateInput{
+		WorkspaceID: data.WorkspaceID,
+		Title:       "Bundle seed item",
+		AssigneeID:  &data.UserID,
+	}, "workspace_bundle")
+	if err != nil {
+		t.Fatalf("CreateImported failed: %v", err)
+	}
+
+	if len(emitter.items) != 0 {
+		t.Fatalf("import emitted %d live item-created events, want 0", len(emitter.items))
+	}
+
+	var actorKind, sourceKind string
+	if err := tdb.QueryRow(`
+		SELECT actor_kind, source_kind FROM domain_events
+		WHERE event_type = 'item.created' AND aggregate_id = ?
+	`, created.Item.ID).Scan(&actorKind, &sourceKind); err != nil {
+		t.Fatalf("load creation fact provenance: %v", err)
+	}
+	if actorKind != "import" || sourceKind != "import" {
+		t.Fatalf("creation fact provenance = %q/%q, want import/import", actorKind, sourceKind)
 	}
 }
 

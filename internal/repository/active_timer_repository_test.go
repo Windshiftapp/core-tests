@@ -102,7 +102,6 @@ func newActiveTimerFixture(t *testing.T) activeTimerFixture {
 		timerID: timerID,
 		worklog: CreateWorklogInput{
 			ProjectID:       projectID,
-			CustomerID:      customerID,
 			UserID:          userID,
 			Description:     "Investigate timer",
 			DateUnix:        0,

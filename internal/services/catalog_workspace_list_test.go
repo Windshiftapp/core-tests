@@ -448,3 +448,84 @@ func TestWorkspaceServiceList_SearchContract(t *testing.T) {
 		}
 	})
 }
+
+// TestCatalogListWorkspaces_IDsResolve covers the direct id-set read: the
+// directory page cache holds only the first server page, so callers that need
+// a known set resolve it in one query instead of one query per id.
+func TestCatalogListWorkspaces_IDsResolve(t *testing.T) {
+	fx := newCatalogListFixture(t)
+	first := fx.createWorkspace(t, "Alpha", "ALPHA", true, false)
+	second := fx.createWorkspace(t, "Beta", "BETA", true, false)
+	hidden := fx.createWorkspace(t, "Hidden", "HID", true, false)
+	other := fx.createWorkspace(t, "Gamma", "GAMMA", true, false)
+	fx.grantView(first)
+	fx.grantView(second)
+	fx.grantView(other)
+	// hidden has no grant and must never appear in an id resolve.
+
+	svc := fx.service(t)
+
+	t.Run("returnsExactlyTheRequestedVisibleSet", func(t *testing.T) {
+		rows, total, err := svc.ListWorkspaces(fx.userID, services.CatalogPageParams{IDs: []int{second, first}})
+		if err != nil {
+			t.Fatalf("ListWorkspaces ids: %v", err)
+		}
+		if total != 2 || len(rows) != 2 {
+			t.Fatalf("got %d rows total %d, want 2/2", len(rows), total)
+		}
+		got := map[int]bool{}
+		for _, ws := range rows {
+			got[ws.ID] = true
+		}
+		if !got[first] || !got[second] {
+			t.Fatalf("requested workspaces missing: %+v", rows)
+		}
+		if got[other] {
+			t.Fatalf("unrequested workspace %d leaked into the id resolve", other)
+		}
+	})
+
+	t.Run("dropsIdsTheCallerCannotView", func(t *testing.T) {
+		rows, total, err := svc.ListWorkspaces(fx.userID, services.CatalogPageParams{IDs: []int{first, hidden}})
+		if err != nil {
+			t.Fatalf("ListWorkspaces ids: %v", err)
+		}
+		if total != 1 || len(rows) != 1 || rows[0].ID != first {
+			t.Fatalf("got %+v total %d, want only workspace %d", rows, total, first)
+		}
+	})
+
+	t.Run("returnsEveryRequestedRowRegardlessOfLimit", func(t *testing.T) {
+		rows, total, err := svc.ListWorkspaces(fx.userID, services.CatalogPageParams{
+			IDs: []int{first, second, other}, Limit: 1,
+		})
+		if err != nil {
+			t.Fatalf("ListWorkspaces ids: %v", err)
+		}
+		if total != 3 || len(rows) != 3 {
+			t.Fatalf("got %d rows total %d, want 3/3", len(rows), total)
+		}
+	})
+
+	t.Run("idsTakePrecedenceOverSearch", func(t *testing.T) {
+		rows, total, err := svc.ListWorkspaces(fx.userID, services.CatalogPageParams{
+			IDs: []int{first}, Search: "Beta",
+		})
+		if err != nil {
+			t.Fatalf("ListWorkspaces ids: %v", err)
+		}
+		if total != 1 || len(rows) != 1 || rows[0].ID != first {
+			t.Fatalf("search was not ignored for an id resolve: %+v total %d", rows, total)
+		}
+	})
+
+	t.Run("unknownIdsReturnAnEmptyPage", func(t *testing.T) {
+		rows, total, err := svc.ListWorkspaces(fx.userID, services.CatalogPageParams{IDs: []int{999999}})
+		if err != nil {
+			t.Fatalf("ListWorkspaces ids: %v", err)
+		}
+		if total != 0 || len(rows) != 0 {
+			t.Fatalf("unknown ids returned %d rows total %d, want empty/0", len(rows), total)
+		}
+	})
+}

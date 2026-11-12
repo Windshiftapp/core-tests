@@ -9,7 +9,6 @@ test("keeps item detail ready through a back-forward cache lifecycle", async ({
 	request,
 	allowConsoleError,
 }, testInfo) => {
-	allowConsoleError(/\/api\/logbook\//);
 	allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 
 	const stamp = `${Date.now()}${testInfo.workerIndex}${testInfo.repeatEachIndex}`;

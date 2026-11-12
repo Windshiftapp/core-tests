@@ -14,9 +14,6 @@ vi.mock('../stores/aiStore.svelte.js', () => ({
 vi.mock('../stores/capabilities.svelte.js', () => ({
   capabilitiesStore: { hydrate: vi.fn(), failHydration: vi.fn() },
 }));
-vi.mock('../stores/logbook.svelte.js', () => ({
-  logbookStore: { hydrateAvailability: vi.fn() },
-}));
 vi.mock('../stores/workItemStalenessSettings.svelte.js', () => ({
   workItemStalenessSettings: { hydrate: vi.fn() },
 }));
@@ -25,7 +22,6 @@ vi.mock('../stores/moduleSettings.js', () => ({
 }));
 vi.mock('../stores/permissions.svelte.js', () => ({
   permissionStore: {
-    setLogbookAvailable: vi.fn(),
     setHasAssetSets: vi.fn(),
     setHasActivePortals: vi.fn(),
     setHasPortals: vi.fn(),
@@ -48,7 +44,6 @@ import { aiStore } from '../stores/aiStore.svelte.js';
 import { attachmentStatus } from '../stores/attachmentStatus.svelte.js';
 import { capabilitiesStore } from '../stores/capabilities.svelte.js';
 import { workItemStalenessSettings } from '../stores/workItemStalenessSettings.svelte.js';
-import { logbookStore } from '../stores/logbook.svelte.js';
 import { moduleSettings } from '../stores/moduleSettings.js';
 import { permissionStore } from '../stores/permissions.svelte.js';
 import { themeStore } from '../stores/theme.svelte.js';
@@ -64,7 +59,6 @@ const snapshot = {
   ai: { available: true, chat_enabled: true },
   features: {
     capabilities: ['plugin.example'],
-    logbook_available: true,
   },
   has_asset_sets: true,
   manages_asset_sets: true,
@@ -90,9 +84,7 @@ describe('authenticated shell UI refresh', () => {
     expect(attachmentStatus.hydrate).toHaveBeenCalledWith(snapshot.attachment_status);
     expect(aiStore.hydrate).toHaveBeenCalledWith(snapshot.ai);
     expect(capabilitiesStore.hydrate).toHaveBeenCalledWith(snapshot.features);
-    expect(logbookStore.hydrateAvailability).toHaveBeenCalledWith(true);
     expect(workItemStalenessSettings.hydrate).toHaveBeenCalledWith(snapshot.work_item_staleness);
-    expect(permissionStore.setLogbookAvailable).toHaveBeenCalledWith(true);
     expect(permissionStore.setHasAssetSets).toHaveBeenCalledWith(true);
     expect(permissionStore.setHasPortals).toHaveBeenCalledWith(true);
     expect(permissionStore.setHasActivePortals).toHaveBeenCalledWith(false);

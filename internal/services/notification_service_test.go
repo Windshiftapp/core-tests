@@ -63,15 +63,19 @@ func TestUnreadEmailBatchesReauthorizeWorkspaceNotifications(t *testing.T) {
 		t.Fatalf("accessible workspaces before revocation = %v, want [%d]", accessibleBefore, allowedWorkspaceID)
 	}
 
-	beforeDecodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
-	before, err := service.UnreadEmailBatches(100)
+	before := env.service.GetCacheStats()
+	batchesBefore, err := service.UnreadEmailBatches(100)
 	if err != nil {
 		t.Fatalf("email batches before revocation: %v", err)
 	}
-	if decodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - beforeDecodes; decodes != 1 {
-		t.Fatalf("permission scope decodes before revocation = %d, want 1 per recipient", decodes)
+	after := env.service.GetCacheStats()
+	if decodes := after.PermissionSnapshotDecodes - before.PermissionSnapshotDecodes; decodes != 0 {
+		t.Fatalf("permission scope decodes before revocation = %d, want 0", decodes)
 	}
-	assertNotificationTitles(t, before["notification-recipient@example.com"], "allowed workspace", "system notice")
+	if hits := after.Hits - before.Hits; hits != 1 {
+		t.Fatalf("permission cache hits before revocation = %d, want 1 per recipient", hits)
+	}
+	assertNotificationTitles(t, batchesBefore["notification-recipient@example.com"], "allowed workspace", "system notice")
 
 	if _, err := roles.RevokeFromUser(userID, allowedWorkspaceID, viewerRoleID); err != nil {
 		t.Fatalf("revoke workspace role: %v", err)
@@ -86,15 +90,19 @@ func TestUnreadEmailBatchesReauthorizeWorkspaceNotifications(t *testing.T) {
 	if len(accessibleAfter) != 0 {
 		t.Fatalf("accessible workspaces after revocation = %v, want none", accessibleAfter)
 	}
-	afterDecodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
-	after, err := service.UnreadEmailBatches(100)
+	before = env.service.GetCacheStats()
+	batchesAfter, err := service.UnreadEmailBatches(100)
 	if err != nil {
 		t.Fatalf("email batches after revocation: %v", err)
 	}
-	if decodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - afterDecodes; decodes != 1 {
-		t.Fatalf("permission scope decodes after revocation = %d, want 1 per recipient", decodes)
+	after = env.service.GetCacheStats()
+	if decodes := after.PermissionSnapshotDecodes - before.PermissionSnapshotDecodes; decodes != 0 {
+		t.Fatalf("permission scope decodes after revocation = %d, want 0", decodes)
 	}
-	assertNotificationTitles(t, after["notification-recipient@example.com"], "system notice")
+	if hits := after.Hits - before.Hits; hits != 1 {
+		t.Fatalf("permission cache hits after revocation = %d, want 1 per recipient", hits)
+	}
+	assertNotificationTitles(t, batchesAfter["notification-recipient@example.com"], "system notice")
 }
 
 func TestUnreadEmailBatchesReauthorizeGroupDerivedWorkspaceNotifications(t *testing.T) {

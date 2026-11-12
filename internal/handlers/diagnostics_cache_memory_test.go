@@ -25,6 +25,16 @@ func TestDiagnosticsCacheMemoryReportsBudgetAndRegisteredCaches(t *testing.T) {
 		t.Fatalf("read cache: %v", err)
 	}
 
+	typed := cacheutil.NewTyped[*int]("diagnostics_typed_test", cacheutil.TypedCacheOptions{
+		TTL: time.Minute, Shards: 1,
+	})
+	t.Cleanup(func() { _ = typed.Close() })
+	value := 7
+	typed.Set(1, &value)
+	if _, ok := typed.Get(1); !ok {
+		t.Fatal("typed cache miss after set")
+	}
+
 	budget, err := config.ResolveMemoryBudget(512)
 	if err != nil {
 		t.Fatalf("resolve budget: %v", err)
@@ -61,12 +71,19 @@ func TestDiagnosticsCacheMemoryReportsBudgetAndRegisteredCaches(t *testing.T) {
 		t.Fatalf("invalid GC diagnostics: %+v", response)
 	}
 	found := false
+	foundTyped := false
 	for _, snapshot := range response.Caches {
-		if snapshot.Name == "diagnostics_test" {
+		switch snapshot.Name {
+		case "diagnostics_test":
 			found = snapshot.Entries == 1 && snapshot.Hits == 1
+		case "diagnostics_typed_test":
+			foundTyped = snapshot.Entries == 1 && snapshot.Hits == 1 && snapshot.Misses == 0
 		}
 	}
 	if !found {
 		t.Fatalf("diagnostics_test cache missing or incorrect: %+v", response.Caches)
+	}
+	if !foundTyped {
+		t.Fatalf("diagnostics_typed_test cache missing or incorrect: %+v", response.Caches)
 	}
 }

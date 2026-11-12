@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   workspacesLoad: vi.fn(),
   errorToast: vi.fn(),
   successToast: vi.fn(),
+  surfaceError: vi.fn(),
 }));
 
 function readable(value) {
@@ -28,6 +29,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 vi.mock('../stores/permissions.svelte.js', () => ({ isSystemAdmin: readable(true) }));
 vi.mock('../stores/channelCategories.js', () => ({ channelCategoriesStore: readable([]) }));
 vi.mock('../stores/toasts.svelte.js', () => ({
+  surfaceError: mocks.surfaceError,
   errorToast: mocks.errorToast,
   successToast: mocks.successToast,
 }));
@@ -94,7 +96,10 @@ describe('ChannelConfigModal email enable failure', () => {
 
     expect(mocks.toggle).toHaveBeenCalledWith(EMAIL_CHANNEL.id);
     await waitFor(() =>
-      expect(mocks.errorToast).toHaveBeenCalledWith(`channel.failedToSave: ${error}`)
+      expect(mocks.surfaceError).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ message: `channel.failedToSave: ${error}` })
+      )
     );
     expect(mocks.successToast).not.toHaveBeenCalled();
   });

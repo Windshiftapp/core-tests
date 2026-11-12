@@ -118,6 +118,61 @@ func TestBoardViewSettingsRoundTripAndMerge(t *testing.T) {
 	}
 }
 
+func TestPatchBoardConfigurationPreservesUntouchedFields(t *testing.T) {
+	tdb, permissions, seed := convergenceFixture(t, true)
+	service := NewCollectionApplicationService(tdb.GetDatabase(), permissions)
+	actor := AuditActor{UserID: seed.UserID}
+	scope := BoardConfigurationScope{WorkspaceID: &seed.WorkspaceID}
+
+	created, err := service.PutBoardConfiguration(actor, scope, models.BoardConfigurationRequest{
+		Columns:      []models.BoardColumnRequest{{Name: "In progress", Color: "#123456", StatusIDs: []int{seed.StatusID}}},
+		CardFields:   []models.ListColumn{{FieldIdentifier: "title", FieldType: "system", DisplayOrder: 0, Width: 4}},
+		ViewSettings: boardViewSettingsOverride("board", "list"),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(created.Columns) != 1 {
+		t.Fatalf("created columns = %d, want 1", len(created.Columns))
+	}
+
+	patched, err := service.PatchBoardConfiguration(actor, scope, BoardConfigurationPatch{
+		ViewSettings: OptionalPatch[models.ViewSettings]{Set: true, Value: *boardViewSettingsReset()},
+	})
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+
+	// A view-settings-only patch must leave the board's columns and card
+	// fields alone instead of zeroing them, which is what the full-replace
+	// path did when the navigation page sent only view_settings.
+	if len(patched.Columns) != 1 || patched.Columns[0].Name != "In progress" {
+		t.Fatalf("columns after patch = %+v, want the saved column preserved", patched.Columns)
+	}
+	if len(patched.CardFields) != 1 || patched.CardFields[0].FieldIdentifier != "title" {
+		t.Fatalf("card fields after patch = %+v, want them preserved", patched.CardFields)
+	}
+	if patched.ViewSettings == nil || patched.ViewSettings.EnabledViews == nil || len(*patched.ViewSettings.EnabledViews) != 0 {
+		t.Fatalf("view settings after patch = %+v, want the reset override", patched.ViewSettings)
+	}
+
+	// A patch on a scope without a stored row creates the configuration.
+	collection, err := service.Create(actor, models.Collection{Name: "Patch create", WorkspaceID: &seed.WorkspaceID, QLQuery: ""})
+	if err != nil {
+		t.Fatalf("create collection: %v", err)
+	}
+	createdByPatch, err := service.PatchBoardConfiguration(actor, BoardConfigurationScope{CollectionID: &collection.ID}, BoardConfigurationPatch{
+		ViewSettings: OptionalPatch[models.ViewSettings]{Set: true, Value: *boardViewSettingsOverride("board")},
+	})
+	if err != nil {
+		t.Fatalf("patch create: %v", err)
+	}
+	if createdByPatch.ID == 0 {
+		t.Fatal("patch on a scope without a row must create the configuration")
+	}
+	assertEnabledViews(t, createdByPatch.ViewSettings, []string{"board"})
+}
+
 func TestCollectionScopeInheritsWorkspaceViewSettings(t *testing.T) {
 	tdb, permissions, seed := convergenceFixture(t, true)
 	service := NewCollectionApplicationService(tdb.GetDatabase(), permissions)
@@ -291,6 +346,38 @@ func TestPutBoardConfigurationValidatesCompletedVisibility(t *testing.T) {
 	}
 }
 
+func TestPutBoardConfigurationValidatesCompletedLimit(t *testing.T) {
+	tdb, permissions, seed := convergenceFixture(t, true)
+	service := NewCollectionApplicationService(tdb.GetDatabase(), permissions)
+	actor := AuditActor{UserID: seed.UserID}
+	scope := BoardConfigurationScope{WorkspaceID: &seed.WorkspaceID}
+
+	for _, value := range []int{0, -1, models.MaxCompletedLimit + 1} {
+		v := value
+		t.Run(fmt.Sprintf("rejects %d", value), func(t *testing.T) {
+			_, err := service.PutBoardConfiguration(actor, scope, models.BoardConfigurationRequest{
+				ViewSettings: &models.ViewSettings{CompletedLimit: &v},
+			})
+			want := fmt.Sprintf("completed_limit must be between %d and %d", models.MinCompletedLimit, models.MaxCompletedLimit)
+			if err == nil || err.Error() != want {
+				t.Fatalf("PutBoardConfiguration(%d) error = %v, want %q", value, err, want)
+			}
+		})
+	}
+
+	for _, value := range []int{models.MinCompletedLimit, models.DefaultCompletedLimit, models.MaxCompletedLimit} {
+		v := value
+		t.Run(fmt.Sprintf("accepts %d", value), func(t *testing.T) {
+			_, err := service.PutBoardConfiguration(actor, scope, models.BoardConfigurationRequest{
+				ViewSettings: &models.ViewSettings{CompletedLimit: &v},
+			})
+			if err != nil {
+				t.Fatalf("PutBoardConfiguration(%d): %v", value, err)
+			}
+		})
+	}
+}
+
 func TestCollectionScopeInheritsCompletedVisibility(t *testing.T) {
 	tdb, permissions, seed := convergenceFixture(t, true)
 	service := NewCollectionApplicationService(tdb.GetDatabase(), permissions)
@@ -306,8 +393,9 @@ func TestCollectionScopeInheritsCompletedVisibility(t *testing.T) {
 	workspaceScope := BoardConfigurationScope{WorkspaceID: &seed.WorkspaceID}
 
 	workspaceVisibility := "last_week"
+	workspaceLimit := 40
 	if _, err := service.PutBoardConfiguration(actor, workspaceScope, models.BoardConfigurationRequest{
-		ViewSettings: &models.ViewSettings{CompletedVisibility: &workspaceVisibility},
+		ViewSettings: &models.ViewSettings{CompletedVisibility: &workspaceVisibility, CompletedLimit: &workspaceLimit},
 	}); err != nil {
 		t.Fatalf("workspace override: %v", err)
 	}
@@ -319,6 +407,9 @@ func TestCollectionScopeInheritsCompletedVisibility(t *testing.T) {
 	if config.ViewSettings == nil || config.ViewSettings.CompletedVisibility == nil ||
 		*config.ViewSettings.CompletedVisibility != "last_week" {
 		t.Fatalf("inherited completed visibility = %+v, want last_week", config.ViewSettings)
+	}
+	if config.ViewSettings.CompletedLimit == nil || *config.ViewSettings.CompletedLimit != 40 {
+		t.Fatalf("inherited completed limit = %+v, want 40", config.ViewSettings)
 	}
 
 	// A collection override wins over the workspace default.
@@ -335,5 +426,9 @@ func TestCollectionScopeInheritsCompletedVisibility(t *testing.T) {
 	if config.ViewSettings == nil || config.ViewSettings.CompletedVisibility == nil ||
 		*config.ViewSettings.CompletedVisibility != "none" {
 		t.Fatalf("collection completed visibility = %+v, want none", config.ViewSettings)
+	}
+	// The cap still inherits even when the collection picks a different preset.
+	if config.ViewSettings.CompletedLimit == nil || *config.ViewSettings.CompletedLimit != 40 {
+		t.Fatalf("collection completed limit = %+v, want inherited 40", config.ViewSettings)
 	}
 }

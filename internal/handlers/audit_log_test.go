@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"windshift/internal/database"
+	"windshift/internal/logger"
 	"windshift/internal/repository"
 )
 
@@ -23,7 +24,7 @@ func TestListAuditLogsRejectsInvalidFilters(t *testing.T) {
 
 	for _, target := range tests {
 		t.Run(target, func(t *testing.T) {
-			h := NewAuditLogHandler(nil)
+			h := NewAuditLogHandler(nil, nil)
 			req := httptest.NewRequest(http.MethodGet, target, nil)
 			rr := httptest.NewRecorder()
 
@@ -67,7 +68,7 @@ func newAuditLogStreamTestHandler(t *testing.T) (*AuditLogHandler, database.Data
 		t.Fatalf("create audit_logs: %v", err)
 	}
 
-	return NewAuditLogHandler(repository.NewAuditLogRepository(db)), db
+	return NewAuditLogHandler(repository.NewAuditLogRepository(db), logger.NewAuditor(db)), db
 }
 
 func seedStreamRow(t *testing.T, db database.Database, action string) int {

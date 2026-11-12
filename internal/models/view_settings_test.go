@@ -177,3 +177,40 @@ func TestIsCompletedVisibility(t *testing.T) {
 		t.Fatal("IsCompletedVisibility(fortnight) = true, want false")
 	}
 }
+
+func TestViewSettingsCompletedLimit(t *testing.T) {
+	t.Parallel()
+
+	// The cap rides alongside the preset and is optional: omitted or null
+	// leaves it unset so the frontend default applies.
+	var inherit ViewSettings
+	if err := json.Unmarshal([]byte(`{}`), &inherit); err != nil {
+		t.Fatalf("Unmarshal({}): %v", err)
+	}
+	if inherit.CompletedLimit != nil {
+		t.Fatalf("CompletedLimit = %v, want nil for inherit", inherit.CompletedLimit)
+	}
+
+	var reset ViewSettings
+	if err := json.Unmarshal([]byte(`{"completed_limit": null}`), &reset); err != nil {
+		t.Fatalf("Unmarshal(null): %v", err)
+	}
+	if reset.CompletedLimit != nil {
+		t.Fatalf("CompletedLimit = %v, want nil for null", reset.CompletedLimit)
+	}
+
+	var override ViewSettings
+	if err := json.Unmarshal([]byte(`{"completed_visibility": "limit", "completed_limit": 250}`), &override); err != nil {
+		t.Fatalf("Unmarshal(value): %v", err)
+	}
+	if override.CompletedLimit == nil || *override.CompletedLimit != 250 {
+		t.Fatalf("CompletedLimit = %v, want 250", override.CompletedLimit)
+	}
+	encoded, err := json.Marshal(override)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(encoded) != `{"completed_limit":250,"completed_visibility":"limit"}` {
+		t.Fatalf("Marshal = %s, want completed_limit 250", encoded)
+	}
+}

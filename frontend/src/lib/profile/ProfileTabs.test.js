@@ -39,7 +39,7 @@ vi.mock('../api/users.js', () => ({
 }));
 
 vi.mock('../stores/auth.svelte.js', () => ({
-  authStore: { patchCurrentUser: mocks.patchCurrentUser },
+  authStore: { currentUser: { id: 7 }, patchCurrentUser: mocks.patchCurrentUser },
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({

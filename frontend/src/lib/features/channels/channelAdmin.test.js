@@ -7,12 +7,10 @@ vi.mock('../../api/channels.js', () => ({
   			updateConfig: vi.fn(),
   			toggle: vi.fn(),
   		},
-  channelIntakes: {
-  			list: vi.fn(),
-  		},
 }));
 
-import { channelIntakes, channels } from '../../api/channels.js';
+import { channels } from '../../api/channels.js';
+import { BACKGROUND_READ } from '../../api/readScheduler.js';
 import { loadPortalConnectedMailboxes, parseChannelConfig, prepareFormChannelForWorkspace, saveChannelSettings } from "./channelAdmin.js";
 
 beforeEach(() => {
@@ -61,41 +59,36 @@ describe("saveChannelSettings", () => {
 });
 
 describe("loadPortalConnectedMailboxes", () => {
-	test("includes mailboxes whose intake targets the portal", async () => {
+	test("includes mailboxes whose intake targets the portal in one background read", async () => {
 		channels.getAll.mockResolvedValue([
-			{ id: 1, name: "Support", config: "{}" },
-			{ id: 2, name: "Sales", config: "{}" },
+			{ id: 1, name: "Support", intakes: [{ portal_channel_id: 9, workspace_id: 2 }] },
+			{ id: 2, name: "Sales", intakes: [{ portal_channel_id: null, workspace_id: 9 }] },
 		]);
-		channelIntakes.list.mockImplementation((channelId) =>
-			Promise.resolve(
-				channelId === 1
-					? [{ portal_channel_id: 9, workspace_id: 2 }]
-					: [{ portal_channel_id: null, workspace_id: 9 }],
-			),
-		);
 
 		const linked = await loadPortalConnectedMailboxes(9);
 
 		expect(linked.map((channel) => channel.id)).toEqual([1]);
+		expect(channels.getAll).toHaveBeenCalledTimes(1);
+		expect(channels.getAll).toHaveBeenCalledWith(
+			expect.objectContaining({ include_intakes: true }),
+			BACKGROUND_READ,
+		);
 	});
 
-	test("ignores the legacy email_connected_portal_id key and consults intakes", async () => {
+	test("treats a mailbox with no intakes as unlinked", async () => {
 		channels.getAll.mockResolvedValue([
-			{ id: 1, name: "Legacy", config: '{"email_connected_portal_id":9}' },
+			{ id: 1, name: "Legacy", config: '{"email_connected_portal_id":9}', intakes: [] },
 		]);
-		channelIntakes.list.mockResolvedValue([]);
 
 		const linked = await loadPortalConnectedMailboxes(9);
 
 		expect(linked).toEqual([]);
-		expect(channelIntakes.list).toHaveBeenCalledWith(1);
 	});
 
-	test("skips a mailbox whose intake list cannot be read", async () => {
-		channels.getAll.mockResolvedValue([{ id: 1, name: "Support", config: "{}" }]);
-		channelIntakes.list.mockRejectedValue(new Error("forbidden"));
+	test("propagates a failed lookup instead of reporting no mailboxes", async () => {
+		channels.getAll.mockRejectedValue(new Error("forbidden"));
 
-		await expect(loadPortalConnectedMailboxes(9)).resolves.toEqual([]);
+		await expect(loadPortalConnectedMailboxes(9)).rejects.toThrow("forbidden");
 	});
 });
 

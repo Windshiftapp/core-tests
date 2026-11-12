@@ -124,14 +124,11 @@ test.describe('refactor-shots', () => {
   test.skip(!PHASE || !TARGET, 'set REFACTOR_PHASE and REFACTOR_TARGET to use this harness');
 
   test(`capture ${TARGET} (${PHASE})`, async ({ page, request, allowConsoleError }) => {
-    // Same environmental noise allowlist as button-smoke: optional services
-    // that 404 in dev (logbook, attachment-settings) and rate-limit retries.
+    // Same environmental noise allowlist as button-smoke: the optional
+    // attachment-settings backend 404s in dev, plus rate-limit retries.
     allowConsoleError(/Failed to load resource.*429 \(Too Many Requests\)/);
-    allowConsoleError(/\/api\/logbook\//);
     allowConsoleError(/\/api\/attachment-settings\/status/);
     allowConsoleError(/Failed to load attachment status/);
-    allowConsoleError(/Failed to load buckets/);
-    allowConsoleError(/Failed to load all documents/);
 
     expect(['before', 'after']).toContain(PHASE);
     const target = TARGETS[TARGET];

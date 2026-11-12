@@ -41,31 +41,28 @@ describe('resolveMentionUser', () => {
 });
 
 describe('mentionTextFor', () => {
-  it('keeps a multi-word display name when it is unique', () => {
-    expect(mentionTextFor(alice, roster)).toBe('@"Alice Smith"');
+  it('embeds the user id and display name', () => {
+    expect(mentionTextFor(alice)).toBe('@{Alice Smith#3}');
   });
 
-  it('uses the username for a single-word display name', () => {
-    expect(mentionTextFor(cher, roster)).toBe('@cher');
+  it('embeds the id for a single-word display name', () => {
+    expect(mentionTextFor(cher)).toBe('@{Cher#4}');
   });
 
-  it('falls back to the username when another user shares the display name', () => {
-    expect(mentionTextFor(johnA, roster)).toBe('@jdoe');
-    expect(mentionTextFor(johnB, roster)).toBe('@john.doe');
+  it('embeds the id even when another user shares the display name', () => {
+    expect(mentionTextFor(johnA)).toBe('@{John Doe#1}');
+    expect(mentionTextFor(johnB)).toBe('@{John Doe#2}');
   });
 
-  it('does not treat the selected user as their own duplicate', () => {
-    expect(mentionTextFor(alice, [alice])).toBe('@"Alice Smith"');
+  it('falls back to the username when the display name is empty', () => {
+    expect(mentionTextFor({ id: 9, username: 'ghost' })).toBe('@{ghost#9}');
   });
 
-  it('detects a duplicate even when roster entries carry no id', () => {
-    const a = { username: 'jdoe', first_name: 'John', last_name: 'Doe' };
-    const b = { username: 'john.doe', first_name: 'John', last_name: 'Doe' };
-
-    expect(mentionTextFor(a, [a, b])).toBe('@jdoe');
-  });
-
-  it('uses the username when the display name is empty', () => {
-    expect(mentionTextFor({ id: 9, username: 'ghost' }, roster)).toBe('@ghost');
+  it('falls back to the legacy name syntax when there is no id', () => {
+    expect(mentionTextFor({ username: 'jdoe', first_name: 'John', last_name: 'Doe' })).toBe(
+      '@"John Doe"'
+    );
+    expect(mentionTextFor({ username: 'cher' })).toBe('@cher');
   });
 });
+

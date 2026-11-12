@@ -69,4 +69,16 @@ describe('listGridMinWidth', () => {
     // + actions 4 + 5 gaps = 52rem
     expect(listGridMinWidth(columns)).toBe('52rem');
   });
+
+  test('accepts tree-specific key and title widths', () => {
+    const columns = [
+      { field_identifier: 'key', width: 2 },
+      { field_identifier: 'title', width: 4 },
+    ];
+    const template = listGridTemplateColumns(columns, { keyWidth: 10, titleMinWidth: 24 });
+    expect(template.split(' ')[0]).toBe('10rem');
+    expect(template).toContain('minmax(24rem, 4fr)');
+    // key 10 + title 24 + actions 4 + 2 gaps = 40rem
+    expect(listGridMinWidth(columns, { keyWidth: 10, titleMinWidth: 24 })).toBe('40rem');
+  });
 });

@@ -27,7 +27,7 @@ vi.mock('../../stores/auth.svelte.js', () => ({
   authStore: { currentUser: { id: 7 } },
 }));
 
-vi.mock('../../stores/toasts.svelte.js', () => ({ errorToast: vi.fn() }));
+vi.mock('../../stores/toasts.svelte.js', () => ({ surfaceError: vi.fn(), errorToast: vi.fn() }));
 
 vi.mock('@lucide/svelte', () => ({
   Check: vi.fn(() => null),

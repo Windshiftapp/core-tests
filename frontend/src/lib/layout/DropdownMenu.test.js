@@ -2,6 +2,41 @@ import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import DropdownMenu from './DropdownMenu.svelte';
 
+describe('DropdownMenu trigger open state', () => {
+  it('marks the trigger open without overriding an active segment surface', () => {
+    render(DropdownMenu, {
+      props: {
+        isOpen: true,
+        triggerText: 'Sort: Bubble',
+        triggerActive: true,
+        triggerTestid: 'sort-trigger',
+        items: [{ id: 'rank', title: 'Rank mode', onClick: () => {} }],
+      },
+    });
+
+    const trigger = screen.getByTestId('sort-trigger');
+    expect(trigger).toHaveAttribute('data-open', 'true');
+    expect(trigger).toHaveAttribute('data-active', 'true');
+    expect(trigger.className).toContain('menu-trigger');
+    expect(trigger.getAttribute('style') || '').not.toContain('background-color');
+  });
+
+  it('omits data-active for a trigger that is not an active segment', () => {
+    render(DropdownMenu, {
+      props: {
+        isOpen: true,
+        triggerText: 'Sort',
+        triggerTestid: 'sort-trigger',
+        items: [{ id: 'rank', title: 'Rank mode', onClick: () => {} }],
+      },
+    });
+
+    const trigger = screen.getByTestId('sort-trigger');
+    expect(trigger).toHaveAttribute('data-open', 'true');
+    expect(trigger).not.toHaveAttribute('data-active');
+  });
+});
+
 describe('DropdownMenu selected items', () => {
   it('keeps labels aligned and places the selected checkmark after the label', () => {
     render(DropdownMenu, {

@@ -97,7 +97,7 @@ func listVisibleWorkspaceIDs(t *testing.T, catalog *CatalogReadService, userID i
 	return ids, total
 }
 
-func TestCatalogListWorkspacesDecodesSnapshotOncePerRequest(t *testing.T) {
+func TestCatalogListWorkspacesReusesSnapshotWithoutDecodePerRequest(t *testing.T) {
 	env, catalog := newCatalogPermissionEnv(t)
 	readerID := env.insertUser("directory-reader@example.test")
 	gaterID := env.insertUser("directory-gater@example.test")
@@ -128,15 +128,19 @@ func TestCatalogListWorkspacesDecodesSnapshotOncePerRequest(t *testing.T) {
 	}
 	hiddenID := ids[seeded-1]
 
-	// Warm the user's permission byte cache: one build plus one decode.
+	// Warm the user's permission snapshot so the request below is a cache hit.
 	if _, err := env.service.AccessibleWorkspaceIDs(readerID); err != nil {
 		t.Fatalf("warm permission snapshot: %v", err)
 	}
 
-	before := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
+	before := env.service.GetCacheStats()
 	visible, total := listVisibleWorkspaceIDs(t, catalog, readerID, 1000)
-	if decodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - before; decodes != 1 {
-		t.Fatalf("permission snapshot decodes for one warm directory request = %d, want 1", decodes)
+	after := env.service.GetCacheStats()
+	if decodes := after.PermissionSnapshotDecodes - before.PermissionSnapshotDecodes; decodes != 0 {
+		t.Fatalf("permission snapshot decodes for one warm directory request = %d, want 0", decodes)
+	}
+	if hits := after.Hits - before.Hits; hits != 1 {
+		t.Fatalf("permission cache hits for one warm directory request = %d, want 1", hits)
 	}
 	if total != wantTotal {
 		t.Fatalf("total = %d, want %d", total, wantTotal)
@@ -151,9 +155,8 @@ func TestCatalogListWorkspacesDecodesSnapshotOncePerRequest(t *testing.T) {
 	}
 
 	// Revocation must stay effective through the request-scoped snapshot.
-	// After invalidation the next request rebuilds the byte cache (a build
-	// returns the snapshot directly, with no decode), and the request after
-	// that decodes the rebuilt snapshot exactly once.
+	// After invalidation the next request rebuilds the typed cache and the
+	// request after that is served from it with no decode.
 	if _, err := repository.NewWorkspaceRoleRepository(env.db).RevokeFromUser(readerID, ids[0], viewerRoleID); err != nil {
 		t.Fatalf("revoke reader role: %v", err)
 	}
@@ -167,12 +170,16 @@ func TestCatalogListWorkspacesDecodesSnapshotOncePerRequest(t *testing.T) {
 	if total != wantTotal-1 {
 		t.Fatalf("total after revocation = %d, want %d", total, wantTotal-1)
 	}
-	before = env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
+	before = env.service.GetCacheStats()
 	if _, total = listVisibleWorkspaceIDs(t, catalog, readerID, 1000); total != wantTotal-1 {
 		t.Fatalf("total on steady-state request = %d, want %d", total, wantTotal-1)
 	}
-	if decodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - before; decodes != 1 {
-		t.Fatalf("permission snapshot decodes for steady-state directory request = %d, want 1", decodes)
+	after = env.service.GetCacheStats()
+	if decodes := after.PermissionSnapshotDecodes - before.PermissionSnapshotDecodes; decodes != 0 {
+		t.Fatalf("permission snapshot decodes for steady-state directory request = %d, want 0", decodes)
+	}
+	if hits := after.Hits - before.Hits; hits != 1 {
+		t.Fatalf("permission cache hits for steady-state directory request = %d, want 1", hits)
 	}
 }
 
@@ -311,7 +318,7 @@ func BenchmarkCatalogListWorkspaces10kWorkspaces(b *testing.B) {
 		b.Fatalf("warm directory request: %v", err)
 	}
 
-	before := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
+	before := env.service.GetCacheStats().Hits
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		rows, total, err := catalog.ListWorkspaces(readerID, page)
@@ -322,7 +329,7 @@ func BenchmarkCatalogListWorkspaces10kWorkspaces(b *testing.B) {
 			b.Fatalf("total = %d rows = %d, want %d/%d", total, len(rows), workspaces, page.Limit)
 		}
 	}
-	if decodes := env.service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - before; decodes != uint64(b.N) {
-		b.Fatalf("permission snapshot decodes = %d for %d requests, want one decode per request", decodes, b.N)
+	if hits := env.service.GetCacheStats().Hits - before; hits != int64(b.N) {
+		b.Fatalf("permission cache hits = %d for %d requests, want one hit per request", hits, b.N)
 	}
 }

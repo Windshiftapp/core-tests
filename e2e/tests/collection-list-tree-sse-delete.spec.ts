@@ -19,7 +19,6 @@ for (const view of ["list", "tree"] as const) {
 			request,
 			allowConsoleError,
 		}, testInfo) => {
-			allowConsoleError(/\/api\/logbook\//);
 			allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 
 			const suffix = `${view}-sse-${randomUUID().slice(0, 8)}${testInfo.workerIndex}`;

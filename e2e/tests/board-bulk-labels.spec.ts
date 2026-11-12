@@ -1,3 +1,4 @@
+import type { Request } from "@playwright/test";
 import {
 	authenticateAdminRequest,
 	createItemViaAPI,
@@ -72,6 +73,20 @@ test.describe("Board bulk labels", () => {
 		});
 		const labelName = `bulk-created-${suffix}`;
 
+		// The board must send the selection delta in one bulk request instead of
+		// one PUT per item; the counter proves no per-item fan-out remains.
+		const labelWrites: string[] = [];
+		const onRequest = (browserRequest: Request) => {
+			const path = new URL(browserRequest.url()).pathname;
+			if (
+				path.endsWith("/items/bulk-labels") ||
+				/\/items\/\d+\/labels$/.test(path)
+			) {
+				labelWrites.push(`${browserRequest.method()} ${path}`);
+			}
+		};
+		page.on("request", onRequest);
+
 		try {
 			await page.goto(`/workspaces/${ws.id}/board`);
 			const firstCard = page.getByTestId(`board-item-${first.id}`);
@@ -104,6 +119,15 @@ test.describe("Board bulk labels", () => {
 				"Updated labels on 2 items",
 			);
 			await expect(modal).toHaveCount(0);
+			expect(
+				labelWrites.filter((write) => write.endsWith("/items/bulk-labels")),
+			).toHaveLength(1);
+			expect(
+				labelWrites.filter(
+					(write) =>
+						write.startsWith("PUT ") && /\/items\/\d+\/labels$/.test(write),
+				),
+			).toHaveLength(0);
 
 			// Reload and reopen: both items still carry the label.
 			await page.reload();
@@ -116,6 +140,7 @@ test.describe("Board bulk labels", () => {
 				labelName,
 			);
 		} finally {
+			page.off("request", onRequest);
 			expect((await request.delete(`/api/v2/workspaces/${ws.id}`)).status()).toBe(204);
 		}
 	});

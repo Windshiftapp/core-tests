@@ -455,7 +455,7 @@ test.describe("custom field deletion", () => {
 		).toContainText("keep me");
 
 		const deletion = await request.delete(
-			`/api/admin/custom-fields/${field.id}`,
+			`/api/v2/custom-fields/${field.id}`,
 			{ headers: SEC_FETCH },
 		);
 		expect(

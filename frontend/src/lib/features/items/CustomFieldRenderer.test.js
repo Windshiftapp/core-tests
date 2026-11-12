@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 // to a controllable spy so we can drive the user-lookup branch.
 vi.mock('../../api/users.js', () => ({
   getUsers: vi.fn(),
+  getAssignableUsers: vi.fn(),
 }))
 
 vi.mock('../../api/assets.js', () => ({
@@ -40,7 +41,7 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 // which jsdom doesn't implement. The renderer itself doesn't use
 // transitions, but a child picker might pull one in transitively. Defensive
 // stub.
-import { getUsers } from '../../api/users.js';
+import { getUsers, getAssignableUsers } from '../../api/users.js';
 import { referenceDisplayCache } from '../../stores/referenceDisplayCache.svelte.js';
 import CustomFieldRenderer from './CustomFieldRenderer.svelte';
 
@@ -435,6 +436,42 @@ describe('user field', () => {
     await waitFor(() => {
       expect(screen.getByText('common.unknownUser')).toBeInTheDocument();
     });
+  });
+
+  // GH #420: an editable user custom field is a free picker. With a known
+  // workspace it must use the workspace-scoped roster, which non-admins can
+  // read, instead of the global directory that 403s for them.
+  test('editable picker loads the workspace roster when a workspaceId is given', async () => {
+    getAssignableUsers.mockResolvedValue([
+      { id: 3, first_name: 'Casey', last_name: 'Doe', username: 'cdoe' },
+    ]);
+    render(CustomFieldRenderer, {
+      props: {
+        field: { field_type: 'user', name: 'Owner' },
+        value: null,
+        readonly: false,
+        workspaceId: 5,
+      },
+    });
+
+    await waitFor(() => expect(getAssignableUsers).toHaveBeenCalledWith(5));
+    expect(getUsers).not.toHaveBeenCalled();
+  });
+
+  test('editable picker keeps caller-supplied options', async () => {
+    render(CustomFieldRenderer, {
+      props: {
+        field: { field_type: 'user', name: 'Owner' },
+        value: null,
+        readonly: false,
+        workspaceId: 5,
+        users: [{ id: 9, first_name: 'Provided', last_name: 'User', username: 'puser' }],
+      },
+    });
+
+    await Promise.resolve();
+    expect(getAssignableUsers).not.toHaveBeenCalled();
+    expect(getUsers).not.toHaveBeenCalled();
   });
 });
 

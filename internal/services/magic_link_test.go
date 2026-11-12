@@ -14,13 +14,15 @@ import (
 // the verify URL the customer receives without touching SMTP.
 type capturingMagicLinkSender struct {
 	templateName string
+	locale       string
 	data         any
 }
 
 func (c *capturingMagicLinkSender) IsSMTPConfigured() bool { return true }
 
-func (c *capturingMagicLinkSender) SendTransactional(_ string, templateName string, data any) error {
+func (c *capturingMagicLinkSender) SendTransactional(_ string, locale, templateName string, data any) error {
 	c.templateName = templateName
+	c.locale = locale
 	c.data = data
 	return nil
 }
@@ -48,8 +50,11 @@ func TestSendMagicLinkEmailEmbedsValidatedNextDestination(t *testing.T) {
 			sender := &capturingMagicLinkSender{}
 			service := NewMagicLinkService(nil, sender, "https://portal.example.com")
 
-			if err := service.SendMagicLinkEmail("customer@example.com", "Customer", "tok", "acme", tc.next); err != nil {
+			if err := service.SendMagicLinkEmail("customer@example.com", "Customer", "tok", "acme", tc.next, "en"); err != nil {
 				t.Fatalf("SendMagicLinkEmail: %v", err)
+			}
+			if sender.locale != "en" {
+				t.Fatalf("locale = %q, want en", sender.locale)
 			}
 			if sender.templateName != emailutil.TemplateMagicLink {
 				t.Fatalf("template = %q, want %q", sender.templateName, emailutil.TemplateMagicLink)

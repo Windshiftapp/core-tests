@@ -44,4 +44,56 @@ describe("createAsyncLoader", () => {
 		expect(consoleError).not.toHaveBeenCalled();
 		consoleError.mockRestore();
 	});
+
+	it("supersedes an in-flight load when reloaded", async () => {
+		let resolveFirst;
+		let resolveSecond;
+		let call = 0;
+		const loader = createAsyncLoader(() => {
+			call += 1;
+			if (call === 1) {
+				return new Promise((resolve) => {
+					resolveFirst = resolve;
+				});
+			}
+			return new Promise((resolve) => {
+				resolveSecond = resolve;
+			});
+		});
+
+		const first = loader.load();
+		const second = loader.reload();
+
+		// The superseded result must never reach the loader.
+		resolveFirst([{ id: 1 }]);
+		await first;
+		expect(loader.data).toEqual([]);
+
+		resolveSecond([{ id: 2 }]);
+		await second;
+		expect(loader.data).toEqual([{ id: 2 }]);
+		expect(loader.loading).toBe(false);
+	});
+
+	it("keeps loading true until the superseding reload settles", async () => {
+		let resolveSecond;
+		let call = 0;
+		const loader = createAsyncLoader(() => {
+			call += 1;
+			if (call === 1) return Promise.resolve([{ id: 1 }]);
+			return new Promise((resolve) => {
+				resolveSecond = resolve;
+			});
+		});
+
+		const first = loader.load();
+		const second = loader.reload();
+		await first;
+
+		expect(loader.loading).toBe(true);
+		resolveSecond([{ id: 2 }]);
+		await second;
+		expect(loader.loading).toBe(false);
+		expect(loader.data).toEqual([{ id: 2 }]);
+	});
 });

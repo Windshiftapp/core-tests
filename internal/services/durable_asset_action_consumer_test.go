@@ -61,34 +61,16 @@ func TestDurableAssetActionConsumerUsesSharedFrozenTargetsAndDeduplication(t *te
 	}
 }
 
-func TestDurableAssetIngressCutsCompatibilityAtCanonicalBoundary(t *testing.T) {
+func TestDurableAssetConsumersAnchorAtCanonicalBoundary(t *testing.T) {
 	tdb := testutils.CreateTestDB(t, true)
 	t.Cleanup(func() { _ = tdb.Close() })
 	db := tdb.GetDatabase()
-	userID, setID, _, assetID := durableAssetFixture(t, db)
 	ingress := NewDurableAssetActionIngress(db)
 	ctx := context.Background()
-	legacy := &models.AssetActionEvent{
-		EventType: models.AssetTriggerAssetUpdated, SetID: setID, AssetID: assetID,
-		ActorUserID: userID, NewValues: map[string]any{"title": "before"},
-	}
-	if err := ingress.Emit(ctx, legacy); err != nil {
-		t.Fatalf("Emit() before cutover error = %v", err)
-	}
+
 	cutover, err := ingress.ActivateCanonicalAssets(ctx)
 	if err != nil {
 		t.Fatalf("ActivateCanonicalAssets() error = %v", err)
-	}
-	legacy.NewValues["title"] = "after"
-	if err := ingress.Emit(ctx, legacy); err != nil {
-		t.Fatalf("Emit() after cutover error = %v", err)
-	}
-	var compatibilityEvents int
-	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableAssetActionCompatibilityEvent).Scan(&compatibilityEvents); err != nil {
-		t.Fatalf("count asset compatibility events: %v", err)
-	}
-	if compatibilityEvents != 1 {
-		t.Fatalf("asset compatibility events = %d, want 1", compatibilityEvents)
 	}
 	if err := ConfigureDurableAssetActionConsumers(ctx, events.NewStore(db), cutover); err != nil {
 		t.Fatalf("ConfigureDurableAssetActionConsumers() error = %v", err)
@@ -128,10 +110,10 @@ func TestSharedDurableEngineProcessesMixedItemAndAssetActions(t *testing.T) {
 	config.HandlerTimeout = time.Second
 	config.LeaseDuration = 2 * time.Second
 	engine := events.NewEngine(db, config)
-	if err := PrepareDurableActionEngine(context.Background(), engine, itemActions, true); err != nil {
+	if err := PrepareDurableActionEngine(context.Background(), engine, itemActions); err != nil {
 		t.Fatalf("prepare item consumer: %v", err)
 	}
-	if err := PrepareDurableAssetActionEngine(context.Background(), engine, assetActions, true); err != nil {
+	if err := PrepareDurableAssetActionEngine(context.Background(), engine, assetActions); err != nil {
 		t.Fatalf("prepare asset consumer: %v", err)
 	}
 	if err := engine.Start(context.Background()); err != nil {
@@ -204,10 +186,10 @@ func TestDurableAssetActionEngineProcessesEventsWrittenWhileStoppedAfterRestart(
 	config.PollInterval = 5 * time.Millisecond
 	config.HandlerTimeout = time.Second
 	config.LeaseDuration = 2 * time.Second
-	startEngine := func(activate bool) *events.Engine {
+	startEngine := func() *events.Engine {
 		t.Helper()
 		engine := events.NewEngine(db, config)
-		if err := PrepareDurableAssetActionEngine(context.Background(), engine, actions, activate); err != nil {
+		if err := PrepareDurableAssetActionEngine(context.Background(), engine, actions); err != nil {
 			t.Fatalf("prepare asset consumer: %v", err)
 		}
 		if err := engine.Start(context.Background()); err != nil {
@@ -224,7 +206,7 @@ func TestDurableAssetActionEngineProcessesEventsWrittenWhileStoppedAfterRestart(
 		}
 	}
 
-	firstEngine := startEngine(true)
+	firstEngine := startEngine()
 	if _, err := assets.CreateAsset(AuditActor{UserID: userID}, repository.CreateAssetInput{
 		SetID: setID, AssetTypeID: typeID, Title: "Before restart", AssetTag: "AST-R1", CreatedBy: userID, CreatedAt: time.Now().UTC(),
 	}, nil); err != nil {
@@ -246,36 +228,9 @@ func TestDurableAssetActionEngineProcessesEventsWrittenWhileStoppedAfterRestart(
 		t.Fatalf("executions while stopped = %d, want 1", executionsWhileStopped)
 	}
 
-	secondEngine := startEngine(false)
+	secondEngine := startEngine()
 	t.Cleanup(func() { stopEngine(secondEngine) })
 	waitForDurableAssetExecutions(t, db, 2)
-}
-
-func TestDurableAssetIngressDoesNotDropEventsAtLegacyBufferCapacity(t *testing.T) {
-	tdb := testutils.CreateTestDB(t, true)
-	t.Cleanup(func() { _ = tdb.Close() })
-	db := tdb.GetDatabase()
-	userID, setID, _, assetID := durableAssetFixtureWithEmail(t, db, "durable-saturation@example.test")
-	config := DefaultActionServiceConfig()
-	config.EventBufferSize = 1
-	service := NewAssetActionService(db, config, nil)
-	t.Cleanup(service.Stop)
-
-	const eventCount = 32
-	for index := 0; index < eventCount; index++ {
-		service.EmitAssetActionEvent(&models.AssetActionEvent{
-			EventType: models.AssetTriggerAssetUpdated,
-			SetID:     setID, AssetID: assetID, ActorUserID: userID,
-			NewValues: map[string]any{"sequence": index},
-		})
-	}
-	var persisted int
-	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableAssetActionCompatibilityEvent).Scan(&persisted); err != nil {
-		t.Fatalf("count saturated compatibility events: %v", err)
-	}
-	if persisted != eventCount {
-		t.Fatalf("persisted compatibility events = %d, want %d", persisted, eventCount)
-	}
 }
 
 func waitForDurableAssetExecutions(t *testing.T, db interface {

@@ -39,9 +39,7 @@ test.describe('Action editor — notify_user specific recipients', () => {
   test('picking two users by name persists recipients as id strings', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `notify-recip-${stamp}`,
@@ -90,9 +88,7 @@ test.describe('Action editor — notify_user specific recipients', () => {
   test('stored recipient ids hydrate back to user names', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `notify-hydrate-${stamp}`,
@@ -121,9 +117,7 @@ test.describe('Action editor — notify_user specific recipients', () => {
   test('legacy numeric recipients with no recipient_type hydrate to specific', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `notify-legacy-${stamp}`,

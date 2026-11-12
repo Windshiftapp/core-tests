@@ -265,7 +265,7 @@ func TestJiraDownloadAttachmentContract(t *testing.T) {
 			httpClient: server.Client(),
 			limiter:    rate.NewLimiter(rate.Inf, 1),
 		}
-		body, contentType, err := client.DownloadAttachment(context.Background(), server.URL+"/attachment/1")
+		body, contentType, err := client.DownloadAttachment(context.Background(), "", server.URL+"/attachment/1")
 		if err != nil {
 			t.Fatalf("DownloadAttachment returned error: %v", err)
 		}
@@ -294,7 +294,7 @@ func TestJiraDownloadAttachmentContract(t *testing.T) {
 			httpClient: server.Client(),
 			limiter:    rate.NewLimiter(rate.Inf, 1),
 		}
-		_, _, err := client.DownloadAttachment(context.Background(), server.URL+"/attachment/1")
+		_, _, err := client.DownloadAttachment(context.Background(), "", server.URL+"/attachment/1")
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
 		}
@@ -311,7 +311,7 @@ func TestJiraDownloadAttachmentContract(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, _, err := client.DownloadAttachment(ctx, server.URL+"/attachment/1")
+		_, _, err := client.DownloadAttachment(ctx, "", server.URL+"/attachment/1")
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}

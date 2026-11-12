@@ -84,6 +84,39 @@ func TestCustomFieldDeleteGuard(t *testing.T) {
 		AssertStatusCode(t, resp, http.StatusConflict)
 	})
 
+	t.Run("blocks_delete_while_a_portal_customer_json_value_exists", func(t *testing.T) {
+		fieldID := CreateTestCustomField(t, server, "Guarded Customer Field "+ts(), "text", "")
+		fieldKey := strconv.Itoa(fieldID)
+
+		if _, err := server.DB().ExecWrite(
+			`INSERT INTO portal_customers (name, email, custom_field_values) VALUES (?, ?, ?)`,
+			"Guard customer "+ts(), "guard-customer-"+ts()+"@example.com",
+			fmt.Sprintf(`{"%s":"in use"}`, fieldKey),
+		); err != nil {
+			t.Fatalf("seed portal customer cfv: %v", err)
+		}
+
+		resp := MakeAuthRequest(t, server, http.MethodDelete, fmt.Sprintf("/admin/custom-fields/%d", fieldID), nil)
+		_ = resp.Body.Close()
+		AssertStatusCode(t, resp, http.StatusConflict)
+	})
+
+	t.Run("blocks_delete_while_a_customer_organisation_name_mirror_exists", func(t *testing.T) {
+		fieldName := "Guarded Org Field " + ts()
+		fieldID := CreateTestCustomField(t, server, fieldName, "text", "")
+
+		if _, err := server.DB().ExecWrite(
+			`INSERT INTO customer_organisations (name, custom_field_values) VALUES (?, ?)`,
+			"Guard org "+ts(), fmt.Sprintf(`{"%s":"in use"}`, fieldName),
+		); err != nil {
+			t.Fatalf("seed customer organisation cfv: %v", err)
+		}
+
+		resp := MakeAuthRequest(t, server, http.MethodDelete, fmt.Sprintf("/admin/custom-fields/%d", fieldID), nil)
+		_ = resp.Body.Close()
+		AssertStatusCode(t, resp, http.StatusConflict)
+	})
+
 	t.Run("allows_delete_of_an_unused_field", func(t *testing.T) {
 		fieldID := CreateTestCustomField(t, server, "Unused Field "+ts(), "text", "")
 

@@ -92,4 +92,49 @@ test.describe('Mention hover card', () => {
       candidates.getByTestId(`mention-hover-card-candidate-${second.id}`),
     ).toContainText(`@${second.username}`);
   });
+
+  test('resolves an id-embedded mention to the right user despite a duplicate display name', async ({
+    page,
+    request,
+  }, testInfo) => {
+    test.setTimeout(60_000);
+    await authenticateAdminRequest(request);
+
+    const suffix = `hid${Date.now()}w${testInfo.workerIndex}`;
+    const ws = await createWorkspaceViaAPI(request, generateWorkspace(suffix));
+
+    const createMember = async (handle: string) => {
+      const user = await createUserViaAPI(request, {
+        email: `${handle}.${suffix}@example.com`,
+        username: `${handle}-${suffix}`.slice(0, 32),
+        first_name: 'John',
+        last_name: 'Doe',
+        password_hash: 'TestPass123!',
+      });
+      await assignEditorRole(request, user.id, ws.id);
+      return user;
+    };
+    const first = await createMember('jdoe');
+    await createMember('john.doe');
+
+    // Only the id-embedded mention is present, so the chip must resolve to the
+    // embedded id rather than falling back to the duplicated display name.
+    const item = await createItemViaAPI(request, ws.id, {
+      title: `Mention id hover ${suffix}`,
+      description: `Ping @{John Doe#${first.id}} please`,
+    });
+
+    await page.goto(`/workspaces/${ws.id}/items/${item.id}`);
+    const display = page.getByTestId('item-description-display');
+    await expect(display).toBeVisible({ timeout: 15_000 });
+
+    const chip = page.getByTestId('mention-chip-John Doe');
+    await expect(chip).toBeVisible({ timeout: 15_000 });
+    await chip.hover();
+
+    const card = page.getByTestId('mention-hover-card');
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card.getByTestId('mention-hover-card-user')).toContainText(`@${first.username}`);
+    await expect(page.getByTestId('mention-hover-card-candidates')).toHaveCount(0);
+  });
 });

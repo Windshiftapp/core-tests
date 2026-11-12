@@ -159,7 +159,7 @@ test.describe("Asset custom field on item create", () => {
 				.delete(`/api/screens/${screen.id}`, { headers: SEC_FETCH })
 				.catch(() => {});
 			await request
-				.delete(`/api/admin/custom-fields/${field.id}`, { headers: SEC_FETCH })
+				.delete(`/api/v2/custom-fields/${field.id}`, { headers: SEC_FETCH })
 				.catch(() => {});
 		}
 	});
@@ -286,7 +286,7 @@ test.describe("Asset custom field on item create", () => {
 				.delete(`/api/screens/${screen.id}`, { headers: SEC_FETCH })
 				.catch(() => {});
 			await request
-				.delete(`/api/admin/custom-fields/${field.id}`, { headers: SEC_FETCH })
+				.delete(`/api/v2/custom-fields/${field.id}`, { headers: SEC_FETCH })
 				.catch(() => {});
 		}
 	});

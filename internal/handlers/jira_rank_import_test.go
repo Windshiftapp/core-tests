@@ -32,16 +32,31 @@ func (f *fakeJiraRankIssueKeyClient) GetAllIssueKeys(_ context.Context, jql stri
 	return f.fallbackKeys, f.fallbackErr
 }
 
+func (f *fakeJiraRankIssueKeyClient) GetAllIssueRefs(_ context.Context, jql string) ([]jira.JiraIssueRef, error) {
+	keys, err := f.GetAllIssueKeys(context.Background(), jql)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]jira.JiraIssueRef, 0, len(keys))
+	for index, key := range keys {
+		refs = append(refs, jira.JiraIssueRef{ID: strconv.Itoa(10000 + index), Key: key})
+	}
+	return refs, nil
+}
+
 func TestGetJiraIssueKeysInImportOrderUsesRankAndDeterministicTies(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeJiraRankIssueKeyClient{rankedKeys: []string{"SP-3", "SP-1", "SP-2"}}
-	got, err := getJiraIssueKeysInImportOrder(t.Context(), client, "SP", true)
+	got, keysByID, err := getJiraIssueKeysInImportOrder(t.Context(), client, "SP", true)
 	if err != nil {
 		t.Fatalf("get ranked Jira issue keys: %v", err)
 	}
 	if !reflect.DeepEqual(got, client.rankedKeys) {
 		t.Fatalf("ranked keys = %#v, want %#v", got, client.rankedKeys)
+	}
+	if keysByID["10000"] != "SP-3" || keysByID["10001"] != "SP-1" || keysByID["10002"] != "SP-2" {
+		t.Fatalf("id→key correlation = %#v, want discovery ids mapped to keys", keysByID)
 	}
 	wantJQL := "project = SP AND statusCategory != Done ORDER BY Rank ASC, created ASC, key ASC"
 	if !reflect.DeepEqual(client.calls, []string{wantJQL}) {
@@ -56,7 +71,7 @@ func TestGetJiraIssueKeysInImportOrderFallsBackWhenRankIsUnavailable(t *testing.
 		rankedErr:    errors.New("field 'Rank' does not exist"),
 		fallbackKeys: []string{"CORE-1", "CORE-2"},
 	}
-	got, err := getJiraIssueKeysInImportOrder(t.Context(), client, "CORE", false)
+	got, _, err := getJiraIssueKeysInImportOrder(t.Context(), client, "CORE", false)
 	if err != nil {
 		t.Fatalf("get fallback Jira issue keys: %v", err)
 	}
@@ -79,7 +94,7 @@ func TestGetJiraIssueKeysInImportOrderReportsRankAndFallbackFailures(t *testing.
 		rankedErr:   errors.New("rank query failed"),
 		fallbackErr: errors.New("fallback query failed"),
 	}
-	_, err := getJiraIssueKeysInImportOrder(t.Context(), client, "CORE", false)
+	_, _, err := getJiraIssueKeysInImportOrder(t.Context(), client, "CORE", false)
 	if err == nil {
 		t.Fatal("expected issue-key query failure")
 	}

@@ -47,6 +47,7 @@ vi.mock('../stores/permissions.svelte.js', () => ({
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: mocks.errorToast,
   successToast: vi.fn(),
   warningToast: vi.fn(),

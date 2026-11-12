@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
 	createWorkspaceViaAPI,
+	listItemTypesViaAPI,
 	listWorkspaceItemTypesViaAPI,
 } from "../fixtures/api-helpers";
 import { type APIRequestContext, expect, test } from "../fixtures/context-path";
@@ -98,4 +99,51 @@ test("map quick-add creates and persists a child item", async ({
 	await expect(page.getByTestId(`draggable-item-${child.id}`)).toContainText(
 		childTitle,
 	);
+});
+
+// The default workspace configuration set intentionally excludes the level-0
+// Initiative type. A workspace can still hold Initiative items (imports, API),
+// and the level picker then offers level 0 from the filtered counts. The add
+// card must work there too: the parent type is not in the workspace-bound
+// catalog, so its level has to come from the selected hierarchy level.
+test("map add card works when the parent type is not workspace-bound", async ({
+	page,
+	request,
+}) => {
+	const suffix = `map-unbound-${randomUUID().slice(0, 8)}`;
+	const workspace = await createWorkspaceViaAPI(
+		request,
+		generateWorkspace(suffix),
+	);
+	const globalTypes = (await listItemTypesViaAPI(request)) as ItemType[];
+	const levelZeroType = globalTypes.find(
+		(candidate) => candidate.hierarchy_level === 0,
+	);
+	if (!levelZeroType) throw new Error("No level-0 item type in the catalog");
+	// The type must not be workspace-bound for this to reproduce the bug.
+	const workspaceTypes = (await listWorkspaceItemTypesViaAPI(
+		request,
+		workspace.id,
+	)) as ItemType[];
+	expect(workspaceTypes.some((type) => type.id === levelZeroType.id)).toBe(
+		false,
+	);
+
+	const parent = await createParent(
+		request,
+		workspace.id,
+		levelZeroType.id,
+		`${suffix} initiative`,
+	);
+
+	await page.goto(`/workspaces/${workspace.id}/map`);
+	await expect(page.getByTestId("map-view")).toBeVisible();
+	// Level 0 is the shallowest level with matches, so it is the default view.
+	await expect(
+		page.getByTestId(`map-backbone-item-${parent.id}`),
+	).toBeVisible();
+	await page.getByTestId(`map-add-card-${parent.id}`).click();
+	await expect(
+		page.getByTestId(`quick-add-title-${parent.id}`),
+	).toBeVisible();
 });

@@ -143,6 +143,61 @@ func TestSLACycleImportIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestSLAImportDefaultsMetricsInactive asserts an import that does not opt in
+// leaves the metric inactive and never arms a live breach job for its cycles.
+func TestSLAImportDefaultsMetricsInactive(t *testing.T) {
+	server, _ := StartTestServer(t, GetDBType())
+	_ = CreateBearerToken(t, server)
+	workspaceID, _ := CreateTestWorkspace(t, server, "SLA Inactive Workspace", shortKey("SIA"))
+	itemID := CreateTestItem(t, server, workspaceID, "Inactive import cycle item")
+
+	document := slaImportDocument("jira-cal-inactive", "jira-sla-inactive")
+	metric := document["metrics"].([]map[string]any)[0]
+	delete(metric, "is_active")
+	document["cycles"] = []map[string]any{{
+		"source_id":          "jira-cycle-inactive",
+		"metric_source_id":   "jira-sla-inactive",
+		"item_id":            itemID,
+		"goal_source_id":     "goal-1",
+		"calendar_source_id": "jira-cal-inactive",
+		"cycle_no":           1,
+		"status":             "ongoing",
+		"started_at":         "2026-01-01T00:00:00Z",
+		"elapsed_ms":         1000,
+		"goal_duration_ms":   3600000,
+	}}
+
+	importResp := MakeAuthRequest(t, server, http.MethodPost, fmt.Sprintf("/workspaces/%d/sla/import", workspaceID), map[string]any{"mode": "merge", "document": document})
+	AssertStatusCode(t, importResp, http.StatusOK)
+	_ = importResp.Body.Close()
+
+	var active bool
+	if err := server.DB().QueryRow(`SELECT is_active FROM sla_metrics WHERE source_id = 'jira-sla-inactive'`).Scan(&active); err != nil {
+		t.Fatalf("load imported metric: %v", err)
+	}
+	if active {
+		t.Fatal("imported metric is active, want inactive by default")
+	}
+
+	var cycleCount, breachJobs int
+	if err := server.DB().QueryRow(`SELECT COUNT(*) FROM item_sla_cycles WHERE source_id = 'jira-cycle-inactive'`).Scan(&cycleCount); err != nil {
+		t.Fatalf("count imported cycles: %v", err)
+	}
+	if cycleCount != 1 {
+		t.Fatalf("imported cycles = %d, want 1", cycleCount)
+	}
+	if err := server.DB().QueryRow(`
+		SELECT COUNT(*) FROM sla_jobs j
+		JOIN item_sla_cycles c ON c.id = j.cycle_id
+		WHERE c.source_id = 'jira-cycle-inactive' AND j.kind = 'breach'
+	`).Scan(&breachJobs); err != nil {
+		t.Fatalf("count imported cycle breach jobs: %v", err)
+	}
+	if breachJobs != 0 {
+		t.Fatalf("inactive imported cycle armed %d breach jobs, want 0", breachJobs)
+	}
+}
+
 // TestSLAImportNeedsAttentionKeepsGoalInactive asserts an untranslated JQL
 // clause is preserved and never silently widened.
 func TestSLAImportNeedsAttentionKeepsGoalInactive(t *testing.T) {

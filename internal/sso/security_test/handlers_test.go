@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"windshift/internal/middleware"
+	"windshift/internal/ratelimit"
 )
 
 func TestSSOHandler_RateLimiting(t *testing.T) {
 	// Create rate limiter with 5 requests per minute, burst of 2
-	limiter := middleware.NewRateLimiter(5.0/60.0, 2, false, nil)
+	limiter := ratelimit.New(5.0/60.0, 2, ratelimit.ByIP(nil))
 	defer limiter.Stop()
 
 	handler := limiter.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +45,7 @@ func TestSSOHandler_RateLimiting(t *testing.T) {
 
 func TestSSOHandler_RateLimiting_DifferentIPs(t *testing.T) {
 	// Create rate limiter with burst of 1
-	limiter := middleware.NewRateLimiter(1.0/60.0, 1, false, nil)
+	limiter := ratelimit.New(1.0/60.0, 1, ratelimit.ByIP(nil))
 	defer limiter.Stop()
 
 	handler := limiter.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

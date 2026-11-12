@@ -20,6 +20,7 @@ vi.mock('../stores/auth.svelte.js', () => ({
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: vi.fn(),
   infoToast: vi.fn(),
   successToast: vi.fn(),

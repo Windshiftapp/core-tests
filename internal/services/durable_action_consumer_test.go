@@ -149,7 +149,49 @@ func TestDurableActionConsumerFreezesTargetsAndDeduplicatesExecution(t *testing.
 	}
 }
 
-func TestDurableActionIngressCutsItemCompatibilityAtCanonicalBoundary(t *testing.T) {
+func TestDurableActionConsumerSkipsImportedFacts(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	t.Cleanup(func() { _ = tdb.Close() })
+	data := tdb.SeedTestData(t)
+	db := tdb.GetDatabase()
+	itemID64, err := CreateItem(db, ItemCreationParams{
+		WorkspaceID: data.WorkspaceID,
+		Title:       "imported target item",
+		StatusID:    &data.StatusID,
+		CreatorID:   &data.UserID,
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+
+	repo := repository.NewActionRepository(db)
+	createDurableTestAction(t, repo, data.WorkspaceID, "imported", models.ActionTriggerItemCreated)
+	service := NewActionService(db, DefaultActionServiceConfig(), nil)
+	t.Cleanup(service.Stop)
+	service.InvalidateWorkspaceCache(data.WorkspaceID)
+	consumer := NewDurableActionConsumer(db, service)
+	event := durableCreatedEvent(t, 42, "item-created-import-42", data.WorkspaceID, int(itemID64), data.UserID)
+	event.ActorKind, event.ActorRef, event.SourceKind = "import", "jira-job-1", "import"
+
+	if err := consumer.Handle(context.Background(), event); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	var batchCount, targetCount, executionCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM action_event_batches WHERE event_key = ?", event.Key).Scan(&batchCount); err != nil {
+		t.Fatalf("count materialization batches: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM action_event_targets WHERE event_key = ?", event.Key).Scan(&targetCount); err != nil {
+		t.Fatalf("count durable targets: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM action_execution_logs WHERE durable_event_key = ?", event.Key).Scan(&executionCount); err != nil {
+		t.Fatalf("count durable executions: %v", err)
+	}
+	if batchCount != 0 || targetCount != 0 || executionCount != 0 {
+		t.Fatalf("imported fact rows = batches:%d targets:%d executions:%d, want 0/0/0", batchCount, targetCount, executionCount)
+	}
+}
+
+func TestDurableActionIngressNeverJournalsItemTriggers(t *testing.T) {
 	tdb := testutils.CreateTestDB(t, true)
 	t.Cleanup(func() { _ = tdb.Close() })
 	data := tdb.SeedTestData(t)
@@ -157,42 +199,37 @@ func TestDurableActionIngressCutsItemCompatibilityAtCanonicalBoundary(t *testing
 	ingress := NewDurableActionIngress(db)
 	ctx := context.Background()
 
-	legacy := &models.ActionEvent{
+	// Item triggers are derived from canonical item facts, so the synchronous
+	// legacy shape must never be journaled.
+	if err := ingress.Emit(ctx, &models.ActionEvent{
 		EventType: models.ActionTriggerItemUpdated, WorkspaceID: data.WorkspaceID,
 		ItemID: 17, ActorUserID: data.UserID, NewValues: map[string]any{"title": "before"},
+	}); err != nil {
+		t.Fatalf("Emit() item trigger error = %v", err)
 	}
-	if err := ingress.Emit(ctx, legacy); err != nil {
-		t.Fatalf("Emit() before cutover error = %v", err)
-	}
-	cutover, err := ingress.ActivateCanonicalItems(ctx)
-	if err != nil {
-		t.Fatalf("ActivateCanonicalItems() error = %v", err)
-	}
-	if cutover.StartEventID <= 1 {
-		t.Fatalf("cutover start event = %d, want after compatibility event", cutover.StartEventID)
-	}
-	legacy.NewValues["title"] = "after"
-	if err := ingress.Emit(ctx, legacy); err != nil {
-		t.Fatalf("Emit() after cutover error = %v", err)
-	}
+	// SCM observations stay durable.
 	if err := ingress.Emit(ctx, &models.ActionEvent{
 		EventType: models.ActionTriggerSCMTagCreated, WorkspaceID: data.WorkspaceID,
 		NewValues: map[string]any{"ref.name": "v0.8.8", "ref.sha": "abc123", "repo.workspace_repository_id": 9},
 	}); err != nil {
-		t.Fatalf("Emit() SCM event after cutover error = %v", err)
+		t.Fatalf("Emit() SCM event error = %v", err)
 	}
 
-	var compatibilityEvents, scmEvents int
-	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableActionCompatibilityEvent).Scan(&compatibilityEvents); err != nil {
-		t.Fatalf("count compatibility events: %v", err)
+	var sideEffectEvents, scmEvents int
+	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableActionRequestedEvent).Scan(&sideEffectEvents); err != nil {
+		t.Fatalf("count side-effect events: %v", err)
 	}
 	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableSCMObservationEvent).Scan(&scmEvents); err != nil {
 		t.Fatalf("count SCM events: %v", err)
 	}
-	if compatibilityEvents != 1 || scmEvents != 1 {
-		t.Fatalf("durable ingress events = compatibility:%d scm:%d, want 1/1", compatibilityEvents, scmEvents)
+	if sideEffectEvents != 0 || scmEvents != 1 {
+		t.Fatalf("durable ingress events = side_effect:%d scm:%d, want 0/1", sideEffectEvents, scmEvents)
 	}
 
+	cutover, err := ingress.ActivateCanonicalItems(ctx)
+	if err != nil {
+		t.Fatalf("ActivateCanonicalItems() error = %v", err)
+	}
 	store := events.NewStore(db)
 	if err := ConfigureDurableActionConsumers(ctx, store, cutover); err != nil {
 		t.Fatalf("ConfigureDurableActionConsumers() error = %v", err)

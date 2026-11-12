@@ -1,12 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { getEmailLog, requeueRateLimitedEmail, getEmailReplies, retryEmailReply, discardEmailReply } = vi.hoisted(() => ({
+const { getEmailLog, requeueRateLimitedEmail, getEmailReplies, retryEmailReply, discardEmailReply, discardEmailReplyById, discardPendingEmailReplies } = vi.hoisted(() => ({
   getEmailLog: vi.fn(),
   requeueRateLimitedEmail: vi.fn(),
   getEmailReplies: vi.fn(),
   retryEmailReply: vi.fn(),
   discardEmailReply: vi.fn(),
+  discardEmailReplyById: vi.fn(),
+  discardPendingEmailReplies: vi.fn(),
 }));
 
 vi.mock('../api/channels.js', () => ({
@@ -16,6 +18,8 @@ vi.mock('../api/channels.js', () => ({
         getEmailReplies,
         retryEmailReply,
         discardEmailReply,
+        discardEmailReplyById,
+        discardPendingEmailReplies,
       },
 }));
 
@@ -68,6 +72,8 @@ afterEach(() => {
   getEmailReplies.mockReset();
   retryEmailReply.mockReset();
   discardEmailReply.mockReset();
+  discardEmailReplyById.mockReset();
+  discardPendingEmailReplies.mockReset();
 });
 
 describe('EmailLogModal', () => {
@@ -219,10 +225,10 @@ describe('EmailLogModal', () => {
     expect(screen.getByTestId('email-outbox-status-202')).toBeInTheDocument();
   });
 
-  it('renders intake receipts without retry/discard actions', async () => {
-    // Intake confirmations live in the same outbox but have no comment_id, and
-    // the retry/discard endpoints are comment-keyed. The row must stay visible
-    // (status/audit) without offering actions that would call /replies/undefined.
+  it('cancels an intake receipt by row id without offering retry', async () => {
+    // Intake confirmations live in the same outbox but have no comment_id, so
+    // they are discarded through the row-scoped endpoint. Retry stays hidden
+    // because the retry endpoint is comment-keyed.
     getEmailLog.mockResolvedValue(structuredClone(rateLimitedLog));
     getEmailReplies.mockResolvedValue({
       replies: [
@@ -249,14 +255,21 @@ describe('EmailLogModal', () => {
       page: 1,
       page_size: 50,
     });
+    discardEmailReplyById.mockResolvedValue({ discarded: true, reply_id: 301 });
     renderModal();
 
     await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
 
     expect(await screen.findByTestId('email-outbox-status-301')).toBeInTheDocument();
     expect(screen.queryByTestId('email-outbox-retry-301')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('email-outbox-discard-301')).not.toBeInTheDocument();
-    // The comment reply next to it keeps its actions.
+
+    const loadsBefore = getEmailReplies.mock.calls.length;
+    await fireEvent.click(screen.getByTestId('email-outbox-discard-301'));
+    await waitFor(() => expect(discardEmailReplyById).toHaveBeenCalledWith(7, 301));
+    expect(discardEmailReply).not.toHaveBeenCalled();
+    await waitFor(() => expect(getEmailReplies.mock.calls.length).toBe(loadsBefore + 1));
+
+    // The comment reply next to it keeps both actions and stays comment-keyed.
     expect(screen.getByTestId('email-outbox-retry-302')).toBeInTheDocument();
   });
 
@@ -268,5 +281,34 @@ describe('EmailLogModal', () => {
     await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
     await waitFor(() => expect(getEmailReplies).toHaveBeenCalled());
     expect(screen.queryByTestId('email-outbox-retry-101')).not.toBeInTheDocument();
+  });
+
+  it('bulk-discards the whole pending queue after confirmation', async () => {
+    getEmailLog.mockResolvedValue(structuredClone(rateLimitedLog));
+    getEmailReplies.mockResolvedValue({ ...structuredClone(outboxPage), discardable_total: 2 });
+    discardPendingEmailReplies.mockResolvedValue({ discarded: 2 });
+    renderModal();
+
+    await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
+    const button = await screen.findByTestId('email-outbox-discard-pending');
+    expect(button).toHaveTextContent('2');
+
+    const loadsBefore = getEmailReplies.mock.calls.length;
+    await fireEvent.click(button);
+    await fireEvent.click(await screen.findByTestId('email-outbox-discard-pending-dialog-confirm'));
+
+    await waitFor(() => expect(discardPendingEmailReplies).toHaveBeenCalledWith(7));
+    await waitFor(() => expect(getEmailReplies.mock.calls.length).toBeGreaterThanOrEqual(loadsBefore + 1));
+    expect(await screen.findByTestId('email-outbox-notice')).toHaveTextContent('channel.emailLog.outboxDiscardedCount 2');
+  });
+
+  it('hides the bulk-discard control when nothing is discardable', async () => {
+    getEmailLog.mockResolvedValue(structuredClone(rateLimitedLog));
+    getEmailReplies.mockResolvedValue({ ...structuredClone(outboxPage), discardable_total: 0 });
+    renderModal();
+
+    await fireEvent.click(screen.getByTestId('email-log-tab-outbox'));
+    await waitFor(() => expect(screen.getByTestId('email-outbox-section')).toBeInTheDocument());
+    expect(screen.queryByTestId('email-outbox-discard-pending')).not.toBeInTheDocument();
   });
 });

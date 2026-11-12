@@ -9,7 +9,35 @@ const mocks = vi.hoisted(() => ({
   fetchCollectionTotal: vi.fn().mockResolvedValue({ total: 300, watermark: 100 }),
   getBoardConfigurationBootstrap: vi.fn(),
   getCollection: vi.fn(),
+  getLevelCounts: vi.fn().mockResolvedValue([]),
+  preferences: { viewState: {} },
 }));
+
+vi.mock('../api/items.js', () => ({
+  items: { getLevelCounts: mocks.getLevelCounts },
+}));
+
+vi.mock('./collectionPreferences.svelte.js', () => {
+  const scopeId = (ws, col) => (col ? `collection-${col}` : `workspace-${ws ?? 'global'}`);
+  return {
+    collectionPreferences: {
+      getViewState(ws, col, view) {
+        return mocks.preferences.viewState[scopeId(ws, col)]?.[view] ?? null;
+      },
+      patchViewState(ws, col, view, patch) {
+        const scope = scopeId(ws, col);
+        const currentScope = mocks.preferences.viewState[scope] ?? {};
+        mocks.preferences.viewState = {
+          ...mocks.preferences.viewState,
+          [scope]: {
+            ...currentScope,
+            [view]: { ...(currentScope[view] ?? {}), ...patch },
+          },
+        };
+      },
+    },
+  };
+});
 
 vi.mock('../api/collections.js', () => ({
   collections: {
@@ -501,7 +529,7 @@ describe('CollectionStore board ordering', () => {
     );
   });
 
-  it('scopes the current_iteration preset to the active iteration', async () => {
+  it('caps the completed fetch at the configured limit', async () => {
     mocks.fetchCollectionItems.mockClear();
     mocks.fetchCollectionBacklog.mockResolvedValue({
       items: [],
@@ -512,47 +540,44 @@ describe('CollectionStore board ordering', () => {
       board_configuration: {
         columns: [],
         show_rightmost_column_last_50: false,
-        view_settings: { completed_visibility: 'current_iteration' },
+        view_settings: { completed_visibility: 'limit', completed_limit: 50 },
       },
       statuses: [
         { id: 1, name: 'Open', category_name: 'To Do', is_completed: false },
         { id: 2, name: 'Done', category_name: 'Done', is_completed: true },
       ],
-      referenced_workspace_ids: [73],
+      referenced_workspace_ids: [74],
     });
     mocks.fetchCollectionItems.mockImplementation((_workspaceId, _collectionId, options) => {
       if (options.status_id_not === '2') {
         return Promise.resolve({
           items: [{ id: 1, status_id: 1 }],
-          collectionName: 'Iteration window',
+          collectionName: 'Limited done',
           pagination: { page: 1, page_size: 1000, total_items: 1, total_pages: 1 },
           watermark: 7,
         });
       }
       if (options.status_id === '2') {
         return Promise.resolve({
-          items: [{ id: 2, status_id: 2 }],
-          collectionName: 'Iteration window',
-          pagination: { page: 1, page_size: 100, total_items: 1, total_pages: 1 },
+          items: Array.from({ length: 50 }, (_, index) => ({ id: 100 + index, status_id: 2 })),
+          collectionName: 'Limited done',
+          pagination: { page: 1, page_size: 50, total_items: 900, total_pages: 18 },
           watermark: 7,
         });
       }
       throw new Error(`unexpected item request: ${JSON.stringify(options)}`);
     });
 
-    mocks.routeSubscriber({ view: 'workspace-board', params: { id: '73' } });
+    mocks.routeSubscriber({ view: 'workspace-board', params: { id: '74' } });
     await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
-    mocks.fetchCollectionItems.mockClear();
 
-    collectionStore.setBoardCompletedIteration(55);
-
-    await vi.waitFor(() =>
-      expect(mocks.fetchCollectionItems).toHaveBeenCalledWith(
-        '73',
-        null,
-        expect.objectContaining({ status_id: '2', iteration_id: 55 })
-      )
+    expect(mocks.fetchCollectionItems).toHaveBeenCalledWith(
+      '74',
+      null,
+      expect.objectContaining({ status_id: '2', limit: 50 })
     );
+    // The cap is the whole completed set, so the board never pages past it.
+    expect(collectionStore.itemsHasMore).toBe(false);
   });
 
   it('searches the complete collection scope without board trimming filters', async () => {
@@ -1191,6 +1216,254 @@ describe('CollectionStore hierarchy continuation', () => {
     expect(collectionStore.items).toHaveLength(300);
     expect(collectionStore.itemsHasMore).toBe(false);
     expect(collectionStore.itemsRemainingCount).toBe(0);
+  });
+
+  it('refreshes an accumulated tree from page 1 instead of offsetting past the loaded set', async () => {
+    collectionStore.invalidate();
+    mocks.fetchCollectionItems.mockImplementation((_workspaceId, _collectionId, options) => {
+      const limit = options.limit ?? 100;
+      const page = options.page ?? 1;
+      const total = 150;
+      const offset = (page - 1) * limit;
+      const count = Math.max(0, Math.min(limit, total - offset));
+      return Promise.resolve({
+        items: Array.from({ length: count }, (_, index) => ({
+          id: offset + index + 1,
+          status_id: 1,
+        })),
+        collectionName: 'Big tree',
+        pagination: {
+          page,
+          page_size: limit,
+          limit,
+          total_items: total,
+          total_pages: Math.ceil(total / limit),
+        },
+        watermark: 1,
+      });
+    });
+    mocks.getBoardConfigurationBootstrap.mockResolvedValue({ board_configuration: null });
+
+    mocks.routeSubscriber({ view: 'workspace-tree', params: { id: '88' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    expect(collectionStore.items).toHaveLength(100);
+
+    await collectionStore.loadMoreItems();
+    expect(collectionStore.items).toHaveLength(150);
+
+    await collectionStore.refresh();
+
+    // Reloading page 2 with limit 150 would offset to item 150 and blank the
+    // tree; an accumulated hierarchy must reload from page 1.
+    expect(mocks.fetchCollectionItems).toHaveBeenLastCalledWith(
+      '88',
+      null,
+      expect.objectContaining({ page: 1, limit: 150 })
+    );
+    expect(collectionStore.items).toHaveLength(150);
+  });
+
+  it('completes a hierarchy refresh past the 1000-item request cap', async () => {
+    collectionStore.invalidate();
+    mocks.fetchCollectionItems.mockImplementation((_workspaceId, _collectionId, options) => {
+      const limit = Math.min(options.limit ?? 100, 1000);
+      const page = options.page ?? 1;
+      const total = 1200;
+      const offset = (page - 1) * limit;
+      const count = Math.max(0, Math.min(limit, total - offset));
+      return Promise.resolve({
+        items: Array.from({ length: count }, (_, index) => ({
+          id: offset + index + 1,
+          status_id: 1,
+        })),
+        collectionName: 'Huge tree',
+        pagination: {
+          page,
+          page_size: limit,
+          limit,
+          total_items: total,
+          total_pages: Math.ceil(total / limit),
+        },
+        watermark: 1,
+      });
+    });
+    mocks.getBoardConfigurationBootstrap.mockResolvedValue({ board_configuration: null });
+
+    mocks.routeSubscriber({ view: 'workspace-tree', params: { id: '99' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    for (let index = 0; index < 11; index += 1) {
+      await collectionStore.loadMoreItems();
+    }
+    expect(collectionStore.items).toHaveLength(1200);
+
+    await collectionStore.refresh();
+
+    expect(collectionStore.items).toHaveLength(1200);
+    expect(collectionStore.items.at(-1)).toMatchObject({ id: 1200 });
+  });
+});
+
+describe('CollectionStore hierarchy level scope', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    collectionStore.collectionTotal = null;
+    collectionStore.hierarchyLevel = null;
+  });
+
+  it('scopes hierarchy item reads to the selected level and opts into has_children', async () => {
+    collectionStore.invalidate();
+    mocks.fetchCollectionItems.mockImplementation((_workspaceId, _collectionId, options) =>
+      Promise.resolve({
+        items: [{ id: 1, status_id: 1 }],
+        collectionName: 'Tree',
+        pagination: { page: options.page ?? 1, page_size: 100, limit: 100, total_items: 1, total_pages: 1 },
+        watermark: 1,
+      })
+    );
+    mocks.getBoardConfigurationBootstrap.mockResolvedValue({ board_configuration: null });
+
+    mocks.routeSubscriber({ view: 'workspace-tree', params: { id: '100' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+
+    collectionStore.setHierarchyLevel(2);
+    await vi.waitFor(() =>
+      expect(mocks.fetchCollectionItems).toHaveBeenLastCalledWith(
+        '100',
+        null,
+        expect.objectContaining({ level: 2, include_has_children: true })
+      )
+    );
+
+    // A non-hierarchy view never carries the level scope.
+    collectionStore.invalidate();
+    mocks.routeSubscriber({ view: 'workspace-list', params: { id: '101' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    expect(mocks.fetchCollectionItems).toHaveBeenLastCalledWith(
+      '101',
+      null,
+      expect.not.objectContaining({ level: expect.anything() })
+    );
+  });
+
+  it('reuses the collection and count when only the hierarchy level changes', async () => {
+    collectionStore.invalidate();
+    mocks.getCollection.mockResolvedValue({ id: 55, name: 'Tree', ql_query: '' });
+    mocks.fetchCollectionItems.mockImplementation((_workspaceId, _collectionId, options) =>
+      Promise.resolve({
+        items: [{ id: 1, status_id: 1 }],
+        collectionName: 'Tree',
+        pagination: { page: options.page ?? 1, page_size: 100, limit: 100, total_items: 1, total_pages: 1 },
+        watermark: 1,
+      })
+    );
+    mocks.getBoardConfigurationBootstrap.mockResolvedValue({ board_configuration: null });
+
+    mocks.routeSubscriber({ view: 'workspace-tree', params: { id: '100', collectionId: '55' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    await vi.waitFor(() => expect(collectionStore.collectionTotal).toBe(300));
+
+    const collectionCalls = mocks.getCollection.mock.calls.length;
+    const totalCalls = mocks.fetchCollectionTotal.mock.calls.length;
+
+    collectionStore.setHierarchyLevel(2);
+    await vi.waitFor(() =>
+      expect(mocks.fetchCollectionItems).toHaveBeenLastCalledWith(
+        '100',
+        '55',
+        expect.objectContaining({ level: 2 })
+      )
+    );
+
+    // The level only re-scopes the item page: the collection metadata and the
+    // unfiltered count are unchanged and must not be re-read.
+    expect(mocks.getCollection).toHaveBeenCalledTimes(collectionCalls);
+    expect(mocks.fetchCollectionTotal).toHaveBeenCalledTimes(totalCalls);
+  });
+});
+
+describe('CollectionStore hierarchy level resolution', () => {
+  function levelCountsResult(levels) {
+    return levels.map((level) => ({ level, name: `Level ${level}`, total: 1 }));
+  }
+
+  beforeEach(() => {
+    collectionStore.invalidate();
+    mocks.getLevelCounts.mockReset().mockResolvedValue([]);
+    mocks.preferences.viewState = {};
+    mocks.fetchCollectionItems.mockImplementation((_workspaceId, _collectionId, options) =>
+      Promise.resolve({
+        items: [{ id: 1, status_id: 1 }],
+        collectionName: 'Hierarchy',
+        pagination: {
+          page: options.page ?? 1,
+          page_size: options.limit ?? 100,
+          limit: options.limit ?? 100,
+          total_items: 1,
+          total_pages: 1,
+        },
+        watermark: 1,
+      })
+    );
+    mocks.getBoardConfigurationBootstrap.mockResolvedValue({ board_configuration: null });
+  });
+
+  afterEach(() => {
+    collectionStore.hierarchyLevel = null;
+    collectionStore.levelCounts = [];
+    mocks.preferences.viewState = {};
+  });
+
+  it('applies the resolved default level to the first item fetch', async () => {
+    mocks.getLevelCounts.mockResolvedValue(
+      levelCountsResult([0, 1]).map((entry, index) => ({ ...entry, total: index }))
+    );
+
+    mocks.routeSubscriber({ view: 'workspace-map', params: { id: '201' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+
+    // The level resolves before the item page, so no unscoped page is issued.
+    const itemCalls = mocks.fetchCollectionItems.mock.calls;
+    expect(itemCalls.length).toBeGreaterThan(0);
+    for (const [, , options] of itemCalls) {
+      expect(options).toMatchObject({ level: 1, include_has_children: true });
+    }
+    expect(collectionStore.hierarchyLevel).toBe(1);
+    expect(mocks.preferences.viewState['workspace-201'].map.hierarchy_level).toBe(1);
+  });
+
+  it('reuses level counts across hierarchy views in one scope', async () => {
+    mocks.getLevelCounts.mockResolvedValue(levelCountsResult([1]));
+
+    mocks.routeSubscriber({ view: 'workspace-map', params: { id: '202' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    expect(mocks.getLevelCounts).toHaveBeenCalledTimes(1);
+
+    // Switching to another hierarchy view in the same scope must not re-issue
+    // the lookup, and the resolved level still applies.
+    collectionStore.invalidate();
+    mocks.routeSubscriber({ view: 'workspace-tree', params: { id: '202' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    expect(mocks.getLevelCounts).toHaveBeenCalledTimes(1);
+    expect(collectionStore.hierarchyLevel).toBe(1);
+  });
+
+  it('does not reuse a level or counts across workspace boundaries', async () => {
+    mocks.getLevelCounts
+      .mockResolvedValueOnce(levelCountsResult([1]))
+      .mockResolvedValueOnce(levelCountsResult([2]));
+
+    mocks.routeSubscriber({ view: 'workspace-map', params: { id: '210' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+    expect(collectionStore.hierarchyLevel).toBe(1);
+
+    collectionStore.invalidate();
+    mocks.routeSubscriber({ view: 'workspace-map', params: { id: '211' } });
+    await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+
+    expect(collectionStore.hierarchyLevel).toBe(2);
+    expect(mocks.getLevelCounts).toHaveBeenCalledTimes(2);
+    expect(mocks.preferences.viewState['workspace-210'].map.hierarchy_level).toBe(1);
+    expect(mocks.preferences.viewState['workspace-211'].map.hierarchy_level).toBe(2);
   });
 });
 

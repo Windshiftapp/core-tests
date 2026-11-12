@@ -53,12 +53,7 @@ test.describe('Action templates: editor shape after apply', () => {
     test(`template "${tc.templateKey}" renders correct editor shape`, async ({
       page,
       request,
-      allowConsoleError,
     }) => {
-      // Optional logbook service emits a 404 on /api/logbook/health when not
-      // deployed; established noise pattern, see button-smoke.spec.ts.
-      allowConsoleError(/\/api\/logbook\//);
-
       const stamp = Date.now();
       const ws = await createWorkspaceViaAPI(request, {
         name: `tpl-shape-${tc.templateKey}-${stamp}`,

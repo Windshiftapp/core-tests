@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -215,6 +216,99 @@ func TestItemFieldUpdateDoesNotInvalidateWorkspaceCount(t *testing.T) {
 	if count := loadItemCount(t, db, data.WorkspaceID, `SELECT 2`); count != 1 {
 		t.Fatalf("count after field update = %d, want cached 1", count)
 	}
+}
+
+func TestItemListCountCacheSweepEvictsOverBoundEntries(t *testing.T) {
+	isolateItemListCountCache(t)
+
+	now := time.Now()
+	itemListCountCache.Lock()
+	for i := 0; i < itemListCountCacheMaxEntries+256; i++ {
+		itemListCountCache.entries[fmt.Sprintf("workspace:%d", i)] = itemListCountCacheEntry{
+			count:     1,
+			expiresAt: now.Add(time.Minute),
+		}
+	}
+	sweepItemListCountCacheLocked(now)
+	got := len(itemListCountCache.entries)
+	itemListCountCache.Unlock()
+
+	if got > itemListCountCacheMaxEntries {
+		t.Fatalf("entries after sweep = %d, want <= %d", got, itemListCountCacheMaxEntries)
+	}
+}
+
+func TestItemListCountCacheSweepDropsEntriesExpiredBeyondGrace(t *testing.T) {
+	isolateItemListCountCache(t)
+
+	now := time.Now()
+	itemListCountCache.Lock()
+	itemListCountCache.entries["stale"] = itemListCountCacheEntry{
+		count:     1,
+		expiresAt: now.Add(-itemListCountCacheSweepGrace - time.Second),
+	}
+	itemListCountCache.entries["fresh"] = itemListCountCacheEntry{
+		count:     2,
+		expiresAt: now.Add(time.Minute),
+	}
+	sweepItemListCountCacheLocked(now)
+	_, stale := itemListCountCache.entries["stale"]
+	_, fresh := itemListCountCache.entries["fresh"]
+	itemListCountCache.Unlock()
+
+	if stale {
+		t.Fatal("long-expired entry survived the sweep")
+	}
+	if !fresh {
+		t.Fatal("fresh entry was dropped by the sweep")
+	}
+}
+
+func TestInvalidateItemListCountCacheKeepsGenerationTombstone(t *testing.T) {
+	tdb := testutils.CreateTestDB(t, true)
+	t.Cleanup(func() { tdb.Close() })
+	db := tdb.GetDatabase()
+
+	if count := loadItemCount(t, db, 501, `SELECT 1`); count != 1 {
+		t.Fatalf("initial count = %d, want 1", count)
+	}
+	InvalidateItemListCountCache(db, 501)
+
+	key := itemListCountCacheKey(db, 501)
+	itemListCountCache.Lock()
+	entry, ok := itemListCountCache.entries[key]
+	itemListCountCache.Unlock()
+	if !ok {
+		t.Fatal("invalidation dropped the generation tombstone")
+	}
+	if entry.generation == 0 {
+		t.Fatal("invalidation did not bump the generation")
+	}
+	if !entry.expiresAt.IsZero() {
+		t.Fatalf("invalidated entry should be expired, got expiresAt=%v", entry.expiresAt)
+	}
+	if count := loadItemCount(t, db, 501, `SELECT 2`); count != 2 {
+		t.Fatalf("post-invalidation count = %d, want fresh 2", count)
+	}
+}
+
+// isolateItemListCountCache swaps in an empty cache map for the duration of a
+// test and restores the previous map afterwards, so sweep tests do not disturb
+// entries other tests rely on.
+func isolateItemListCountCache(t *testing.T) {
+	t.Helper()
+	itemListCountCache.Lock()
+	savedEntries := itemListCountCache.entries
+	savedSweep := itemListCountCache.lastSweep
+	itemListCountCache.entries = make(map[string]itemListCountCacheEntry)
+	itemListCountCache.lastSweep = time.Time{}
+	itemListCountCache.Unlock()
+	t.Cleanup(func() {
+		itemListCountCache.Lock()
+		itemListCountCache.entries = savedEntries
+		itemListCountCache.lastSweep = savedSweep
+		itemListCountCache.Unlock()
+	})
 }
 
 func waitItemCountSignal(t *testing.T, ctx context.Context, signal <-chan struct{}, operation string) {

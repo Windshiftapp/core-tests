@@ -9,7 +9,7 @@ test("item detail sets the document title and restores it on close", async ({
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Title item ${stamp}`,
 		key: `DT${stamp.toString().slice(-6)}`.toUpperCase(),

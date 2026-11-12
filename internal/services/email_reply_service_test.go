@@ -40,6 +40,10 @@ func (m *mockSMTPSender) RenderEmail(_ string, data interface{}) (string, string
 	return "", body, body, nil
 }
 
+func (m *mockSMTPSender) RenderEmailLocale(_, templateName string, data interface{}) (string, string, string, error) {
+	return m.RenderEmail(templateName, data)
+}
+
 // emailReplyTestEnv holds common test data for email reply service tests.
 type emailReplyTestEnv struct {
 	UserID           int
@@ -189,6 +193,55 @@ func TestEmailReplyService_SkipsZeroAuthor(t *testing.T) {
 	}
 	if len(mock.sent) != 0 {
 		t.Error("Expected no email sent for zero author")
+	}
+}
+
+func TestEmailReplyService_SkipsImportedComment(t *testing.T) {
+	db := createCommentTestDB(t)
+	tenv := setupEmailReplyTestEnv(t, db)
+	mock := &mockSMTPSender{configured: true}
+	svc := services.NewEmailReplyService(db, mock)
+
+	insertTrackingRecord(t, db, tenv.ChannelID, "<orig-msg-import@example.com>", "Imported thread", tenv.ItemID)
+	insertTestComment(t, db, 200, tenv.ItemID, tenv.UserID)
+
+	err := svc.HandleCommentCreated(services.HandleCommentParams{
+		CommentID:  200,
+		ItemID:     tenv.ItemID,
+		AuthorID:   tenv.UserID,
+		Content:    "historical imported reply",
+		SourceKind: "import",
+	})
+	if err != nil {
+		t.Fatalf("Expected nil error, got: %v", err)
+	}
+	if len(mock.sent) != 0 {
+		t.Fatalf("Expected no email sent for imported comment, got %d", len(mock.sent))
+	}
+}
+
+func TestEmailReplyService_SkipsImportActorKindComment(t *testing.T) {
+	db := createCommentTestDB(t)
+	tenv := setupEmailReplyTestEnv(t, db)
+	mock := &mockSMTPSender{configured: true}
+	svc := services.NewEmailReplyService(db, mock)
+
+	insertTrackingRecord(t, db, tenv.ChannelID, "<orig-msg-import-actor@example.com>", "Imported thread", tenv.ItemID)
+	insertTestComment(t, db, 201, tenv.ItemID, tenv.UserID)
+
+	// ActorKind alone must be enough: some import paths stamp only that field.
+	err := svc.HandleCommentCreated(services.HandleCommentParams{
+		CommentID: 201,
+		ItemID:    tenv.ItemID,
+		AuthorID:  tenv.UserID,
+		Content:   "historical imported reply",
+		ActorKind: "import",
+	})
+	if err != nil {
+		t.Fatalf("Expected nil error, got: %v", err)
+	}
+	if len(mock.sent) != 0 {
+		t.Fatalf("Expected no email sent for import-actor comment, got %d", len(mock.sent))
 	}
 }
 

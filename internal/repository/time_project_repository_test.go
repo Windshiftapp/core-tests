@@ -46,9 +46,9 @@ func TestTimeProjectRepositoryCookieAuthLifecycleAndFilters(t *testing.T) {
 	}
 
 	insertTestRow(t, db, `
-		INSERT INTO time_worklogs (project_id, customer_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
-		VALUES (?, ?, 'Migration work', 100, 100, 3700, 60, 100, 100)
-	`, project.ID, customerID)
+		INSERT INTO time_worklogs (project_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
+		VALUES (?, 'Migration work', 100, 100, 3700, 60, 100, 100)
+	`, project.ID)
 
 	detail, err := repo.GetDetail(project.ID)
 	if err != nil {

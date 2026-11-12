@@ -5,8 +5,10 @@ package plugins
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	extism "github.com/extism/go-sdk"
 	"github.com/tetratelabs/wabin/binary"
 	"github.com/tetratelabs/wabin/wasm"
 )
@@ -76,5 +78,29 @@ func TestManager_MultipleCapabilitiesFromOnePlugin(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Errorf("GetCapabilities length = %d, want %d (capabilities: %v)", len(got), len(want), got)
+	}
+}
+
+// TestValidateHostFunctionCatalogRejectsUnmapped pins the fail-closed guard: a
+// host function without a permission mapping must fail construction instead of
+// shipping callable without a declared permission.
+func TestValidateHostFunctionCatalogRejectsUnmapped(t *testing.T) {
+	if err := validateHostFunctionCatalog([]extism.HostFunction{{Name: "log"}, {Name: "http_fetch"}}); err != nil {
+		t.Fatalf("mapped and ungated host functions rejected: %v", err)
+	}
+	err := validateHostFunctionCatalog([]extism.HostFunction{{Name: "unguarded_fn"}})
+	if err == nil {
+		t.Fatal("unmapped host function accepted, want error")
+	}
+	if !strings.Contains(err.Error(), "unguarded_fn") {
+		t.Fatalf("error = %v, want it to name the offending host function", err)
+	}
+}
+
+// TestNewManagerAcceptsBuiltCatalog is the smoke test for the panic guard: the
+// shipped catalog is valid, so constructing a manager must not panic.
+func TestNewManagerAcceptsBuiltCatalog(t *testing.T) {
+	if manager := NewManager(t.TempDir()); manager == nil {
+		t.Fatal("NewManager returned nil")
 	}
 }

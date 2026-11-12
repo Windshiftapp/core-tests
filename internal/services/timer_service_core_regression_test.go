@@ -35,7 +35,7 @@ func TestGetActiveForUserRedactsMetadataAfterWorkspaceRevocation(t *testing.T) {
 	}
 }
 
-func TestStopTimerWithoutProjectCustomerCancelsInsteadOfWedging(t *testing.T) {
+func TestStopTimerWithoutRealCustomerCreatesWorklog(t *testing.T) {
 	fixture := newTimerServiceFixture(t, false, false)
 	fixture.service.workspaceAccess = func(int, int) (bool, error) { return true, nil }
 
@@ -43,8 +43,8 @@ func TestStopTimerWithoutProjectCustomerCancelsInsteadOfWedging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StopTimerByID: %v", err)
 	}
-	if result.WorklogCreated {
-		t.Fatal("customerless timer unexpectedly created a worklog")
+	if !result.WorklogCreated {
+		t.Fatal("timer on a no-customer project did not create a worklog")
 	}
 
 	var timerCount, worklogCount int
@@ -54,8 +54,23 @@ func TestStopTimerWithoutProjectCustomerCancelsInsteadOfWedging(t *testing.T) {
 	if err := fixture.db.QueryRow(`SELECT COUNT(*) FROM time_worklogs WHERE user_id = ?`, fixture.userID).Scan(&worklogCount); err != nil {
 		t.Fatalf("count worklogs: %v", err)
 	}
-	if timerCount != 0 || worklogCount != 0 {
-		t.Fatalf("after recovery timer_count=%d worklog_count=%d, want 0/0", timerCount, worklogCount)
+	if timerCount != 0 || worklogCount != 1 {
+		t.Fatalf("after stop timer_count=%d worklog_count=%d, want 0/1", timerCount, worklogCount)
+	}
+
+	// The worklog derives the built-in no-customer placeholder from the project.
+	var builtinKey string
+	if err := fixture.db.QueryRow(`
+		SELECT COALESCE(c.builtin_key, '')
+		FROM time_worklogs w
+		JOIN time_projects p ON w.project_id = p.id
+		JOIN customer_organisations c ON p.customer_id = c.id
+		WHERE w.user_id = ?
+	`, fixture.userID).Scan(&builtinKey); err != nil {
+		t.Fatalf("read derived customer: %v", err)
+	}
+	if builtinKey != "no_customer" {
+		t.Fatalf("worklog customer builtin_key = %q, want no_customer", builtinKey)
 	}
 }
 
@@ -111,6 +126,12 @@ func newTimerServiceFixture(t *testing.T, withCustomer, withItem bool) timerServ
 	var customerID interface{}
 	if withCustomer {
 		customerID = insert(`INSERT INTO customer_organisations (name) VALUES ('Timer customer')`)
+	} else {
+		var noCustomerID int
+		if err := db.QueryRow(`SELECT id FROM customer_organisations WHERE builtin_key = 'no_customer'`).Scan(&noCustomerID); err != nil {
+			t.Fatalf("load no-customer organisation: %v", err)
+		}
+		customerID = noCustomerID
 	}
 	projectID := insert(`INSERT INTO time_projects (customer_id, name, status) VALUES (?, 'Timer project', 'Active')`, customerID)
 

@@ -18,6 +18,7 @@ vi.mock('../../stores/i18n.svelte.js', () => ({
 }));
 
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: vi.fn(),
   successToast: vi.fn(),
 }));
@@ -68,5 +69,69 @@ describe('ItemDetailDescription click-to-edit', () => {
     await fireEvent.keyDown(screen.getByTestId('description-plain-text'), { key: 'Enter' });
 
     expect(onstartEditingDescription).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ItemDetailDescription attachment visibility toggle', () => {
+  const attachment = {
+    id: 5,
+    original_filename: 'evidence.png',
+    mime_type: 'image/png',
+    file_size: 10,
+    is_internal: false,
+  };
+
+  it('offers the toggle to an editor on a customer request', () => {
+    renderDescription({
+      item: { id: 42, workspace_id: 7, request_type_id: 3 },
+      canEdit: true,
+      attachments: [attachment],
+    });
+
+    expect(screen.getByTestId('item-attachment-visibility-5')).toBeInTheDocument();
+  });
+
+  it('offers the toggle when the requester is a portal customer', () => {
+    renderDescription({
+      item: { id: 42, workspace_id: 7, creator_portal_customer_id: 9 },
+      canEdit: true,
+      attachments: [attachment],
+    });
+
+    expect(screen.getByTestId('item-attachment-visibility-5')).toBeInTheDocument();
+  });
+
+  it('does not offer the toggle on an agent-created item', () => {
+    renderDescription({
+      item: { id: 42, workspace_id: 7 },
+      canEdit: true,
+      attachments: [attachment],
+    });
+
+    expect(screen.queryByTestId('item-attachment-visibility-5')).not.toBeInTheDocument();
+  });
+
+  it('does not offer the toggle to a read-only viewer', () => {
+    renderDescription({
+      item: { id: 42, workspace_id: 7, request_type_id: 3 },
+      canEdit: false,
+      attachments: [attachment],
+    });
+
+    expect(screen.queryByTestId('item-attachment-visibility-5')).not.toBeInTheDocument();
+  });
+
+  it('forwards the toggle to the visibility handler', async () => {
+    const onattachmentToggleVisibility = vi.fn();
+    renderDescription({
+      item: { id: 42, workspace_id: 7, request_type_id: 3 },
+      canEdit: true,
+      attachments: [attachment],
+      onattachmentToggleVisibility,
+    });
+
+    await fireEvent.click(screen.getByTestId('item-attachment-visibility-5'));
+
+    expect(onattachmentToggleVisibility).toHaveBeenCalledWith(attachment);
   });
 });

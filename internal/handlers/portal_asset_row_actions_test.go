@@ -61,6 +61,9 @@ func TestPortalBootstrapRowActionsExposeOnlyVisibleRequestTypes(t *testing.T) {
 	if err := db.QueryRow(`INSERT INTO asset_management_sets (name) VALUES ('Row action set') RETURNING id`).Scan(&assetSetID); err != nil {
 		t.Fatalf("insert asset set: %v", err)
 	}
+	if _, err := db.ExecWrite(`INSERT INTO asset_set_portal_access (set_id) VALUES (?)`, assetSetID); err != nil {
+		t.Fatalf("grant portal access: %v", err)
+	}
 	if _, err := db.ExecWrite(`
 		INSERT INTO asset_reports (channel_id, asset_set_id, name, cql_query, run_mode, config)
 		VALUES (?, ?, 'Devices', 'status = "Active"', 'direct', ?)

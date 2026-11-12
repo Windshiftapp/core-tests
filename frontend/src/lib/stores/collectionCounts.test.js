@@ -5,7 +5,12 @@ import { collections } from '../api/collections.js';
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), backlog: vi.fn(), changes: vi.fn() }));
 vi.mock('../api/items.js', () => ({
-  items: { getAll: mocks.list, getBacklog: mocks.backlog, getChanges: mocks.changes },
+  items: {
+    getAll: mocks.list,
+    getBacklog: mocks.backlog,
+    getChanges: mocks.changes,
+    getLevelCounts: vi.fn().mockResolvedValue([]),
+  },
 }))
 
 vi.mock('../api/collections.js', () => ({

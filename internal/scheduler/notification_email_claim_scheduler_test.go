@@ -36,7 +36,7 @@ type claimTestSMTPRecord struct {
 
 func (s *claimTestSMTPSender) IsSMTPConfigured() bool { return !s.unconfigured }
 
-func (s *claimTestSMTPSender) SendBatchedNotificationsContext(ctx context.Context, email string, _ string, notifications []models.Notification) error {
+func (s *claimTestSMTPSender) SendBatchedNotificationsContext(ctx context.Context, email string, _ string, _, _ string, notifications []models.Notification) error {
 	call := int(s.calls.Add(1))
 	if s.started != nil && call == 1 {
 		s.once.Do(func() { close(s.started) })

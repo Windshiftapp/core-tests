@@ -51,6 +51,8 @@ describe('SidebarStoryPointsField', () => {
 
     const input = await startEditing();
     Object.defineProperty(input, 'validity', { value: { badInput: true } });
+    // Typing invalid text into a number input fires `input` with badInput set.
+    await fireEvent.input(input, { target: { value: '' } });
     await fireEvent.blur(input);
 
     expect(onSave).not.toHaveBeenCalled();

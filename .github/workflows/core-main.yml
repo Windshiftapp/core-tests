@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   compatibility:
-    runs-on: ubuntu-latest
+    # Playwright's bundled Chromium does not yet support ubuntu-26.04, which
+    # ubuntu-latest now resolves to; pin to 24.04 until Playwright catches up.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       CI: "true"

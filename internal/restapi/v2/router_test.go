@@ -183,6 +183,9 @@ func (fakeLabels) AddToItem(services.AuditActor, int, int) ([]models.Label, erro
 	return []models.Label{}, nil
 }
 func (fakeLabels) RemoveFromItem(services.AuditActor, int, int) error { return nil }
+func (fakeLabels) BulkApply(services.AuditActor, services.BulkLabelOperation, func(int) (bool, error)) (services.BulkLabelResult, error) {
+	return services.BulkLabelResult{}, nil
+}
 
 type fakeParticipants struct{}
 
@@ -279,6 +282,9 @@ func (fakePageApplication) List(int, int) ([]models.Page, error) {
 }
 func (fakePageApplication) ListTitlesAcrossWorkspaces(int, []int) ([]services.PageTitleRow, error) {
 	return []services.PageTitleRow{}, nil
+}
+func (fakePageApplication) ListSummariesAcrossWorkspaces(int, []int, string, int) ([]services.PageSummaryRow, error) {
+	return []services.PageSummaryRow{}, nil
 }
 func (fakePageApplication) EffectiveLevels(int, int) (map[int]string, error) {
 	return map[int]string{}, nil
@@ -613,6 +619,36 @@ func (fakeComments) AddReaction(int, int, string) ([]models.CommentReaction, err
 }
 func (fakeComments) RemoveReaction(int, int, string) error { return nil }
 
+type fakeMilestoneComments struct{}
+
+func (fakeMilestoneComments) GetFeed(int, int, services.CommentFeedOptions) (*services.MilestoneCommentFeedPage, error) {
+	return &services.MilestoneCommentFeedPage{Comments: []models.MilestoneComment{}}, nil
+}
+func (fakeMilestoneComments) CountFeed(int) (int, error) { return 0, nil }
+func (fakeMilestoneComments) Create(int, int, string) (*models.MilestoneComment, error) {
+	return &models.MilestoneComment{ID: 1}, nil
+}
+func (fakeMilestoneComments) Update(int, int, int, string) (*models.MilestoneComment, error) {
+	return &models.MilestoneComment{ID: 1}, nil
+}
+func (fakeMilestoneComments) Delete(int, int, int) error { return nil }
+
+type fakeMilestonePageLinks struct{}
+
+func (fakeMilestonePageLinks) List(int, int) ([]models.MilestonePageLink, error) {
+	return []models.MilestonePageLink{}, nil
+}
+func (fakeMilestonePageLinks) Create(int, int, int) (*models.MilestonePageLink, error) {
+	return &models.MilestonePageLink{ID: 1}, nil
+}
+func (fakeMilestonePageLinks) Delete(int, int, int) error { return nil }
+
+type fakeMilestoneActivity struct{}
+
+func (fakeMilestoneActivity) List(int, int, services.MilestoneActivityListParams) ([]models.MilestoneActivity, bool, error) {
+	return []models.MilestoneActivity{}, false, nil
+}
+
 type fakeAttachments struct{}
 
 func (fakeAttachments) UploadPolicy() (services.ItemAttachmentUploadPolicy, error) {
@@ -629,6 +665,9 @@ func (fakeAttachments) OpenItemAttachment(context.Context, int, int, bool) (*ser
 }
 func (fakeAttachments) UploadItemAttachment(context.Context, services.ItemAttachmentUploadInput) (models.AttachmentUploadResponse, error) {
 	return models.AttachmentUploadResponse{Success: true, Attachment: models.Attachment{ID: 1}}, nil
+}
+func (fakeAttachments) SetItemAttachmentInternal(int, int, bool) (*models.Attachment, error) {
+	return &models.Attachment{ID: 1}, nil
 }
 func (fakeAttachments) DeleteItemAttachment(context.Context, int, int) error { return nil }
 
@@ -682,6 +721,9 @@ func (fakeCollections) GetBoardConfigurationBootstrap(context.Context, int, serv
 	return &services.BoardConfigurationBootstrap{BoardConfiguration: &models.BoardConfiguration{ID: 1}}, nil
 }
 func (fakeCollections) PutBoardConfiguration(services.AuditActor, services.BoardConfigurationScope, models.BoardConfigurationRequest) (*models.BoardConfiguration, error) {
+	return &models.BoardConfiguration{ID: 1}, nil
+}
+func (fakeCollections) PatchBoardConfiguration(services.AuditActor, services.BoardConfigurationScope, services.BoardConfigurationPatch) (*models.BoardConfiguration, error) {
 	return &models.BoardConfiguration{ID: 1}, nil
 }
 func (fakeCollections) DeleteBoardConfiguration(services.AuditActor, services.BoardConfigurationScope) error {
@@ -864,6 +906,9 @@ func (fakeGovernance) EscalateApproval(context.Context, services.AuditActor, int
 }
 func (fakeGovernance) GetTransitionGovernance(context.Context, int) (*services.TransitionGovernance, error) {
 	return &services.TransitionGovernance{TransitionID: 1}, nil
+}
+func (fakeGovernance) SetTransitionScreen(context.Context, services.AuditActor, int, *int) error {
+	return nil
 }
 
 type fakeActions struct{}
@@ -1333,60 +1378,63 @@ func newTestMuxWithCatalog(t *testing.T, allowScope bool, catalog catalogReader,
 		tokenAuth = tokens[0]
 	}
 	err := RegisterRoutes(Deps{
-		Mux:               mux,
-		Tokens:            tokenAuth,
-		Users:             fakeUsers{user: user},
-		Statuses:          statuses,
-		Workflows:         fakeCatalogs{},
-		Configuration:     configuration,
-		Catalog:           catalog,
-		CatalogMutations:  fakeCatalogMutations{},
-		Workspaces:        fakeWorkspaces{},
-		ItemTemplates:     fakeItemTemplates{},
-		Labels:            labels,
-		Participants:      fakeParticipants{},
-		Items:             items,
-		Access:            access,
-		Preferences:       preferences,
-		Recurrence:        recurrence,
-		ItemDiagrams:      itemDiagrams,
-		Pages:             pages,
-		PageApplication:   pageApplicationDependency,
-		PageDiagrams:      pageDiagrams,
-		PageAccess:        pageAccessDependency,
-		PageLabels:        pageLabels,
-		CannedResponses:   fakeCannedResponses{},
-		PagePublication:   services.NewKnowledgePublicationService(nil),
-		Worklogs:          worklogs,
-		TimeAccess:        timeAccessDependency,
-		TimeProjects:      fakeTimeProjects{},
-		Timers:            fakeTimers{},
-		SystemAdmins:      fakeSystemAdmins{},
-		Groups:            fakeGroups{},
-		AdminUsers:        fakeAdminUsers{user: user},
-		AuditLogs:         repository.NewAuditLogRepository(nil),
-		AdminTokens:       &auth.TokenManager{},
-		AdminAuditor:      logger.NewAuditor(nil),
-		AdminTranslations: objecttranslation.NewService(nil),
-		Comments:          fakeComments{},
-		CommentAccess:     fakeAccess{},
-		Attachments:       fakeAttachments{},
-		PageAttachments:   fakePageAttachments{},
-		Collections:       fakeCollections{},
-		Planning:          fakePlanning{},
-		Links:             fakeLinks{},
-		AgentRuns:         fakeAgentRuns{},
-		AgentSkills:       fakeAgentSkills{},
-		ConditionSets:     fakeConditionSets{},
-		Governance:        fakeGovernance{},
-		Actions:           fakeActions{},
-		TestManagement:    services.NewTestManagementApplicationService(nil, nil),
-		Assets:            services.NewAssetApplicationService(nil, nil, nil, nil),
-		ItemApplication:   services.NewItemApplicationService(nil, nil, nil, nil, nil),
-		ItemDetail:        services.NewItemDetailApplicationService(nil, nil, nil, nil),
-		SessionMiddleware: sessionMiddleware,
-		CORS:              NewCORS([]string{"https://app.example.test"}, false, true),
-		Concurrency:       fakeConcurrency{allow: true},
+		Mux:                mux,
+		Tokens:             tokenAuth,
+		Users:              fakeUsers{user: user},
+		Statuses:           statuses,
+		Workflows:          fakeCatalogs{},
+		Configuration:      configuration,
+		Catalog:            catalog,
+		CatalogMutations:   fakeCatalogMutations{},
+		Workspaces:         fakeWorkspaces{},
+		ItemTemplates:      fakeItemTemplates{},
+		Labels:             labels,
+		Participants:       fakeParticipants{},
+		Items:              items,
+		Access:             access,
+		Preferences:        preferences,
+		Recurrence:         recurrence,
+		ItemDiagrams:       itemDiagrams,
+		Pages:              pages,
+		PageApplication:    pageApplicationDependency,
+		PageDiagrams:       pageDiagrams,
+		PageAccess:         pageAccessDependency,
+		PageLabels:         pageLabels,
+		CannedResponses:    fakeCannedResponses{},
+		PagePublication:    services.NewKnowledgePublicationService(nil),
+		Worklogs:           worklogs,
+		TimeAccess:         timeAccessDependency,
+		TimeProjects:       fakeTimeProjects{},
+		Timers:             fakeTimers{},
+		SystemAdmins:       fakeSystemAdmins{},
+		Groups:             fakeGroups{},
+		AdminUsers:         fakeAdminUsers{user: user},
+		AuditLogs:          repository.NewAuditLogRepository(nil),
+		AdminTokens:        &auth.TokenManager{},
+		AdminAuditor:       logger.NewAuditor(nil),
+		AdminTranslations:  objecttranslation.NewService(nil),
+		Comments:           fakeComments{},
+		CommentAccess:      fakeAccess{},
+		Attachments:        fakeAttachments{},
+		PageAttachments:    fakePageAttachments{},
+		Collections:        fakeCollections{},
+		Planning:           fakePlanning{},
+		MilestoneComments:  fakeMilestoneComments{},
+		MilestonePageLinks: fakeMilestonePageLinks{},
+		MilestoneActivity:  fakeMilestoneActivity{},
+		Links:              fakeLinks{},
+		AgentRuns:          fakeAgentRuns{},
+		AgentSkills:        fakeAgentSkills{},
+		ConditionSets:      fakeConditionSets{},
+		Governance:         fakeGovernance{},
+		Actions:            fakeActions{},
+		TestManagement:     services.NewTestManagementApplicationService(nil, nil),
+		Assets:             services.NewAssetApplicationService(nil, nil, nil, nil),
+		ItemApplication:    services.NewItemApplicationService(nil, nil, nil, nil, nil),
+		ItemDetail:         services.NewItemDetailApplicationService(nil, nil, nil, nil),
+		SessionMiddleware:  sessionMiddleware,
+		CORS:               NewCORS([]string{"https://app.example.test"}, false, true),
+		Concurrency:        fakeConcurrency{allow: true},
 	})
 	if err != nil {
 		t.Fatalf("register routes: %v", err)

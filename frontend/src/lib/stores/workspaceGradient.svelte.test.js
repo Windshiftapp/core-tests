@@ -82,4 +82,17 @@ describe('workspace gradient styles', () => {
     );
     expect(styles.columnStyle(12)).toContain('backdrop-filter: blur(12px);');
   });
+
+  it('uses a lighter glass hover on a custom background', () => {
+    workspaceGradientIndex.set(3);
+    applyToAllViews.set(true);
+
+    expect(useGradientStyles().contextVars).toContain('--ctx-hover-bg: rgba(255, 255, 255, 0.85)');
+  });
+
+  it('uses the neutral surface hover without a custom background', () => {
+    applyToAllViews.set(false);
+
+    expect(useGradientStyles().contextVars).toContain('--ctx-hover-bg: var(--ds-surface-hovered)');
+  });
 });

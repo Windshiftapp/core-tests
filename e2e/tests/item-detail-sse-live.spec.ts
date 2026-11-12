@@ -19,7 +19,6 @@ test.describe('Item detail live updates via SSE (WI-484)', () => {
     request,
     allowConsoleError,
   }, testInfo) => {
-    allowConsoleError(/\/api\/logbook\//);
     // Item-detail load always probes /api/items/:id/recurrence; a 404 means
     // "no recurrence rule", the normal case.
     allowConsoleError(/\/api\/items\/\d+\/recurrence/);
@@ -64,7 +63,6 @@ test.describe('Item detail live updates via SSE (WI-484)', () => {
     request,
     allowConsoleError,
   }, testInfo) => {
-    allowConsoleError(/\/api\/logbook\//);
     allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 
     const stamp = `${Date.now()}${testInfo.workerIndex}${testInfo.repeatEachIndex}`;
@@ -99,14 +97,13 @@ test.describe('Item detail live updates via SSE (WI-484)', () => {
     request,
     allowConsoleError,
   }, testInfo) => {
-    allowConsoleError(/\/api\/logbook\//);
     allowConsoleError(/\/api\/items\/\d+\/recurrence/);
     // The detail may refetch and 404 as the delete lands — that's the path
     // under test, not a failure. These cover the raw resource 404s (URL-based)
     // plus the app-level load errors the workspace store and the SCM-links
     // section log when their in-flight fetch races the delete (message-based,
     // since Chromium reports the JS bundle URL as the location, not the API path).
-    allowConsoleError(/\/api\/items\/\d+/);
+    allowConsoleError(/\/api\/(?:v2\/)?items\/\d+/);
     allowConsoleError(/Failed to load item or workspace/);
     allowConsoleError(/Failed to load SCM links/);
 

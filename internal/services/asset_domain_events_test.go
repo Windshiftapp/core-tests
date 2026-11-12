@@ -111,12 +111,12 @@ func TestAssetMutationLifecycleRecordsOrderedCanonicalFacts(t *testing.T) {
 		gotSequences = append(gotSequences, sequence)
 	}
 	wantTypes := []string{
-		assetevents.Created, DurableAssetActionCompatibilityEvent,
-		assetevents.StatusChanged, DurableAssetActionCompatibilityEvent,
-		assetevents.Updated, DurableAssetActionCompatibilityEvent,
-		assetevents.Deleted, DurableAssetActionCompatibilityEvent,
+		assetevents.Created,
+		assetevents.StatusChanged,
+		assetevents.Updated,
+		assetevents.Deleted,
 	}
-	wantSequences := []int64{1, 2, 3, 4, 5, 6, 7, 8}
+	wantSequences := []int64{1, 2, 3, 4}
 	if !reflect.DeepEqual(gotTypes, wantTypes) || !reflect.DeepEqual(gotSequences, wantSequences) {
 		t.Fatalf("asset facts = %v sequences %v, want %v / %v", gotTypes, gotSequences, wantTypes, wantSequences)
 	}
@@ -128,7 +128,7 @@ func TestAssetMutationStopsCompatibilityDualWriteAfterCutover(t *testing.T) {
 	db := tdb.GetDatabase()
 	userID, setID, typeID := assetEventFixture(t, db)
 	service := NewAssetService(db, repository.NewAssetRepository(db))
-	if _, err := service.compatibilityEvents().ActivateCanonicalAssets(context.Background()); err != nil {
+	if _, err := NewDurableAssetActionIngress(db).ActivateCanonicalAssets(context.Background()); err != nil {
 		t.Fatalf("activate asset cutover: %v", err)
 	}
 	if _, err := service.CreateAsset(AuditActor{UserID: userID}, repository.CreateAssetInput{
@@ -140,7 +140,7 @@ func TestAssetMutationStopsCompatibilityDualWriteAfterCutover(t *testing.T) {
 	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", assetevents.Created).Scan(&canonical); err != nil {
 		t.Fatalf("count canonical facts: %v", err)
 	}
-	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableAssetActionCompatibilityEvent).Scan(&compatibility); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM domain_events WHERE event_type = ?", DurableAssetActionRequestedEvent).Scan(&compatibility); err != nil {
 		t.Fatalf("count compatibility facts: %v", err)
 	}
 	if canonical != 1 || compatibility != 0 {

@@ -68,6 +68,7 @@ vi.mock('./portalAuth.svelte.js', () => ({
 }));
 
 vi.mock('./toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: vi.fn(),
 }));
 

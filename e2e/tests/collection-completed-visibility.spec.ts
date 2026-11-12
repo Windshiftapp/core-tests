@@ -71,13 +71,16 @@ test('hides custom completed categories and remembers visibility separately for 
       },
       false
     );
-    const done = await createItemViaAPI(request, workspace.id, {
-      title: `Released parent ${stamp}`,
-      status_id: completed.id,
-    });
+    // The tree is level-scoped, so the visible item must sit at the same level
+    // the picker resolves. A completed child under an active parent keeps the
+    // hierarchy exercised while the parent stays visible when the child hides.
     const open = await createItemViaAPI(request, workspace.id, {
-      title: `Active child ${stamp}`,
-      parent_id: done.id,
+      title: `Active parent ${stamp}`,
+    });
+    const done = await createItemViaAPI(request, workspace.id, {
+      title: `Released child ${stamp}`,
+      parent_id: open.id,
+      status_id: completed.id,
     });
 
     const base = `/workspaces/${workspace.id}`;

@@ -105,21 +105,20 @@ test('keeps a completed parent visible as context when hide completed filters it
     await page.goto(`${base}/tree`);
     const toggle = page.getByTestId('collection-hide-completed');
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    // The completed epic is filtered from the page but still renders as the
-    // child's context parent — with its real status, not "No status".
-    const epicRow = page.getByTestId(`tree-row-${done.id}`);
-    await expect(epicRow).toContainText(`Finished epic ${stamp}`);
-    // The context epic carries its real Done status, not "No status".
-    await expect(epicRow).toContainText(`Released ${stamp}`);
-    await expect(epicRow).not.toContainText('No status');
+    // The completed epic is filtered from the page. The active child is a base
+    // row, and the filtered-out parent surfaces as a parent reference chip
+    // instead of a synthetic ancestor row (GH #271).
     await expect(page.getByTestId(`tree-row-${open.id}`)).toContainText(`Follow-up bug ${stamp}`);
+    const parentChip = page.getByTestId(`tree-parent-${open.id}`);
+    await expect(parentChip).toBeVisible();
+    await expect(parentChip).toContainText(`${workspace.key}-${done.workspace_item_number}`);
 
     await page.goto(`${base}/roadmap`);
     await expect(page.getByTestId('roadmap-view')).toBeVisible();
-    // The epic must not vanish on the roadmap either; its active child is
-    // shown beneath it instead of floating as a stray root.
-    await expect(page.getByTestId(`roadmap-item-${done.id}`)).toContainText(`Finished epic ${stamp}`);
+    // The active child is a root at its level; the completed parent is above
+    // the picked level and is no longer drawn as an ancestor row.
     await expect(page.getByTestId(`roadmap-item-${open.id}`)).toContainText(`Follow-up bug ${stamp}`);
+    await expect(page.getByTestId(`roadmap-item-${done.id}`)).toHaveCount(0);
   } finally {
     for (const path of cleanup) {
       const response = await request.delete(path, { headers });

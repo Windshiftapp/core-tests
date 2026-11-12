@@ -125,6 +125,10 @@ var anonymousBaselineExemptions = []struct {
 	{"*", "/api/setup-status"},
 	{"*", "/api/capabilities"},
 
+	// Public instance branding (site title + active theme logos), fetched
+	// before authentication so the login and portal surfaces render branded.
+	{"GET", "/api/branding"},
+
 	// SCIM service provider config + schemas are anonymous per RFC 7644.
 	{"GET", "/scim/v2/ServiceProviderConfig"},
 	{"GET", "/scim/v2/ResourceTypes"},

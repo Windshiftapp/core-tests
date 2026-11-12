@@ -1,5 +1,6 @@
 import { restoreActiveTheme } from "../fixtures/api-helpers";
 import { expect, type APIRequestContext, test } from "../fixtures/context-path";
+import { acquireGlobalLock } from "../fixtures/global-lock";
 
 /**
  * Admin theme manager (/admin/themes). Creates a theme with the default
@@ -24,24 +25,36 @@ async function listThemes(request: APIRequestContext): Promise<Theme[]> {
 
 test.describe("Admin theme manager", () => {
 	test("creates, activates, and deletes a theme", async ({ page, request }) => {
-		const stamp = Date.now();
-		const name = `E2E Theme ${stamp}`;
-		const originalActive = (await listThemes(request)).find((theme) => theme.is_active);
-		expect(originalActive, "an active theme exists").toBeDefined();
+		// The active theme is a global singleton, so serialize against the other
+		// theme spec instead of deactivating each other mid-assertion.
+		const release = await acquireGlobalLock("active-theme");
+		const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const name = `E2E Theme ${suffix}`;
+		let originalActive: Theme | undefined;
 		let createdId = 0;
 
 		try {
+			originalActive = (await listThemes(request)).find((theme) => theme.is_active);
+			expect(originalActive, "an active theme exists").toBeDefined();
+
 			await page.goto("/admin/themes");
 			await page.getByTestId("theme-add").click();
 
 			const dialog = page.locator('[role="dialog"]');
 			await expect(dialog).toBeVisible();
 			await dialog.locator("#name").fill(name);
-			await page.getByTestId("dialog-confirm").click();
 
-			const created = (await listThemes(request)).find((theme) => theme.name === name);
-			expect(created, "created theme persisted").toBeDefined();
-			createdId = created!.id;
+			// Wait for the create response so the id is read from the request that
+			// actually persisted the theme instead of racing a list refetch.
+			const createResponse = page.waitForResponse(
+				(response) =>
+					response.request().method() === "POST" &&
+					new URL(response.url()).pathname.endsWith("/api/themes"),
+			);
+			await page.getByTestId("dialog-confirm").click();
+			const response = await createResponse;
+			expect(response.status(), "created theme status").toBe(201);
+			createdId = (await response.json()).id;
 
 			const card = page.getByTestId(`theme-card-${createdId}`);
 			await expect(card).toBeVisible();
@@ -66,10 +79,19 @@ test.describe("Admin theme manager", () => {
 				.toBe(true);
 			createdId = 0;
 		} finally {
-			if (createdId) {
-				await request.delete(`/api/themes/${createdId}`, { headers: SEC_FETCH });
+			// Fall back to a name lookup so a theme that persisted without a captured
+			// id is still cleaned up.
+			const leftover =
+				createdId ||
+				(await listThemes(request)
+					.then((themes) => themes.find((theme) => theme.name === name)?.id)
+					.catch(() => undefined)) ||
+				0;
+			if (leftover) {
+				await request.delete(`/api/themes/${leftover}`, { headers: SEC_FETCH });
 			}
 			await restoreActiveTheme(request, originalActive);
+			await release();
 		}
 	});
 });

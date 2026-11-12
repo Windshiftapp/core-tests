@@ -1,4 +1,4 @@
-import { expect, test } from '../fixtures/context-path';
+import { expect, test, type Locator, type Page } from '../fixtures/context-path';
 import {
   createCollectionViaAPI,
   createItemViaAPI,
@@ -15,6 +15,26 @@ import {
 } from '../fixtures/test-data';
 import { IterationPage } from '../pages/iteration.page';
 import { ItemPage } from '../pages/item.page';
+
+// Drive a backlog drag with the pointer gesture Pragmatic DnD listens for, so
+// the section drop target registration and its canDrop guard are exercised.
+async function dragBacklogRow(page: Page, source: Locator, target: Locator) {
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) {
+    throw new Error('Backlog drag source and target must both be visible');
+  }
+
+  const startX = sourceBox.x + sourceBox.width / 2;
+  const startY = sourceBox.y + sourceBox.height / 2;
+  const targetX = targetBox.x + targetBox.width / 2;
+  const targetY = targetBox.y + targetBox.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 12, startY + 12);
+  await page.mouse.move(targetX, targetY, { steps: 12 });
+  await page.mouse.up();
+}
 
 /**
  * Iteration management e2e coverage:
@@ -171,6 +191,126 @@ test.describe('Iteration Management', () => {
       `backlog-iteration-section-${createdIteration.id}`,
     );
     await expect(iterationSection.getByTestId(`backlog-item-menu-${target.id}`)).toBeVisible();
+  });
+
+  test('hides completed iterations in the backlog until the show-completed toggle is on', async ({ page, request }) => {
+    const completedData = generateIteration('completed-backlog');
+    const completedIteration = await createIterationViaAPI(request, {
+      ...completedData,
+      workspace_id: workspaceId,
+      type_id: iterationTypeId,
+      status: 'completed',
+    });
+    const activeData = generateIteration('active-backlog');
+    const activeIteration = await createIterationViaAPI(request, {
+      ...activeData,
+      workspace_id: workspaceId,
+      type_id: iterationTypeId,
+      status: 'active',
+    });
+
+    await itemPage.gotoWorkspaceBacklog(String(workspaceId));
+
+    const completedSection = page.getByTestId(
+      `backlog-iteration-section-${completedIteration.id}`,
+    );
+    await expect(
+      page.getByTestId(`backlog-iteration-section-${activeIteration.id}`),
+    ).toBeVisible();
+    await expect(completedSection).toHaveCount(0);
+
+    await page.getByTestId('backlog-show-completed-iterations').click();
+    await expect(completedSection).toBeVisible();
+
+    // The preference write is debounced, so wait for it before reloading.
+    await page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v2/users/me/preferences') &&
+        response.request().method() === 'PATCH' &&
+        response.ok(),
+    );
+
+    await page.reload();
+    await expect(completedSection).toBeVisible();
+
+    const clearedPreference = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v2/users/me/preferences') &&
+        response.request().method() === 'PATCH' &&
+        response.ok(),
+    );
+    await page.getByTestId('backlog-show-completed-iterations').click();
+    await expect(completedSection).toHaveCount(0);
+    await clearedPreference;
+  });
+
+  test('does not offer a completed iteration when assigning from the backlog menu', async ({ page, request }) => {
+    const completedData = generateIteration('completed-assign');
+    const completedIteration = await createIterationViaAPI(request, {
+      ...completedData,
+      workspace_id: workspaceId,
+      type_id: iterationTypeId,
+      status: 'completed',
+    });
+    const activeData = generateIteration('active-assign');
+    const activeIteration = await createIterationViaAPI(request, {
+      ...activeData,
+      workspace_id: workspaceId,
+      type_id: iterationTypeId,
+      status: 'active',
+    });
+    const itemData = generateItem(0, 'assign-completed');
+    const item = await createItemViaAPI(request, workspaceId, { title: itemData.title });
+
+    await itemPage.gotoWorkspaceBacklog(String(workspaceId));
+    await page.getByTestId(`backlog-item-menu-${item.id}`).click();
+    await page.getByTestId(`backlog-assign-iteration-menu-${item.id}`).click();
+
+    await expect(
+      page.getByTestId(`backlog-assign-iteration-${item.id}-${activeIteration.id}`),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId(`backlog-assign-iteration-${item.id}-${completedIteration.id}`),
+    ).toHaveCount(0);
+  });
+
+  test('rejects dropping a backlog item onto a completed iteration section', async ({ page, request }) => {
+    const completedData = generateIteration('completed-drop');
+    const completedIteration = await createIterationViaAPI(request, {
+      ...completedData,
+      workspace_id: workspaceId,
+      type_id: iterationTypeId,
+      status: 'completed',
+    });
+    const itemData = generateItem(0, 'drop-completed');
+    const item = await createItemViaAPI(request, workspaceId, { title: itemData.title });
+
+    await itemPage.gotoWorkspaceBacklog(String(workspaceId));
+    await page.getByTestId('backlog-show-completed-iterations').click();
+
+    const completedSection = page.getByTestId(
+      `backlog-iteration-section-${completedIteration.id}`,
+    );
+    await expect(completedSection).toBeVisible();
+
+    const source = page.getByTestId('backlog-item').filter({ hasText: itemData.title });
+    await expect(source).toHaveAttribute('data-section-id', 'unassigned');
+    const target = completedSection.locator('[data-section-drop-zone]');
+    await expect(target).toBeVisible();
+
+    await dragBacklogRow(page, source, target);
+
+    // The drop is rejected, so the item stays unassigned in the backlog.
+    await expect(source).toHaveAttribute('data-section-id', 'unassigned');
+    await expect
+      .poll(async () => {
+        const response = await request.get(`/api/v2/items/${item.id}`, {
+          headers: { 'Sec-Fetch-Site': 'same-origin' },
+        });
+        const body = await response.json();
+        return body.data.iteration_id ?? null;
+      })
+      .toBeNull();
   });
 
   test('filters items by iteration via a collection using a raw CQL query', async ({ page, request }) => {

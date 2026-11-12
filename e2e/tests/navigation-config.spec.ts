@@ -149,17 +149,21 @@ test.describe('Workspace navigation configuration', () => {
 			new RegExp(`/workspaces/${workspace.id}/collections/${collection.id}/nav-config$`)
 		);
 		await expect(page.getByTestId('nav-config-inherited-badge')).toBeVisible();
+		// The workspace navigation stays visible while configuring the
+		// collection so toggles apply in place.
+		await expect(page.getByTestId('workspace-nav-board')).toBeVisible();
 
 		// Workspace-only tools are not configurable at collection scope: the
 		// tools section is absent even though milestones is overridden at the
-		// workspace, the workspace-scoped queue view is absent too, and tests
-		// stay an orientation-only section.
+		// workspace, the workspace-scoped queue view is absent too, and the
+		// test entries are not part of a collection's nav so they are absent
+		// from its config page as well.
 		await expect(page.getByTestId('nav-config-section-tools')).toHaveCount(0);
 		await expect(page.getByTestId('nav-config-row-queue')).toHaveCount(0);
 		await expect(page.getByTestId('nav-config-row-milestones')).toHaveCount(0);
 		await expect(page.getByTestId('nav-config-row-iterations')).toHaveCount(0);
-		await expect(page.getByTestId('nav-config-row-test-cases')).toBeVisible();
-		await expect(page.getByTestId('nav-config-toggle-test-cases')).toHaveCount(0);
+		await expect(page.getByTestId('nav-config-row-test-cases')).toHaveCount(0);
+		await expect(page.getByTestId('nav-config-section-tests')).toHaveCount(0);
 
 		// Switching collections from the config page keeps a working URL.
 		await page.getByTestId('workspace-collection-select').click();
@@ -204,7 +208,7 @@ test.describe('Workspace navigation configuration', () => {
 		await expect(page.getByTestId('workspace-nav-tree')).toBeVisible();
 	});
 
-	test('global collections configure views from the switcher, gated to the creator', async ({
+	test('global collections configure views from the sidebar, gated to the creator', async ({
 		page,
 		browser,
 		request,
@@ -218,24 +222,30 @@ test.describe('Workspace navigation configuration', () => {
 			ql_query: '',
 		});
 
-		// The creator gets a gear in the view switcher leading to the global
-		// config surface, which exposes only the views section.
+		// The creator configures the collection from its left navigation, not
+		// from the board toolbar.
 		await page.goto(`/collections/${collection.id}/board`);
 		await expect(page.getByTestId('board-view-switcher')).toBeVisible();
-		await expect(page.getByTestId('collection-nav-config-button')).toBeVisible();
-		await page.getByTestId('collection-nav-config-button').click();
+		await expect(page.getByTestId('collection-nav-config-link')).toBeVisible();
+		await expect(page.getByTestId('collection-nav-config-button')).toHaveCount(0);
+		await page.getByTestId('collection-nav-config-link').click();
 		await expect(page).toHaveURL(new RegExp(`/collections/${collection.id}/nav-config$`));
 		await expect(page.getByTestId('navigation-config-page')).toBeVisible();
+		// The collection navigation stays visible while configuring it.
+		await expect(page.getByTestId('collection-nav-board')).toBeVisible();
 		await expect(page.getByTestId('nav-config-row-board')).toBeVisible();
 		await expect(page.getByTestId('nav-config-row-overview')).toHaveCount(0);
 		await expect(page.getByTestId('nav-config-section-tools')).toHaveCount(0);
 
-		// Toggling a view off hides it from the switcher; reset restores it.
+		// Toggling a view off hides it from the switcher and the sidebar; reset
+		// restores it.
 		await page.getByTestId('nav-config-toggle-backlog').click();
 		await expect(page.getByTestId('nav-config-row-backlog')).toHaveClass(/opacity-40/);
+		await expect(page.getByTestId('collection-nav-backlog')).toHaveCount(0);
 		await page.goto(`/collections/${collection.id}/board`);
 		await expect(page.getByTestId('board-view-switcher')).toBeVisible();
 		await expect(page.getByTestId('switcher-view-backlog')).toHaveCount(0);
+		await expect(page.getByTestId('collection-nav-backlog')).toHaveCount(0);
 
 		await page.goto(`/collections/${collection.id}/nav-config`);
 		await page.getByTestId('nav-config-reset').click();
@@ -243,8 +253,8 @@ test.describe('Workspace navigation configuration', () => {
 		await page.goto(`/collections/${collection.id}/board`);
 		await expect(page.getByTestId('switcher-view-backlog')).toBeVisible();
 
-		// A user who cannot edit the collection gets neither the gear nor the
-		// Configure button.
+		// A user who cannot edit the collection gets neither the sidebar entry
+		// nor the Configure button.
 		const otherData = generateUser(suffix);
 		await createUserViaAPI(request, otherData);
 		let otherContext;
@@ -265,7 +275,7 @@ test.describe('Workspace navigation configuration', () => {
 			const otherPage = await otherContext.newPage();
 			await otherPage.goto(`/collections/${collection.id}/board`);
 			await expect(otherPage.getByTestId('board-view-switcher')).toBeVisible();
-			await expect(otherPage.getByTestId('collection-nav-config-button')).toHaveCount(0);
+			await expect(otherPage.getByTestId('collection-nav-config-link')).toHaveCount(0);
 		} finally {
 			await otherContext?.close();
 		}
@@ -325,5 +335,73 @@ test.describe('Workspace navigation configuration', () => {
 		} finally {
 			await viewerContext?.close();
 		}
+	});
+
+	test('toggling and resetting navigation keeps the board columns', async ({ page, request }) => {
+		await authenticateAdminRequest(request);
+		const stamp = Date.now();
+		const workspace = await createWorkspaceViaAPI(
+			request,
+			generateWorkspace(`nav-config-columns-${stamp}`)
+		);
+		const collection = await createCollectionViaAPI(request, {
+			name: `Nav columns ${stamp}`,
+			workspace_id: workspace.id,
+			ql_query: '',
+		});
+
+		const statusesResponse = await request.get(`/api/v2/workspaces/${workspace.id}/statuses`, {
+			headers: SEC_FETCH,
+		});
+		expect(statusesResponse.ok()).toBeTruthy();
+		const statusesBody = await statusesResponse.json();
+		const statuses: Array<{ id: number; name: string }> = statusesBody.data ?? statusesBody;
+		const status = statuses.find((entry) => entry.name === 'Open') ?? statuses[0];
+		expect(status).toBeDefined();
+
+		// Seed the collection with a configured board column so the navigation
+		// page has something to lose.
+		const boardConfig = await request.put(
+			`/api/v2/collections/${collection.id}/board-configuration`,
+			{
+				headers: SEC_FETCH,
+				data: {
+					columns: [
+						{
+							name: 'In progress',
+							display_order: 0,
+							wip_limit: null,
+							color: '#123456',
+							status_ids: [status.id],
+						},
+					],
+					backlog_status_ids: [],
+					list_columns: [],
+					card_fields: [],
+				},
+			}
+		);
+		expect(boardConfig.ok(), `create board config failed (${boardConfig.status()})`).toBeTruthy();
+
+		// The board column element carries the status id; an sr-only span shares
+		// the data-testid, so target the stable element id instead.
+		const column = page.locator(`#board-column-status-${status.id}`);
+		await page.goto(`/workspaces/${workspace.id}/collections/${collection.id}/board`);
+		await expect(column).toBeVisible();
+		await expect(column).toContainText('In progress');
+
+		// Toggling a view must not hit the strict decoder, which is what
+		// happened when the page sent the fetched columns back with it.
+		await page.goto(`/workspaces/${workspace.id}/collections/${collection.id}/nav-config`);
+		await page.getByTestId('nav-config-toggle-list').click();
+		await expect(page.getByTestId('nav-config-row-list')).toHaveClass(/opacity-40/);
+		await expect(page.locator('[data-testid="toast"][data-toast-variant="error"]')).toHaveCount(0);
+
+		// Reset is a merge patch: the board configuration survives it.
+		await page.getByTestId('nav-config-reset').click();
+		await expect(page.getByTestId('nav-config-inherited-badge')).toBeVisible();
+		await page.goto(`/workspaces/${workspace.id}/collections/${collection.id}/board`);
+		await expect(column).toBeVisible();
+		await expect(column).toContainText('In progress');
 	});
 });

@@ -95,7 +95,6 @@ describe('integration: live providers', () => {
     const withPerms = globalNavigationProvider({
       t: (k) => k,
       permissions: {
-        canAccessLogbook: true,
         canAccessAssets: true,
         canAccessPortalHub: true,
         canAccessCustomers: true,

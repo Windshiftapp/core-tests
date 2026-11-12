@@ -431,6 +431,55 @@ func TestCommentService_ImportedWritesBoundSource(t *testing.T) {
 	})
 }
 
+// TestCommentService_ImportedCommentSkipsAuditAndActivity asserts an imported
+// public agent reply keeps the support first-response fact but does not write a
+// live per-comment audit entry, unlike a live reply on the same ticket.
+func TestCommentService_ImportedCommentSkipsAuditAndActivity(t *testing.T) {
+	db := createCommentTestDB(t)
+	service := services.NewCommentService(db)
+	env := setupCommentTestEnv(t, db)
+
+	channelID := testutils.InsertID(t, db, `INSERT INTO channels (name, type, direction, status) VALUES ('Email', 'email', 'inbound', 'enabled')`)
+	if _, err := db.Exec(`UPDATE items SET channel_id = ? WHERE id = ?`, channelID, env.ItemID); err != nil {
+		t.Fatalf("attach channel: %v", err)
+	}
+
+	live, err := service.Create(services.CreateCommentParams{
+		ItemID: env.ItemID, AuthorID: env.UserID, ActorUserID: env.UserID, Content: "live reply",
+	})
+	if err != nil {
+		t.Fatalf("create live comment: %v", err)
+	}
+	imported, err := service.CreateImported(services.CreateCommentParams{
+		ItemID: env.ItemID, AuthorID: env.UserID, ActorUserID: env.UserID, Content: "historical reply",
+	})
+	if err != nil {
+		t.Fatalf("create imported comment: %v", err)
+	}
+
+	var liveAudits, importedAudits int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_logs WHERE action_type = 'comment.create' AND resource_id = ?`, live.CommentID).Scan(&liveAudits); err != nil {
+		t.Fatalf("count live audits: %v", err)
+	}
+	if liveAudits != 1 {
+		t.Fatalf("live comment audit rows = %d, want 1", liveAudits)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_logs WHERE action_type = 'comment.create' AND resource_id = ?`, imported.CommentID).Scan(&importedAudits); err != nil {
+		t.Fatalf("count imported audits: %v", err)
+	}
+	if importedAudits != 0 {
+		t.Fatalf("imported comment wrote %d audit rows, want 0", importedAudits)
+	}
+
+	var firstResponses int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM item_support_events WHERE item_id = ? AND kind = 'first_response'`, env.ItemID).Scan(&firstResponses); err != nil {
+		t.Fatalf("count first responses: %v", err)
+	}
+	if firstResponses != 1 {
+		t.Fatalf("first-response rows = %d, want 1", firstResponses)
+	}
+}
+
 func TestCommentService_Delete(t *testing.T) {
 	db := createCommentTestDB(t)
 

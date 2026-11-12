@@ -24,7 +24,7 @@ func TestRenderEmailKeepsTextLiteralAndEscapesHTML(t *testing.T) {
 
 		subject, htmlBody, textBody, err := sender.RenderEmail(
 			emailutil.TemplateNotificationBatch,
-			buildNotificationBatchData("https://app.example.com", "D'Arcy & Sons <ops>", notifications),
+			buildNotificationBatchData("https://app.example.com", "D'Arcy & Sons <ops>", "en", "UTC", notifications),
 		)
 		if err != nil {
 			t.Fatalf("RenderEmail: %v", err)
@@ -34,11 +34,11 @@ func TestRenderEmailKeepsTextLiteralAndEscapesHTML(t *testing.T) {
 			t.Fatalf("subject = %q, want %q", got, want)
 		}
 		wantText := "Hi D'Arcy & Sons <ops>,\n\n" +
-			"You have 1 new notification from Windshift:\n\n" +
+			"1 new notification:\n\n" +
 			"* R&D <launch> O'Hara — 東京\n" +
 			"  Review https://example.test/a?one=1&two=2 <script>alert('x')</script>\n" +
-			"  September 5, 2026 at 2:30 PM\n\n\n" +
-			"Manage your notification preferences in Windshift.\n"
+			"  9/5/2026, 2:30 PM UTC\n\n\n" +
+			"Manage how often you receive these emails in your notification preferences.\n"
 		if textBody != wantText {
 			t.Fatalf("text body mismatch\n got: %q\nwant: %q", textBody, wantText)
 		}

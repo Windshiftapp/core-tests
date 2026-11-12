@@ -8,6 +8,36 @@ import (
 // TestBulkFetchResponseDecodesIssueErrors pins the WI-1701 wire contract:
 // Jira Cloud answers POST /rest/api/3/issue/bulkfetch with HTTP 200, resolved
 // issues under "issues", and per-issue failures under "issueErrors".
+// TestBulkFetchResponseDecodesPublishedIssueError is the WI-2065 contract: the
+// published BulkIssueResults/IssueError shape is {id, errorMessage}, where id is
+// the numeric issue id rather than the issue key.
+func TestBulkFetchResponseDecodesPublishedIssueError(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{
+		"issues": [
+			{"id": "10001", "key": "APP-1", "fields": {"summary": "Visible issue"}}
+		],
+		"issueErrors": [
+			{"id": "10002", "errorMessage": "Issue does not exist or you do not have permission to see it."}
+		]
+	}`)
+
+	var result BulkFetchResponse
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("decode bulk fetch response: %v", err)
+	}
+	if len(result.IssueErrors) != 1 {
+		t.Fatalf("issueErrors = %#v, want 1 entry", result.IssueErrors)
+	}
+	if result.IssueErrors[0].ID != "10002" {
+		t.Fatalf("issue error id = %q, want 10002", result.IssueErrors[0].ID)
+	}
+	if got, want := result.IssueErrors[0].Message(), "Issue does not exist or you do not have permission to see it."; got != want {
+		t.Fatalf("issue error message = %q, want %q", got, want)
+	}
+}
+
 func TestBulkFetchResponseDecodesIssueErrors(t *testing.T) {
 	t.Parallel()
 

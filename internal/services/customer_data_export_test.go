@@ -46,6 +46,13 @@ func TestCustomerDataExport_CoversAllCategories(t *testing.T) {
 		t.Fatalf("approval status = %s, want approved", out.Status)
 	}
 	actor := AuditActor{UserID: env.approver1, Username: "approver1"}
+
+	// A real definition lets the export resolve the legacy name key to its id
+	// and expose the human-readable value (WI-2025).
+	if _, err := env.db.Exec(`INSERT INTO custom_field_definitions (id, name, field_type, applies_to_portal_customers, applies_to_customer_organisations) VALUES (77, 'tier', 'text', true, false)`); err != nil {
+		t.Fatalf("seed custom field: %v", err)
+	}
+
 	export, err := ExportCustomerData(env.db, customerID, actor, []int{env.workspaceID})
 	if err != nil {
 		t.Fatalf("ExportCustomerData: %v", err)
@@ -65,8 +72,11 @@ func TestCustomerDataExport_CoversAllCategories(t *testing.T) {
 	if len(export.Customer.Roles) != 1 || export.Customer.Roles[0] != "Portal Customer" {
 		t.Errorf("roles = %v, want [Portal Customer]", export.Customer.Roles)
 	}
-	if string(export.Customer.CustomFieldValues) != `{"tier":"gold"}` {
+	if string(export.Customer.CustomFieldValues) != `{"77":"gold"}` {
 		t.Errorf("custom_field_values = %s", export.Customer.CustomFieldValues)
+	}
+	if len(export.Customer.CustomFields) != 1 || export.Customer.CustomFields[0].FieldID != 77 || export.Customer.CustomFields[0].Name != "tier" || export.Customer.CustomFields[0].Value != "gold" {
+		t.Errorf("custom_fields = %#v", export.Customer.CustomFields)
 	}
 
 	// The requested item carries the workspace display key.

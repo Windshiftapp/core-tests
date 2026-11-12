@@ -6,6 +6,7 @@ vi.mock('../api/notifications.js', () => ({
   notifications: {
         getAll: vi.fn(() => Promise.resolve([])),
         clearAll: vi.fn(() => Promise.resolve()),
+        dismiss: vi.fn(() => Promise.resolve()),
         markAsRead: vi.fn(() => Promise.resolve()),
         markAllAsRead: vi.fn(() => Promise.resolve()),
         markItemAsRead: vi.fn(() => Promise.resolve()),
@@ -21,7 +22,7 @@ vi.mock('../utils/dateFormatter.js', () => ({
 vi.mock('../utils/serverClock.js', () => ({
   serverNow: vi.fn(() => new Date('2026-05-12T12:00:00Z')),
 }));
-vi.mock('./toasts.svelte.js', () => ({ addToast: vi.fn() }));
+vi.mock('./toasts.svelte.js', () => ({ surfaceError: vi.fn(), addToast: vi.fn() }));
 
 import { notifications as notificationsApi } from '../api/notifications.js';
 import { notificationActions, notifications, startNotificationPoller, stopNotificationPoller } from './notifications.js';
@@ -177,23 +178,25 @@ describe('notificationActions.markItemAsRead', () => {
 });
 
 describe('notificationActions.dismiss', () => {
-  test('removes the matching notification from local state', () => {
+  test('deletes the notification on the server and removes it from local state', async () => {
     notifications.set([
       { id: 1, read: false },
       { id: 2, read: false },
       { id: 3, read: true },
     ]);
-    notificationActions.dismiss(2);
+    await notificationActions.dismiss(2);
+    expect(notificationsApi.dismiss).toHaveBeenCalledWith(2);
     expect(get(notifications)).toEqual([
       { id: 1, read: false },
       { id: 3, read: true },
     ]);
   });
 
-  test('does not call the API (local-only dismissal)', () => {
+  test('keeps the notification when the server delete fails', async () => {
+    notificationsApi.dismiss.mockRejectedValueOnce(new Error('500'));
     notifications.set([{ id: 1, read: false }]);
-    notificationActions.dismiss(1);
-    expect(notificationsApi.markAsRead).not.toHaveBeenCalled();
+    await notificationActions.dismiss(1);
+    expect(get(notifications)).toEqual([{ id: 1, read: false }]);
   });
 });
 

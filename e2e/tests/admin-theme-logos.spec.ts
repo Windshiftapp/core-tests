@@ -1,12 +1,13 @@
 import { restoreActiveTheme } from "../fixtures/api-helpers";
 import { expect, type APIRequestContext, test } from "../fixtures/context-path";
+import { acquireGlobalLock } from "../fixtures/global-lock";
 
 /**
  * Verifies that the active theme's light/dark logos are selected from the
  * resolved color mode, with a fallback to the light logo when no dark logo is
  * configured. Themes are created through the admin API so the app builds state
- * the same way an operator would. The active theme is global, so the scenarios
- * run in one serial test rather than racing across parallel workers.
+ * the same way an operator would. The active theme is global, so the test holds
+ * the shared active-theme lock while it mutates it.
  */
 
 const SEC_FETCH = { "Sec-Fetch-Site": "same-origin" };
@@ -30,13 +31,17 @@ test.describe("Theme logo selection", () => {
 		page,
 		request,
 	}) => {
-		const stamp = Date.now();
-		const name = `E2E Logo Theme ${stamp}`;
-		const originalActive = (await listThemes(request)).find((theme) => theme.is_active);
-		expect(originalActive, "an active theme exists").toBeDefined();
-
+		// The active theme is a global singleton, so serialize against the theme
+		// manager spec instead of deactivating each other mid-assertion.
+		const release = await acquireGlobalLock("active-theme");
+		const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const name = `E2E Logo Theme ${suffix}`;
+		let originalActive: Theme | undefined;
 		let created: Theme | undefined;
 		try {
+			originalActive = (await listThemes(request)).find((theme) => theme.is_active);
+			expect(originalActive, "an active theme exists").toBeDefined();
+
 			const createResponse = await request.post("/api/themes", {
 				headers: SEC_FETCH,
 				data: {
@@ -102,6 +107,7 @@ test.describe("Theme logo selection", () => {
 				await request.delete(`/api/themes/${created.id}`, { headers: SEC_FETCH });
 			}
 			await restoreActiveTheme(request, originalActive);
+			await release();
 		}
 	});
 });

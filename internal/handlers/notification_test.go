@@ -454,6 +454,64 @@ func TestNotificationHandler_ClearNotifications_DeletesOnlyCurrentUsersInbox(t *
 	}
 }
 
+// --- DeleteNotification ---
+
+func TestNotificationHandler_DeleteNotification_Unauthenticated(t *testing.T) {
+	handler, tdb := setupNotificationHandler(t)
+	defer tdb.Close()
+
+	req := testutils.CreateJSONRequest(t, "DELETE", "/api/notifications/1", nil)
+	req.SetPathValue("id", "1")
+	rr := testutils.ExecuteRequest(t, handler.DeleteNotification, req)
+	rr.AssertStatusCode(http.StatusUnauthorized)
+}
+
+func TestNotificationHandler_DeleteNotification_DeletesOnlyCurrentUsersNotification(t *testing.T) {
+	handler, tdb := setupNotificationHandler(t)
+	defer tdb.Close()
+	otherUserID, err := factory.NewTestFactory(tdb.GetDatabase()).CreateUser(nil)
+	if err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+
+	own, err := handler.manager.AddNotification(models.Notification{UserID: 1, Title: "Own", Message: "body", Type: "info", AuthorizationScope: models.NotificationScopeSystem})
+	if err != nil {
+		t.Fatalf("seed own notification: %v", err)
+	}
+	other, err := handler.manager.AddNotification(models.Notification{UserID: otherUserID, Title: "Other", Message: "body", Type: "info", AuthorizationScope: models.NotificationScopeSystem})
+	if err != nil {
+		t.Fatalf("seed other notification: %v", err)
+	}
+
+	// A caller cannot delete another user's notification by guessing its id.
+	req := testutils.CreateJSONRequest(t, "DELETE", "/api/notifications/"+testutils.IntToString(other.ID), nil)
+	req.SetPathValue("id", testutils.IntToString(other.ID))
+	rr := testutils.ExecuteAuthenticatedRequest(t, handler.DeleteNotification, req, nil)
+	rr.AssertStatusCode(http.StatusNoContent)
+
+	otherNotifications, err := handler.manager.GetUserNotifications(otherUserID, 50, 0)
+	if err != nil {
+		t.Fatalf("get other user notifications: %v", err)
+	}
+	if len(otherNotifications) != 1 || otherNotifications[0].Title != "Other" {
+		t.Fatalf("other user notifications = %+v, want the untouched notification", otherNotifications)
+	}
+
+	// The caller's own notification is deleted and the tray cache is dropped.
+	req = testutils.CreateJSONRequest(t, "DELETE", "/api/notifications/"+testutils.IntToString(own.ID), nil)
+	req.SetPathValue("id", testutils.IntToString(own.ID))
+	rr = testutils.ExecuteAuthenticatedRequest(t, handler.DeleteNotification, req, nil)
+	rr.AssertStatusCode(http.StatusNoContent)
+
+	ownNotifications, err := handler.manager.GetUserNotifications(1, 50, 0)
+	if err != nil {
+		t.Fatalf("get own notifications: %v", err)
+	}
+	if len(ownNotifications) != 0 {
+		t.Fatalf("own notifications = %d, want 0", len(ownNotifications))
+	}
+}
+
 // --- CreateNotification ---
 
 func TestNotificationHandler_CreateNotification_Success(t *testing.T) {

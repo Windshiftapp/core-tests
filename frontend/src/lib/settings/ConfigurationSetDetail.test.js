@@ -63,7 +63,7 @@ vi.mock('../api/workspaces.js', () => {
 });
 
 vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
-vi.mock('../stores/toasts.svelte.js', () => ({ errorToast: vi.fn() }));
+vi.mock('../stores/toasts.svelte.js', () => ({ surfaceError: vi.fn(), errorToast: vi.fn() }));
 vi.mock('./LocalizedObjectFields.svelte', () => ({
   default: function LocalizedObjectFields() {
     return { save: vi.fn(), validate: vi.fn() };

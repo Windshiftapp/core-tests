@@ -36,6 +36,9 @@ func (*labelFixture) AddToItem(int, int) ([]models.Label, error) {
 	return []models.Label{}, nil
 }
 func (*labelFixture) RemoveFromItem(int, int) error { return nil }
+func (*labelFixture) BulkApply(services.AuditActor, services.BulkLabelOperation, func(int) (bool, error)) (services.BulkLabelResult, error) {
+	return services.BulkLabelResult{}, nil
+}
 func (*labelFixture) FindByID(id int) (*models.Item, error) {
 	return &models.Item{ID: id, WorkspaceID: 7}, nil
 }

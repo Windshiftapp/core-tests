@@ -1,3 +1,4 @@
+import type { Request } from "@playwright/test";
 import {
 	createItemViaAPI,
 	createWorkspaceViaAPI,
@@ -890,6 +891,98 @@ test.describe("Mobile surface", () => {
 		} finally {
 			await request
 				.delete(`/api/v2/items/${item.id}`, { headers: SEC_FETCH })
+				.catch(() => {});
+		}
+	});
+
+	test("batches page summaries across workspaces in bounded requests", async ({
+		page,
+		request,
+	}) => {
+		// WI-1918: the mobile pages list used to fetch each workspace with its
+		// own request. It now sends one cross-workspace summaries request per
+		// bounded batch and filters client-side.
+		const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		const wsA = await createWorkspaceViaAPI(
+			request,
+			generateWorkspace(`mob-pages-a-${suffix}`),
+		);
+		const wsB = await createWorkspaceViaAPI(
+			request,
+			generateWorkspace(`mob-pages-b-${suffix}`),
+		);
+		const titleA = `Alpha page ${suffix}`;
+		const titleB = `Beta page ${suffix}`;
+		const pageIds: number[] = [];
+		for (const [workspace, title] of [
+			[wsA, titleA],
+			[wsB, titleB],
+		] as const) {
+			const created = await request.post(
+				`/api/v2/workspaces/${workspace.id}/pages`,
+				{ headers: SEC_FETCH, data: { title, content: "body" } },
+			);
+			expect(created.ok()).toBeTruthy();
+			pageIds.push((await created.json()).data.id);
+		}
+		const [pageIdA, pageIdB] = pageIds;
+
+		const summariesRequests: number[] = [];
+		const perWorkspaceRequests: string[] = [];
+		const onRequest = (browserRequest: Request) => {
+			const url = new URL(browserRequest.url());
+			if (url.pathname.endsWith("/pages/summaries")) {
+				const ids = url.searchParams.get("workspace_ids");
+				summariesRequests.push(ids ? ids.split(",").length : 0);
+			} else if (
+				browserRequest.method() === "GET" &&
+				/\/workspaces\/\d+\/pages$/.test(url.pathname)
+			) {
+				perWorkspaceRequests.push(url.pathname);
+			}
+		};
+		page.on("request", onRequest);
+
+		try {
+			await page.goto("/m/pages");
+			await expect(page.getByTestId("mobile-pages-view")).toBeVisible();
+			await expect(
+				page.getByTestId(`mobile-pages-section-${wsA.id}`),
+			).toBeVisible();
+			await expect(
+				page.getByTestId(`mobile-pages-section-${wsB.id}`),
+			).toBeVisible();
+			const rowA = page.getByTestId(`mobile-page-row-${pageIdA}`);
+			const rowB = page.getByTestId(`mobile-page-row-${pageIdB}`);
+			await expect(rowA).toBeVisible();
+			await expect(rowA).toContainText(titleA);
+			await expect(rowB).toBeVisible();
+			await expect(rowB).toContainText(titleB);
+
+			// Cross-workspace batching: at least one summaries request, each
+			// covering no more than the 50-workspace server cap, and never a
+			// request per workspace. The exact batch count depends on how many
+			// workspaces exist in the shared database, so it is not asserted.
+			expect(summariesRequests.length).toBeGreaterThanOrEqual(1);
+			expect(perWorkspaceRequests).toHaveLength(0);
+			for (const workspaceCount of summariesRequests) {
+				expect(workspaceCount).toBeGreaterThan(0);
+				expect(workspaceCount).toBeLessThanOrEqual(50);
+			}
+
+			// Filtering is client-side and must not issue another request.
+			const requestsBeforeFilter = summariesRequests.length;
+			await page.getByTestId("mobile-pages-filter").fill(titleA);
+			await expect(rowA).toBeVisible();
+			await expect(rowB).toHaveCount(0);
+			expect(summariesRequests).toHaveLength(requestsBeforeFilter);
+		} finally {
+			page.off("request", onRequest);
+			await request
+				.delete(`/api/v2/workspaces/${wsA.id}`)
+				.catch(() => {});
+			await request
+				.delete(`/api/v2/workspaces/${wsB.id}`)
 				.catch(() => {});
 		}
 	});

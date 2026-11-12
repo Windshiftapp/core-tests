@@ -16,6 +16,7 @@ import (
 	"windshift/internal/contextkeys"
 	"windshift/internal/database"
 	"windshift/internal/llm"
+	"windshift/internal/logger"
 	"windshift/internal/models"
 	"windshift/internal/repository"
 	"windshift/internal/services"
@@ -234,7 +235,7 @@ func TestAuditAgentTranscriptResolvesCorrelationWithoutParticipantAccess(t *test
 	`).Scan(&auditID); err != nil {
 		t.Fatal(err)
 	}
-	auditHandler := NewAuditLogHandler(repository.NewAuditLogRepository(db))
+	auditHandler := NewAuditLogHandler(repository.NewAuditLogRepository(db), logger.NewAuditor(db))
 	auditHandler.SetAgentTranscriptRepositories(
 		repository.NewAgentConversationRepository(db),
 		repository.NewAgentRunRepository(db),

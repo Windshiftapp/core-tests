@@ -39,6 +39,9 @@ func TestExecuteAssetReportSubstitutesFormPlaceholderBeforeRunningCQL(t *testing
 		VALUES ('Asset report portal', 'portal', 'inbound', 'enabled', ?, 'asset-report') RETURNING id
 	`, channelConfig)
 	assetSetID := insertID("asset set", `INSERT INTO asset_management_sets (name) VALUES ('Asset report inventory') RETURNING id`)
+	if _, err := db.ExecWrite(`INSERT INTO asset_set_portal_access (set_id) VALUES (?)`, assetSetID); err != nil {
+		t.Fatalf("grant portal access: %v", err)
+	}
 	assetTypeID := insertID("asset type", `INSERT INTO asset_types (set_id, name) VALUES (?, 'Device') RETURNING id`, assetSetID)
 	wantedAssetID := insertID("matching asset", `
 		INSERT INTO assets (set_id, asset_type_id, title, asset_tag)

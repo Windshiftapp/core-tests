@@ -29,9 +29,9 @@ func TestApplyFallbackModelLimits(t *testing.T) {
 			wantContext: fallbackContextWindow, wantOutput: FallbackMaxOutputTokens, wantApplied: true,
 		},
 		{
-			name:      "advertised context caps the output fallback",
+			name:      "advertised context larger than the output fallback keeps the fallback",
 			contextIn: 32000, outputIn: 0,
-			wantContext: 32000, wantOutput: 32000, wantApplied: true,
+			wantContext: 32000, wantOutput: FallbackMaxOutputTokens, wantApplied: true,
 		},
 		{
 			name:      "output floor never exceeds a smaller advertised context",

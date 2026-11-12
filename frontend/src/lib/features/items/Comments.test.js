@@ -7,6 +7,15 @@ const mocks = vi.hoisted(() => ({
 	getCannedResponses: vi.fn(),
 }));
 
+const prefMocks = vi.hoisted(() => ({
+	commentSortOrder: 'oldest',
+	setCommentSortOrder: vi.fn(),
+}));
+
+vi.mock('../../stores/collectionPreferences.svelte.js', () => ({
+	collectionPreferences: prefMocks,
+}));
+
 vi.mock('../../api/misc.js', () => ({
   getComments: mocks.getComments,
 }))
@@ -150,6 +159,58 @@ describe("Comments render window (WI-1451)", () => {
 
 		expect(screen.getAllByTestId("comment-item").length).toBe(250);
 		expect(screen.queryByTestId("comments-load-more")).toBeNull();
+	});
+});
+
+describe("Comments sort preference", () => {
+	function makeComment(id, minutesOffset) {
+		return {
+			id,
+			author_id: 8,
+			author_name: "Author",
+			content: `Comment body ${id}`,
+			created_at: new Date(Date.UTC(2026, 7, 17, 8, minutesOffset)).toISOString(),
+			updated_at: new Date(Date.UTC(2026, 7, 17, 8, minutesOffset)).toISOString(),
+			source: "user",
+			is_agent: false,
+			is_private: false,
+		};
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		prefMocks.commentSortOrder = 'oldest';
+	});
+
+	it("renders newest first when the stored preference is newest", async () => {
+		prefMocks.commentSortOrder = 'newest';
+		mocks.getComments.mockResolvedValue({
+			comments: [makeComment(1, 0), makeComment(2, 1), makeComment(3, 2)],
+			total: 3,
+			has_more: false,
+		});
+
+		render(Comments, { props: { itemId: 42 } });
+		await waitFor(() => expect(screen.getAllByTestId("comment-item").length).toBe(3));
+
+		const ids = screen
+			.getAllByTestId("comment-item")
+			.map((element) => element.getAttribute("data-comment-id"));
+		expect(ids).toEqual(["3", "2", "1"]);
+	});
+
+	it("persists the toggled order through the preferences store", async () => {
+		mocks.getComments.mockResolvedValue({
+			comments: [makeComment(1, 0), makeComment(2, 1)],
+			total: 2,
+			has_more: false,
+		});
+
+		render(Comments, { props: { itemId: 42 } });
+		const toggle = await screen.findByTestId("comments-sort-toggle");
+		await fireEvent.click(toggle);
+
+		expect(prefMocks.setCommentSortOrder).toHaveBeenCalledWith("newest");
 	});
 });
 

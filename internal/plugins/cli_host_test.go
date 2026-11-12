@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	extism "github.com/extism/go-sdk"
-	"github.com/tetratelabs/wabin/binary"
-	"github.com/tetratelabs/wabin/wasm"
 	"windshift/internal/repository"
 	"windshift/internal/testutils"
 )
@@ -134,7 +132,10 @@ func callCLIExecTestPlugin(t *testing.T, plugin *extism.Plugin, request CLIExecR
 	if err != nil {
 		t.Fatalf("marshal cli_exec request: %v", err)
 	}
-	exitCode, output, err := plugin.Call("run", payload)
+	// The host function enforces the calling plugin's effective permissions, so
+	// the directly-constructed test plugin must carry a plugin context.
+	ctx := withPluginPermissions(withPluginName(context.Background(), "cli-exec-test"), []string{PermissionProcessExec})
+	exitCode, output, err := plugin.CallWithContext(ctx, "run", payload)
 	if err != nil {
 		t.Fatalf("call cli_exec test plugin: %v", err)
 	}
@@ -149,41 +150,6 @@ func callCLIExecTestPlugin(t *testing.T, plugin *extism.Plugin, request CLIExecR
 	return response
 }
 
-// cliExecTestModule builds the minimal Extism guest needed to pass its input
-// to cli_exec and expose the host response as plugin output.
-func cliExecTestModule() []byte {
-	i32, i64 := wasm.ValueTypeI32, wasm.ValueTypeI64
-	module := &wasm.Module{
-		TypeSection: []*wasm.FunctionType{
-			{Results: []wasm.ValueType{i64}},
-			{Params: []wasm.ValueType{i64}, Results: []wasm.ValueType{i64}},
-			{Params: []wasm.ValueType{i64, i64}},
-			{Results: []wasm.ValueType{i32}},
-		},
-		ImportSection: []*wasm.Import{
-			{Module: "extism:host/env", Name: "input_offset", Type: wasm.ExternTypeFunc, DescFunc: 0},
-			{Module: "extism:host/env", Name: "length", Type: wasm.ExternTypeFunc, DescFunc: 1},
-			{Module: "extism:host/env", Name: "output_set", Type: wasm.ExternTypeFunc, DescFunc: 2},
-			{Module: "extism:host/user", Name: "cli_exec", Type: wasm.ExternTypeFunc, DescFunc: 1},
-		},
-		FunctionSection: []wasm.Index{3},
-		ExportSection: []*wasm.Export{
-			{Name: "run", Type: wasm.ExternTypeFunc, Index: 4},
-		},
-		CodeSection: []*wasm.Code{{
-			LocalTypes: []wasm.ValueType{i64},
-			Body: []byte{
-				wasm.OpcodeCall, 0,
-				wasm.OpcodeCall, 3,
-				wasm.OpcodeLocalSet, 0,
-				wasm.OpcodeLocalGet, 0,
-				wasm.OpcodeLocalGet, 0,
-				wasm.OpcodeCall, 1,
-				wasm.OpcodeCall, 2,
-				wasm.OpcodeI32Const, 0,
-				wasm.OpcodeEnd,
-			},
-		}},
-	}
-	return binary.EncodeModule(module)
-}
+// cliExecTestModule is retained as a named reference to the shared host-call
+// guest so existing cli_exec tests read clearly.
+func cliExecTestModule() []byte { return hostCallTestModule("cli_exec") }

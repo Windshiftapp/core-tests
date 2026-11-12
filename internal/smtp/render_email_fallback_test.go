@@ -24,8 +24,8 @@ func TestRenderEmailFallsBackToDefaultWhenAdminTemplateIsBroken(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 	if _, err := db.ExecWrite(`
-		INSERT INTO notification_templates (name, subject, content, text_body, is_active)
-		VALUES ('magic_link', 'Sign in', '<p>{{.FirstName</p>', 'body', true)
+		INSERT INTO notification_templates (name, subject, content, text_body, is_active, is_customized)
+		VALUES ('magic_link', 'Sign in', '<p>{{.FirstName</p>', 'body', true, true)
 	`); err != nil {
 		t.Fatalf("insert broken template: %v", err)
 	}

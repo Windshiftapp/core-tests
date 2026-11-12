@@ -21,6 +21,12 @@ type approvalChannelFixture struct {
 	requestB   int
 	userID     int
 	customerID int
+
+	// Wiring reused by intake-linked request setup.
+	workspaceID         int
+	statusID            int
+	approvalSetStatusID int
+	approvalStepID      int
 }
 
 func setupApprovalChannelFixture(t *testing.T) approvalChannelFixture {
@@ -174,13 +180,17 @@ func setupApprovalChannelFixture(t *testing.T) approvalChannelFixture {
 	}
 
 	return approvalChannelFixture{
-		db:         db,
-		channelA:   channelA,
-		channelB:   channelB,
-		requestA:   insertRequest(channelA, 1),
-		requestB:   insertRequest(channelB, 2),
-		userID:     userID,
-		customerID: customerID,
+		db:                  db,
+		channelA:            channelA,
+		channelB:            channelB,
+		requestA:            insertRequest(channelA, 1),
+		requestB:            insertRequest(channelB, 2),
+		userID:              userID,
+		customerID:          customerID,
+		workspaceID:         workspaceID,
+		statusID:            statusID,
+		approvalSetStatusID: approvalSetStatusID,
+		approvalStepID:      approvalStepID,
 	}
 }
 
@@ -319,4 +329,133 @@ func TestPortalServedWorkspaceHonoursPortalConfig(t *testing.T) {
 	if err != nil || unserved {
 		t.Fatalf("PortalServesWorkspace(unserved) = %v, %v; want false", unserved, err)
 	}
+}
+
+// insertMailbox creates an inbound mailbox channel that can host intakes.
+func (fx approvalChannelFixture) insertMailbox(t *testing.T, name string) int {
+	t.Helper()
+	var id int
+	if err := fx.db.QueryRow(`
+		INSERT INTO channels (name, type, direction, status)
+		VALUES (?, 'imap', 'inbound', 'enabled') RETURNING id
+	`, name).Scan(&id); err != nil {
+		t.Fatalf("insert mailbox: %v", err)
+	}
+	return id
+}
+
+// insertIntake links a folder on the mailbox to a routing workspace and,
+// when portalChannelID is non-nil, to the portal that exposes its requests.
+func (fx approvalChannelFixture) insertIntake(t *testing.T, mailboxID int, portalChannelID *int, folder string) int {
+	t.Helper()
+	var id int
+	if err := fx.db.QueryRow(`
+		INSERT INTO intakes (mailbox_id, folder, workspace_id, portal_channel_id, status)
+		VALUES (?, ?, ?, ?, 'enabled') RETURNING id
+	`, mailboxID, folder, fx.workspaceID, portalChannelID).Scan(&id); err != nil {
+		t.Fatalf("insert intake: %v", err)
+	}
+	return id
+}
+
+// insertIntakeRequest creates an item attributed to the mailbox channel (as
+// the email processor does) with an optional linked intake, then opens a
+// pending approval with the shared customer in the active pool.
+func (fx approvalChannelFixture) insertIntakeRequest(t *testing.T, mailboxID int, intakeID *int, itemNumber int) int {
+	t.Helper()
+	itemID64, err := CreateItem(fx.db, ItemCreationParams{
+		WorkspaceID:             fx.workspaceID,
+		Title:                   fmt.Sprintf("Intake request %d", itemNumber),
+		StatusID:                &fx.statusID,
+		ChannelID:               &mailboxID,
+		IntakeID:                intakeID,
+		CreatorID:               &fx.userID,
+		CreatorPortalCustomerID: &fx.customerID,
+	})
+	if err != nil {
+		t.Fatalf("insert intake item: %v", err)
+	}
+	var requestID int
+	if err := fx.db.QueryRow(`
+		INSERT INTO approval_requests
+			(item_id, approval_set_status_id, status_id, triggered_by_user_id, status)
+		VALUES (?, ?, ?, ?, 'pending') RETURNING id
+	`, int(itemID64), fx.approvalSetStatusID, fx.statusID, fx.userID).Scan(&requestID); err != nil {
+		t.Fatalf("insert intake approval request: %v", err)
+	}
+	var stepInstanceID int
+	if err := fx.db.QueryRow(`
+		INSERT INTO approval_step_instances
+			(approval_request_id, approval_step_id, display_order, status, started_at)
+		VALUES (?, ?, 0, 'pending', CURRENT_TIMESTAMP) RETURNING id
+	`, requestID, fx.approvalStepID).Scan(&stepInstanceID); err != nil {
+		t.Fatalf("insert intake step instance: %v", err)
+	}
+	if _, err := fx.db.ExecWrite(`
+		INSERT INTO approval_step_approvers (approval_step_instance_id, portal_customer_id, is_active)
+		VALUES (?, ?, true)
+	`, stepInstanceID, fx.customerID); err != nil {
+		t.Fatalf("insert intake customer approver: %v", err)
+	}
+	return requestID
+}
+
+// TestApprovalQueriesIncludeIntakeLinkedRequests covers the portal request
+// scope: an item created by an enabled intake linked to the portal is visible
+// through the portal even though its channel_id points at the mailbox. Approval
+// reads must use the same scope, or an approver cannot see (or decide) a
+// request that arrived by email.
+func TestApprovalQueriesIncludeIntakeLinkedRequests(t *testing.T) {
+	fx := setupApprovalChannelFixture(t)
+	ctx := context.Background()
+	repo := repository.NewApprovalRepository(fx.db)
+
+	mailboxID := fx.insertMailbox(t, "Support mailbox")
+	linkedIntake := fx.insertIntake(t, mailboxID, &fx.channelA, "linked")
+	siblingIntake := fx.insertIntake(t, mailboxID, &fx.channelB, "sibling")
+
+	linkedRequest := fx.insertIntakeRequest(t, mailboxID, &linkedIntake, 10)
+	siblingRequest := fx.insertIntakeRequest(t, mailboxID, &siblingIntake, 11)
+	// A mailbox item with no intake is an internal feed, never a portal request.
+	internalRequest := fx.insertIntakeRequest(t, mailboxID, nil, 12)
+
+	gotA, err := repo.FindRequestIDsForActorInChannel(ctx, "portal_customer_id", fx.customerID, "pending", fx.channelA)
+	if err != nil {
+		t.Fatalf("channel A query: %v", err)
+	}
+	if !containsInt(gotA, linkedRequest) {
+		t.Fatalf("channel A requests = %v, want intake-linked request %d", gotA, linkedRequest)
+	}
+	if containsInt(gotA, siblingRequest) {
+		t.Fatalf("channel A requests = %v, must not include sibling intake request %d", gotA, siblingRequest)
+	}
+	if containsInt(gotA, internalRequest) {
+		t.Fatalf("channel A requests = %v, must not include internal mailbox request %d", gotA, internalRequest)
+	}
+
+	if _, err := repo.FindFullRequestByIDInChannel(ctx, linkedRequest, fx.channelA); err != nil {
+		t.Fatalf("intake-linked detail: %v", err)
+	}
+	if _, err := repo.FindFullRequestByIDInChannel(ctx, siblingRequest, fx.channelA); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("sibling intake detail error = %v, want ErrNotFound", err)
+	}
+	if _, err := repo.FindFullRequestByIDInChannel(ctx, internalRequest, fx.channelA); !errors.Is(err, repository.ErrNotFound) {
+		t.Fatalf("internal mailbox detail error = %v, want ErrNotFound", err)
+	}
+
+	active, err := repo.ActorHasActivePoolMembershipOnItem(ctx, "portal_customer_id", fx.customerID, intRequestItemID(t, fx.db, linkedRequest), &fx.channelA)
+	if err != nil || !active {
+		t.Fatalf("active pool membership on intake item = %v, %v; want true", active, err)
+	}
+}
+
+// intRequestItemID resolves the item behind an approval request for the
+// active-pool assertion.
+func intRequestItemID(t *testing.T, db database.Database, requestID int) int {
+	t.Helper()
+	var itemID int
+	if err := db.QueryRow(`SELECT item_id FROM approval_requests WHERE id = ?`, requestID).Scan(&itemID); err != nil {
+		t.Fatalf("load request item: %v", err)
+	}
+	return itemID
 }

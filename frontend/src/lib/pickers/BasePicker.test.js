@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 
@@ -403,5 +403,65 @@ describe('BasePicker — grouped options', () => {
     await fireEvent.keyDown(input, { key: 'ArrowDown' });
     await fireEvent.keyDown(input, { key: 'Enter' });
     expect(onSelect).toHaveBeenCalledWith(groupedItems[1]);
+  });
+});
+
+// Regression: a focused picker with a selected value consumed Escape even when
+// its dropdown was closed. Modal.svelte closes only on an unprevented Escape,
+// so `preventDefault()` here trapped the user inside a dialog that contains a
+// picker (for example the time-log modal).
+describe('BasePicker — Escape ownership', () => {
+  function dispatchEscape(element) {
+    const event = createEvent.keyDown(element, { key: 'Escape' });
+    fireEvent(element, event);
+    return event.defaultPrevented;
+  }
+
+  test('lets Escape bubble while the dropdown is closed', async () => {
+    const onCancel = vi.fn();
+    render(BasePicker, { props: { items, value: 1, onCancel } });
+
+    const input = screen.getByRole('combobox');
+    input.focus();
+
+    expect(dispatchEscape(input)).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('picker-dropdown')).toBeNull();
+  });
+
+  test('consumes Escape and closes the dropdown while open', async () => {
+    const onCancel = vi.fn();
+    render(BasePicker, { props: { items, onCancel } });
+
+    const input = await openAndType('Ap');
+    await waitFor(() => {
+      expect(document.querySelector('[data-option-value="1"]')).toBeInTheDocument();
+    });
+
+    expect(dispatchEscape(input)).toBe(true);
+    expect(onCancel).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('picker-dropdown')).toBeNull());
+  });
+
+  // The closed-state guard must not swallow the keys that open the dropdown:
+  // a focused combobox input is "closed" until Melt's own handler opens it.
+  test('still opens the dropdown on ArrowDown while closed', async () => {
+    render(BasePicker, { props: { items } });
+
+    const input = screen.getByRole('combobox');
+    input.focus();
+
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(await screen.findByTestId('picker-dropdown')).toBeInTheDocument();
+  });
+
+  test('still opens the dropdown on typing while closed', async () => {
+    render(BasePicker, { props: { items } });
+
+    const input = screen.getByRole('combobox');
+    input.focus();
+
+    await fireEvent.keyDown(input, { key: 'a' });
+    expect(await screen.findByTestId('picker-dropdown')).toBeInTheDocument();
   });
 });

@@ -1,3 +1,5 @@
+//go:build test
+
 package services
 
 import (
@@ -188,6 +190,70 @@ func TestScriptEngine_GlobalThisCleanup(t *testing.T) {
 		if result != "undefined" {
 			t.Fatalf("iter %d: globalThis.leak survived pool reuse: got %#v, want \"undefined\"", i, result)
 		}
+	}
+}
+
+func TestScriptEngine_DoesNotLeakReplacedBuiltins(t *testing.T) {
+	// A condition script may reassign a global. The next execution must still
+	// observe the original built-in.
+	engine := NewScriptEngine()
+	ctx := context.Background()
+
+	cases := []struct {
+		name   string
+		tamper string
+		probe  string
+	}{
+		{
+			name:   "JSON.stringify",
+			tamper: `JSON.stringify = () => 'tampered'; true`,
+			probe:  `JSON.stringify({a:1}) === '{"a":1}'`,
+		},
+		{
+			name:   "Object.keys",
+			tamper: `Object.keys = () => []; true`,
+			probe:  `Object.keys({a:1}).length === 1`,
+		},
+		{
+			name:   "Array.isArray",
+			tamper: `Array.isArray = () => false; true`,
+			probe:  `Array.isArray([]) === true`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := engine.Execute(ctx, c.tamper, nil, 0); err != nil {
+				t.Fatalf("tamper script failed: %v", err)
+			}
+
+			got, err := engine.ExecuteBool(ctx, c.probe, nil, 0)
+			if err != nil {
+				t.Fatalf("probe script failed: %v", err)
+			}
+			if !got {
+				t.Fatalf("replaced %s survived into the next execution", c.name)
+			}
+		})
+	}
+}
+
+func TestScriptEngine_DoesNotLeakPrototypePollution(t *testing.T) {
+	// Properties added to a built-in prototype are not own keys of the global
+	// object, so cleanup-by-key can never remove them. A fresh realm must.
+	engine := NewScriptEngine()
+	ctx := context.Background()
+
+	if _, err := engine.Execute(ctx, `Object.prototype.polluted = 1; true`, nil, 0); err != nil {
+		t.Fatalf("pollution script failed: %v", err)
+	}
+
+	got, err := engine.ExecuteBool(ctx, `({}).polluted === undefined`, nil, 0)
+	if err != nil {
+		t.Fatalf("probe script failed: %v", err)
+	}
+	if !got {
+		t.Fatal("Object.prototype.polluted survived into the next execution")
 	}
 }
 

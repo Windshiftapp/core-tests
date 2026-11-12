@@ -67,9 +67,7 @@ test.describe('Action editor — helpdesk automation nodes and triggers', () => 
   test('palette exposes notify_customer, insert_canned_response, and adjust_labels', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `helpdesk-palette-${stamp}`,
@@ -95,9 +93,7 @@ test.describe('Action editor — helpdesk automation nodes and triggers', () => 
   test('comment_created trigger persists the from_customer filter', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `helpdesk-comment-${stamp}`,
@@ -122,8 +118,7 @@ test.describe('Action editor — helpdesk automation nodes and triggers', () => 
     expect(JSON.parse(fresh.trigger_config).from_customer).toBe(true);
   });
 
-  test('item_inactive trigger persists inactive_hours', async ({ page, request, allowConsoleError }) => {
-    allowConsoleError(/\/api\/logbook\//);
+  test('item_inactive trigger persists inactive_hours', async ({ page, request }) => {
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `helpdesk-inactive-${stamp}`,
@@ -148,8 +143,7 @@ test.describe('Action editor — helpdesk automation nodes and triggers', () => 
     expect(JSON.parse(fresh.trigger_config).inactive_hours).toBe(48);
   });
 
-  test('notify_customer subject and message persist', async ({ page, request, allowConsoleError }) => {
-    allowConsoleError(/\/api\/logbook\//);
+  test('notify_customer subject and message persist', async ({ page, request }) => {
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `helpdesk-notify-${stamp}`,
@@ -183,9 +177,7 @@ test.describe('Action editor — helpdesk automation nodes and triggers', () => 
   test('insert_canned_response picker persists the selected response id', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `helpdesk-canned-${stamp}`,
@@ -217,8 +209,7 @@ test.describe('Action editor — helpdesk automation nodes and triggers', () => 
     expect(nodeConfigByType(fresh, 'insert_canned_response').canned_response_id).toBe(canned.id);
   });
 
-  test('adjust_labels persists add and remove selections', async ({ page, request, allowConsoleError }) => {
-    allowConsoleError(/\/api\/logbook\//);
+  test('adjust_labels persists add and remove selections', async ({ page, request }) => {
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `helpdesk-labels-${stamp}`,

@@ -4,11 +4,11 @@ import { authenticateAdminRequest, createWorkspaceViaAPI } from '../fixtures/api
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8080';
 const SEC_FETCH = { 'Sec-Fetch-Site': 'same-origin' };
 
-// The workspace overview widget resize handle used to be a transparent 6px
-// strip that only rendered in customize mode. It is now always present, shows a
-// grip on widget hover, and drags to a persisted column width.
+// Widget resize controls belong to customize mode: the grip and the width menu
+// must stay out of the resting dashboard and only appear once the user starts
+// customizing.
 test.describe('workspace overview widget resizing', () => {
-	test('reveals the resize grip on hover and persists a dragged width', async ({
+	test('reveals the resize controls only in customize mode and persists a dragged width', async ({
 		page,
 		request,
 	}) => {
@@ -62,16 +62,17 @@ test.describe('workspace overview widget resizing', () => {
 		await expect(widget).toBeVisible({ timeout: 15_000 });
 		await expect(widget).toHaveAttribute('data-widget-width', '1');
 
+		// Resting state: no resize affordances.
+		await expect(widget.getByTestId('widget-resize-handle')).toHaveCount(0);
+		await expect(widget.getByTestId('widget-width-menu')).toHaveCount(0);
+
+		// Entering customize mode reveals the handle and the width menu.
+		await page.getByTestId('workspace-dashboard-customize').click();
+
 		const handle = widget.getByTestId('widget-resize-handle');
-		const grip = widget.getByTestId('widget-resize-grip');
-
-		// Resting state: the handle is available but out of the tab order and
-		// the grip stays hidden until the widget is hovered.
-		await expect(handle).toHaveAttribute('tabindex', '-1');
-		await expect(grip).toHaveCSS('opacity', '0');
-
-		await widget.hover();
-		await expect(grip).toHaveCSS('opacity', '1');
+		await expect(handle).toBeVisible();
+		await expect(widget.getByTestId('widget-width-menu')).toBeVisible();
+		await expect(widget.getByTestId('widget-resize-grip')).toBeVisible();
 
 		// Drag past the widget's max width; it must clamp to the registry max.
 		const box = await handle.boundingBox();
@@ -91,12 +92,11 @@ test.describe('workspace overview widget resizing', () => {
 
 		await expect(widget).toHaveAttribute('data-widget-width', '3');
 
-		// The width survives a reload.
+		// The width survives a reload and the controls are hidden again.
 		await page.reload();
-		await expect(page.getByTestId('widget-w-stats')).toHaveAttribute(
-			'data-widget-width',
-			'3',
-			{ timeout: 15_000 },
-		);
+		const reloaded = page.getByTestId('widget-w-stats');
+		await expect(reloaded).toHaveAttribute('data-widget-width', '3', { timeout: 15_000 });
+		await expect(reloaded.getByTestId('widget-resize-handle')).toHaveCount(0);
+		await expect(reloaded.getByTestId('widget-width-menu')).toHaveCount(0);
 	});
 });

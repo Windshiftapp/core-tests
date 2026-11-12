@@ -164,6 +164,7 @@ var MatrixRoutes = []MatrixRoute{
 	{Method: "POST", Path: "/api/items/{id}/scm-links/create-branch", Class: "workspace.item.edit"},
 	{Method: "POST", Path: "/api/items/bulk-update", Class: "workspace.item.edit"},
 	{Method: "POST", Path: "/api/items/bulk-patch", Class: "workspace.item.edit"},
+	{Method: "POST", Path: "/api/items/bulk-labels", Class: "workspace.item.edit"},
 	{Method: "POST", Path: "/api/items/roadmap-hierarchy-dates", Class: "workspace.item.view"},
 
 	// --- /api/attachments — gate on the parent item's view/edit perm ---

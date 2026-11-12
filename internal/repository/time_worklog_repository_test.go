@@ -41,7 +41,6 @@ func TestTimeWorklogRepositoryCookieAuthDetailsLifecycle(t *testing.T) {
 	repo := NewTimeWorklogRepository(db)
 	worklogID, err := repo.Create(NewWorklog{
 		ProjectID:       projectID,
-		CustomerID:      int64(customerID),
 		UserID:          userID,
 		ItemID:          &itemID,
 		Description:     "Initial description",
@@ -67,6 +66,9 @@ func TestTimeWorklogRepositoryCookieAuthDetailsLifecycle(t *testing.T) {
 	if detail.ProjectMaxHours == nil || *detail.ProjectMaxHours != 20 || detail.ProjectTotalHours == nil || *detail.ProjectTotalHours != 1 {
 		t.Fatalf("project totals = max %v, total %v", detail.ProjectMaxHours, detail.ProjectTotalHours)
 	}
+	if detail.CustomerID != customerID || detail.CustomerName != "Worklog customer" {
+		t.Fatalf("derived customer = id %d, name %q, want %d/Worklog customer", detail.CustomerID, detail.CustomerName, customerID)
+	}
 
 	listed, err := repo.ListDetails(WorklogDetailFilter{
 		AccessibleProjectIDs: []int{projectID},
@@ -81,7 +83,7 @@ func TestTimeWorklogRepositoryCookieAuthDetailsLifecycle(t *testing.T) {
 	}
 
 	secondID, err := repo.Create(NewWorklog{
-		ProjectID: projectID, CustomerID: int64(customerID), UserID: userID,
+		ProjectID: projectID, UserID: userID,
 		Description: "Exclusive boundary", DateUnix: 2000, StartTimeUnix: 2100,
 		EndTimeUnix: 5700, DurationMinutes: 60,
 	})
@@ -121,7 +123,6 @@ func TestTimeWorklogRepositoryCookieAuthDetailsLifecycle(t *testing.T) {
 	if err := repo.Update(UpdateWorklog{
 		ID:              int(worklogID),
 		ProjectID:       projectID,
-		CustomerID:      customerID,
 		ItemID:          &itemID,
 		Description:     "Updated description",
 		DateUnix:        2000,
@@ -144,5 +145,66 @@ func TestTimeWorklogRepositoryCookieAuthDetailsLifecycle(t *testing.T) {
 	}
 	if _, err := repo.GetDetail(int(worklogID)); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetDetail after delete error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestTimeWorklogSurvivesCustomerOrganisationDelete reproduces GitHub #403: a
+// worklog must not be deleted when its project is unlinked from an organisation
+// and that organisation is then deleted. Worklogs derive their customer from
+// the project, so the organisation is no longer a worklog parent.
+func TestTimeWorklogSurvivesCustomerOrganisationDelete(t *testing.T) {
+	db, err := database.NewSQLiteDB(filepath.Join(t.TempDir(), "worklog-org-delete.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Initialize(); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	userID := insertTestRow(t, db, `
+		INSERT INTO users (email, username, first_name, last_name)
+		VALUES ('org-delete@example.test', 'org-delete', 'Org', 'Delete')
+	`)
+	orgID := insertTestRow(t, db, `
+		INSERT INTO customer_organisations (name) VALUES ('Doomed organisation')
+	`)
+	projectID := insertTestRow(t, db, `
+		INSERT INTO time_projects (customer_id, name, status)
+		VALUES (?, 'Unlinked project', 'Active')
+	`, orgID)
+	var noCustomerID int
+	if err := db.QueryRow(`SELECT id FROM customer_organisations WHERE builtin_key = 'no_customer'`).Scan(&noCustomerID); err != nil {
+		t.Fatalf("load no-customer organisation: %v", err)
+	}
+
+	repo := NewTimeWorklogRepository(db)
+	worklogID, err := repo.Create(NewWorklog{
+		ProjectID:       projectID,
+		UserID:          userID,
+		Description:     "Billable time",
+		DateUnix:        1000,
+		StartTimeUnix:   1100,
+		EndTimeUnix:     4700,
+		DurationMinutes: 60,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Unlink the project from the organisation, then delete the organisation.
+	if _, err := db.ExecWrite("UPDATE time_projects SET customer_id = ? WHERE id = ?", noCustomerID, projectID); err != nil {
+		t.Fatalf("unlink project: %v", err)
+	}
+	if _, err := db.ExecWrite("DELETE FROM customer_organisations WHERE id = ?", orgID); err != nil {
+		t.Fatalf("delete organisation: %v", err)
+	}
+
+	detail, err := repo.GetDetail(int(worklogID))
+	if err != nil {
+		t.Fatalf("GetDetail after organisation delete: %v", err)
+	}
+	if detail.CustomerID != noCustomerID {
+		t.Fatalf("derived customer = %d, want no-customer %d", detail.CustomerID, noCustomerID)
 	}
 }

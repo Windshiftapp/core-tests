@@ -221,3 +221,15 @@ func TestSSEHubDefaultUserStreamCap(t *testing.T) {
 		t.Fatalf("acquired beyond the default cap of %d", DefaultMaxUserStreams)
 	}
 }
+
+func TestSSEHubDefaultUserStreamCapAccommodatesSeveralTabs(t *testing.T) {
+	// One tab holds up to three topic streams (notifications, workspace or
+	// collection, item detail) and reconnects briefly overlap. The default must
+	// leave room for several tabs; the previous default of 8 tripped after two
+	// tabs plus an overlap, surfacing a spurious 429 on item detail.
+	const streamsPerTab = 3
+	const tabs = 10
+	if DefaultMaxUserStreams < streamsPerTab*tabs {
+		t.Fatalf("DefaultMaxUserStreams = %d, want at least %d for %d tabs", DefaultMaxUserStreams, streamsPerTab*tabs, tabs)
+	}
+}

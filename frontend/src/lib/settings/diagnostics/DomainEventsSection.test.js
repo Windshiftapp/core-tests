@@ -8,6 +8,7 @@ vi.mock('../../api/diagnostics.js', () => ({
 }));
 
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   successToast: vi.fn(),
   errorToast: vi.fn(),
 }));

@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"windshift/internal/itemevents"
 	"windshift/internal/testutils"
 )
 
@@ -121,6 +122,27 @@ func TestCreateItemFiresAssigneeTrigger(t *testing.T) {
 
 		if len(stub.calls) != 0 {
 			t.Fatalf("expected no trigger calls with SkipAssigneeTrigger, got %d", len(stub.calls))
+		}
+	})
+
+	t.Run("ImportOriginSuppressesTrigger", func(t *testing.T) {
+		stub := installStubTrigger(t)
+
+		// A bulk import must not start an agent run even when the caller forgets
+		// SkipAssigneeTrigger: the import marker on the creation fact is enough.
+		if _, err := CreateItem(tdb.GetDatabase(), ItemCreationParams{
+			WorkspaceID:   testData.WorkspaceID,
+			Title:         "Imported with assignee",
+			ItemTypeID:    &itemTypeID,
+			AssigneeID:    &testData.UserID,
+			CreatorID:     &testData.UserID,
+			EventMetadata: itemevents.Import("ticket-csv-job"),
+		}); err != nil {
+			t.Fatalf("CreateItem failed: %v", err)
+		}
+
+		if len(stub.calls) != 0 {
+			t.Fatalf("expected no trigger calls for import-origin create, got %d", len(stub.calls))
 		}
 	})
 }

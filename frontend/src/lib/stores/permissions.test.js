@@ -42,7 +42,6 @@ beforeEach(() => {
   permissionStore.setHasActivePortals(false);
   permissionStore.setManagesChannels(false);
   permissionStore.setManagesAssetSets(false);
-  permissionStore.setLogbookAvailable(false);
   vi.clearAllMocks();
 });
 
@@ -162,19 +161,6 @@ describe('canAccessPortalHub', () => {
 
     permissionStore.setHasActivePortals(true);
     expect(get(permissionStore).canAccessPortalHub).toBe(true);
-  });
-});
-
-describe('canAccessLogbook', () => {
-  test('requires logbook availability + authenticated user', () => {
-    authStore.set({ currentUser: { id: 1 } });
-    expect(get(permissionStore).canAccessLogbook).toBe(false);
-
-    permissionStore.setLogbookAvailable(true);
-    expect(get(permissionStore).canAccessLogbook).toBe(true);
-
-    authStore.set({ currentUser: null });
-    expect(get(permissionStore).canAccessLogbook).toBe(false);
   });
 });
 

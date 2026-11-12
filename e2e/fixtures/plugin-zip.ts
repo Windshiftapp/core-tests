@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { type APIRequestContext, expect } from "./context-path";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:8080";
@@ -126,22 +128,12 @@ export async function installCapabilityPlugin(
 	name: string,
 	capabilities: string[],
 ): Promise<void> {
-	const zip = capabilityPluginZip(name, capabilities);
-
-	const response = await request.post(`${BASE_URL}/api/plugins/upload`, {
-		headers: { "Sec-Fetch-Site": "same-origin" },
-		multipart: {
-			plugin: {
-				name: `${name}.zip`,
-				mimeType: "application/zip",
-				buffer: Buffer.from(zip),
-			},
-		},
+	await uploadStubPlugin(request, {
+		name,
+		version: "1.0.0",
+		entryPoint: "plugin.wasm",
+		capabilities,
 	});
-	expect(
-		response.ok(),
-		`plugin upload failed (${response.status()}): ${await response.text()}`,
-	).toBeTruthy();
 }
 
 /**
@@ -171,18 +163,130 @@ export async function deleteCapabilityPlugins(
 	}
 }
 
-function capabilityPluginZip(name: string, capabilities: string[]): Buffer {
-	const manifest = JSON.stringify({
+function stubWasm(): Uint8Array {
+	return Uint8Array.from(atob(MINIMAL_WASM_BASE64), (c) => c.charCodeAt(0));
+}
+
+/**
+ * Upload a plugin whose manifest declares routes with explicit auth so the
+ * module settings page can render the per-route badge.
+ */
+export async function installRouteAuthPlugin(
+	request: APIRequestContext,
+	name: string,
+	routes: Array<{ method?: string; path: string; auth?: string; description?: string }>,
+): Promise<void> {
+	await uploadStubPlugin(request, {
 		name,
 		version: "1.0.0",
 		entryPoint: "plugin.wasm",
-		capabilities,
+		routes,
 	});
-	const wasm = Uint8Array.from(atob(MINIMAL_WASM_BASE64), (c) => c.charCodeAt(0));
-	return Buffer.from(
-		buildZip([
-			{ name: "manifest.json", data: new TextEncoder().encode(manifest) },
-			{ name: "plugin.wasm", data: wasm },
-		]),
-	);
+}
+
+/**
+ * Upload a plugin whose manifest declares host-function permissions so the
+ * module settings page can render the requested/granted badge per permission.
+ */
+export async function installPermissionPlugin(
+	request: APIRequestContext,
+	name: string,
+	permissions: string[],
+): Promise<void> {
+	await uploadStubPlugin(request, {
+		name,
+		version: "1.0.0",
+		entryPoint: "plugin.wasm",
+		permissions,
+	});
+}
+
+// uploadStubPlugin packs a manifest plus the stub wasm and POSTs it to the admin
+// upload endpoint, which every capability/route/permission fixture shares.
+async function uploadStubPlugin(
+	request: APIRequestContext,
+	manifest: Record<string, unknown>,
+): Promise<void> {
+	const name = String(manifest.name);
+	const zip = buildZip([
+		{ name: "manifest.json", data: new TextEncoder().encode(JSON.stringify(manifest)) },
+		{ name: "plugin.wasm", data: stubWasm() },
+	]);
+	await uploadZip(request, `${name}.zip`, zip);
+}
+
+/**
+ * Upload the real editor.markdown plugin from the core checkout so the spec
+ * exercises the shipped editor.html/editor.js, not a copy. The plugin is
+ * frontend-only, so the shared stub stands in for the WASM entry point.
+ */
+export async function installEditorPluginFromCore(
+	request: APIRequestContext,
+	coreDir: string,
+	pluginName: string,
+): Promise<void> {
+	const root = path.join(coreDir, "plugin-src", pluginName);
+	const manifest = JSON.parse(
+		fs.readFileSync(path.join(root, "manifest.json"), "utf8"),
+	) as Record<string, unknown>;
+	const encoder = new TextEncoder();
+	const entries: ZipEntry[] = [
+		{ name: "manifest.json", data: encoder.encode(JSON.stringify(manifest)) },
+		{ name: "plugin.wasm", data: stubWasm() },
+	];
+	for (const asset of ["editor.html", "editor.js", "editor.css"]) {
+		entries.push({
+			name: `assets/${asset}`,
+			data: new Uint8Array(fs.readFileSync(path.join(root, "assets", asset))),
+		});
+	}
+	await uploadZip(request, `${pluginName}.zip`, buildZip(entries));
+}
+
+/**
+ * Upload a plugin that declares per-prefix asset auth policies, plus the given
+ * assets (paths relative to the plugin's assets directory). Used by the asset
+ * auth browser spec.
+ */
+export async function installAssetPlugin(
+	request: APIRequestContext,
+	name: string,
+	policies: Array<{ path: string; auth: string }>,
+	assets: Record<string, string>,
+): Promise<void> {
+	const encoder = new TextEncoder();
+	const entries: ZipEntry[] = [
+		{
+			name: "manifest.json",
+			data: encoder.encode(
+				JSON.stringify({ name, version: "1.0.0", entryPoint: "plugin.wasm", assets: policies }),
+			),
+		},
+		{ name: "plugin.wasm", data: stubWasm() },
+	];
+	for (const [assetPath, content] of Object.entries(assets)) {
+		entries.push({ name: `assets/${assetPath}`, data: encoder.encode(content) });
+	}
+	await uploadZip(request, `${name}.zip`, buildZip(entries));
+}
+
+async function uploadZip(
+	request: APIRequestContext,
+	filename: string,
+	zip: Uint8Array,
+): Promise<void> {
+	const response = await request.post(`${BASE_URL}/api/plugins/upload`, {
+		headers: { "Sec-Fetch-Site": "same-origin" },
+		multipart: {
+			plugin: {
+				name: filename,
+				mimeType: "application/zip",
+				buffer: Buffer.from(zip),
+			},
+		},
+	});
+	expect(
+		response.ok(),
+		`plugin upload failed (${response.status()}): ${await response.text()}`,
+	).toBeTruthy();
 }

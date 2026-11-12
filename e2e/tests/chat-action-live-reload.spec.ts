@@ -42,9 +42,7 @@ test.describe('Chat live-reload of agent-driven action edits', () => {
   test('editor refetches when agentRuns signals an agent completion', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
 
     await page.route('**/api/shell-bootstrap', async (route) => {
       const response = await route.fetch();

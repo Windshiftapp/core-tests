@@ -59,7 +59,7 @@ test.describe("Admin LLM connections", () => {
 			await page.locator("#llm-connection-model").click();
 			await page
 				.getByTestId("picker-option-list")
-				.locator('[data-option-id="claude-haiku-4-5-20251001"]')
+				.locator('[data-option-id="claude-sonnet-5"]')
 				.click();
 			// Synchronize on the create response before listing; the admin list is
 			// not guaranteed to have refreshed when the click resolves.
@@ -75,7 +75,7 @@ test.describe("Admin LLM connections", () => {
 			expect(created, "created connection persisted").toBeDefined();
 			createdId = created!.id;
 			expect(created!.provider_type).toBe("anthropic");
-			expect(created!.model).toBe("claude-haiku-4-5-20251001");
+			expect(created!.model).toBe("claude-sonnet-5");
 
 			const row = page.getByTestId(`llm-connection-row-${createdId}`);
 			await expect(row).toBeVisible();

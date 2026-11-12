@@ -407,7 +407,11 @@ test.describe("Test management browser lifecycle", () => {
 		);
 		await page.getByTestId("dialog-confirm").click();
 		await expectResponseOK(await endResponsePromise, "end test run");
-		await expect(page.getByTestId(`test-run-row-${run.id}`)).toHaveCount(0);
+		// Ended runs stay listed (the API includes them); the status flips to
+		// Completed instead of the row disappearing.
+		await expect(page.getByTestId(`test-run-row-${run.id}`)).toContainText(
+			"Completed",
+		);
 
 		await page.goto(`/workspaces/${workspace.id}/tests/runs/${run.id}`);
 		await expect(
@@ -564,7 +568,11 @@ test.describe("Test management browser lifecycle", () => {
 		);
 		await expect(execution).toHaveAttribute("data-run-id", String(rerun.id));
 		await page.getByTestId("test-execution-back").click();
-		await expect(page.getByTestId(`test-run-row-${run.id}`)).toHaveCount(0);
+		// The rerun is independent: the original run stays listed as Completed
+		// while the new run is in progress.
+		await expect(page.getByTestId(`test-run-row-${run.id}`)).toContainText(
+			"Completed",
+		);
 		await expect(page.getByTestId(`test-run-row-${rerun.id}`)).toBeVisible();
 
 		await page.goto(`/workspaces/${workspace.id}/tests/sets`);

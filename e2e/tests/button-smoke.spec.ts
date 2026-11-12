@@ -28,11 +28,8 @@ const DIALOG = 'div[role="dialog"]';
 function allowEnvironmentalNoise(allow: (pattern: RegExp) => void) {
   // Rate limiter fires 429s on rapid navigation during a smoke run.
   allow(/Failed to load resource.*429 \(Too Many Requests\)/);
-  // Optional services (logbook container, optional attachment-settings backend)
-  // are not mounted in every deployment; the frontend logs a 404 when absent.
-  allow(/\/api\/logbook\//);
-  allow(/Failed to load buckets/);
-  allow(/Failed to load all documents/);
+  // The optional attachment-settings backend is not mounted in every
+  // deployment; the frontend logs a 404 when absent.
   allow(/\/api\/attachment-settings\/status/);
   allow(/Failed to load attachment status/);
 }

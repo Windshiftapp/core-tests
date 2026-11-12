@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -64,6 +65,172 @@ func TestJiraAuthHeaderMatchesDeploymentContract(t *testing.T) {
 			}
 			if got != test.want {
 				t.Fatalf("jiraAuthHeader() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func newCloudTestClient(server *httptest.Server) *cloudClient {
+	return &cloudClient{
+		baseURL:    server.URL + "/rest/api/3",
+		authHeader: "Basic test-token",
+		httpClient: server.Client(),
+		limiter:    rate.NewLimiter(rate.Inf, 1),
+	}
+}
+
+// TestCloudRoutingProbeKeepsGatewayWhenMyselfLacksScope is the WI-2060
+// regression: a scoped token authorized for issue reads but not read:me gets
+// 403 from gateway /myself and must still route through the gateway. Only an
+// outright 401 (legacy token or invalid credentials) selects the site URL, and
+// a transient probe failure must not downgrade routing.
+func TestCloudRoutingProbeKeepsGatewayWhenMyselfLacksScope(t *testing.T) {
+	t.Parallel()
+
+	const cloudID = "cloud-scope"
+	tests := []struct {
+		name           string
+		myselfStatus   int
+		wantViaGateway bool
+	}{
+		{name: "missing read:me scope keeps gateway", myselfStatus: http.StatusForbidden, wantViaGateway: true},
+		{name: "rejected credential uses site", myselfStatus: http.StatusUnauthorized, wantViaGateway: false},
+		{name: "transient probe keeps gateway", myselfStatus: http.StatusInternalServerError, wantViaGateway: true},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sitePaths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/_edge/tenant_info":
+					_, _ = fmt.Fprintf(w, `{"cloudId":%q}`, cloudID)
+				case "/gateway/" + cloudID + "/rest/api/3/myself":
+					w.WriteHeader(test.myselfStatus)
+				case "/gateway/" + cloudID + "/rest/servicedeskapi/assets/workspace":
+					w.WriteHeader(http.StatusNotFound)
+				case "/rest/servicedeskapi/assets/workspace":
+					sitePaths = append(sitePaths, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			routing := cloudRoutingProbeWithGateway(server.URL, "Basic test-token", server.Client(), server.URL+"/gateway/")
+			if routing.viaGateway != test.wantViaGateway {
+				t.Fatalf("viaGateway = %t, want %t", routing.viaGateway, test.wantViaGateway)
+			}
+			if test.wantViaGateway {
+				wantPlatform := server.URL + "/gateway/" + cloudID + "/rest/api/3"
+				if routing.platformBase != wantPlatform {
+					t.Fatalf("platformBase = %q, want %q", routing.platformBase, wantPlatform)
+				}
+				if len(sitePaths) != 0 {
+					t.Fatalf("gateway routing made site requests: %v", sitePaths)
+				}
+			}
+		})
+	}
+}
+
+// TestCloudTestConnectionRequiresAuthenticatedEvidence is the WI-2064/WI-1153
+// regression: anonymous /serverInfo must not validate credentials. Only a 401
+// from /myself (authenticated endpoint) rejects the token; a 403 means the
+// token authenticated but lacks read:me and must still connect.
+func TestCloudTestConnectionRequiresAuthenticatedEvidence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		myselfStatus    int
+		myselfBody      string
+		serverInfoBody  string
+		wantErr         error
+		wantDisplayName string
+		wantURL         string
+	}{
+		{
+			name:           "anonymous serverInfo cannot validate a rejected token",
+			myselfStatus:   http.StatusUnauthorized,
+			myselfBody:     `{"errorMessages":["Client must be authenticated"]}`,
+			serverInfoBody: `{"baseUrl":"https://example.atlassian.net","serverTitle":"Example"}`,
+			wantErr:        ErrInvalidCredentials,
+		},
+		{
+			name:            "scoped token without read:me still connects",
+			myselfStatus:    http.StatusForbidden,
+			myselfBody:      `{"errorMessages":["scope does not match"]}`,
+			serverInfoBody:  `{"baseUrl":"https://example.atlassian.net","serverTitle":"Example"}`,
+			wantDisplayName: "Example",
+			wantURL:         "https://example.atlassian.net",
+		},
+		{
+			name:            "authenticated identity enriches the display name",
+			myselfStatus:    http.StatusOK,
+			myselfBody:      `{"displayName":"Jane Operator"}`,
+			serverInfoBody:  `{"baseUrl":"https://example.atlassian.net","serverTitle":"Example"}`,
+			wantDisplayName: "Jane Operator",
+			wantURL:         "https://example.atlassian.net",
+		},
+		{
+			name:            "fallback URL strips the REST prefix",
+			myselfStatus:    http.StatusOK,
+			myselfBody:      `{"displayName":"Jane Operator"}`,
+			serverInfoBody:  `{"serverTitle":"Example"}`,
+			wantDisplayName: "Jane Operator",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var paths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/rest/api/3/myself":
+					w.WriteHeader(test.myselfStatus)
+					_, _ = w.Write([]byte(test.myselfBody))
+				case "/rest/api/3/serverInfo":
+					_, _ = w.Write([]byte(test.serverInfoBody))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			client := newCloudTestClient(server)
+			info, err := client.TestConnection(context.Background())
+			if test.wantErr != nil {
+				if !errors.Is(err, test.wantErr) {
+					t.Fatalf("TestConnection() error = %v, want %v", err, test.wantErr)
+				}
+				if info != nil {
+					t.Fatalf("TestConnection() info = %#v, want nil", info)
+				}
+				if len(paths) != 1 || paths[0] != "/rest/api/3/myself" {
+					t.Fatalf("request paths = %v, want only /rest/api/3/myself", paths)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("TestConnection() error = %v", err)
+			}
+			if info.DisplayName != test.wantDisplayName {
+				t.Fatalf("DisplayName = %q, want %q", info.DisplayName, test.wantDisplayName)
+			}
+			if test.wantURL != "" && info.URL != test.wantURL {
+				t.Fatalf("URL = %q, want %q", info.URL, test.wantURL)
+			}
+			if test.wantURL == "" && info.URL != server.URL {
+				t.Fatalf("URL = %q, want stripped fallback %q", info.URL, server.URL)
 			}
 		})
 	}

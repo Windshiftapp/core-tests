@@ -9,33 +9,26 @@ import (
 	"windshift/internal/cacheutil"
 )
 
-func TestItemCacheUsesEntireAllocationWithoutWorkspaceProjectCache(t *testing.T) {
-	service, err := NewItemCacheService(nil, ItemCacheConfig{
+func TestItemCacheRegistersTypedEffectiveProjectCache(t *testing.T) {
+	service := NewItemCacheService(nil, ItemCacheConfig{
 		HierarchyTTL:    time.Hour,
 		MaxCacheSize:    12,
 		WarmupBatchSize: 1,
 		EnablePreWarm:   false,
 	})
-	if err != nil {
-		t.Fatalf("NewItemCacheService() error = %v", err)
-	}
-	t.Cleanup(func() { _ = service.hierarchyCache.Close() })
+	t.Cleanup(func() { _ = service.Close() })
 
-	wantMaximum := int64(12 * 1024 * 1024)
-	foundHierarchy := false
+	found := false
 	for _, snapshot := range cacheutil.Snapshots() {
 		switch snapshot.Name {
-		case "item_hierarchy":
-			foundHierarchy = true
-			if snapshot.MaximumCapacityBytes != wantMaximum {
-				t.Fatalf("item_hierarchy maximum = %d, want %d", snapshot.MaximumCapacityBytes, wantMaximum)
-			}
-		case "item_projects":
-			t.Fatalf("unused item_projects cache is still registered: %+v", snapshot)
+		case "item_effective_project":
+			found = true
+		case "item_hierarchy", "item_projects":
+			t.Fatalf("stale cache registered in diagnostics: %+v", snapshot)
 		}
 	}
-	if !foundHierarchy {
-		t.Fatal("item_hierarchy cache missing from diagnostics")
+	if !found {
+		t.Fatal("item_effective_project cache missing from diagnostics")
 	}
 
 	stats := service.GetStats()
@@ -43,5 +36,18 @@ func TestItemCacheUsesEntireAllocationWithoutWorkspaceProjectCache(t *testing.T)
 		if _, ok := stats[deadKey]; ok {
 			t.Fatalf("dead project cache statistic %q remains: %+v", deadKey, stats)
 		}
+	}
+}
+
+func TestItemCacheMaxEntries(t *testing.T) {
+	if got := itemCacheMaxEntries(ItemCacheConfig{MaxEntries: 42, MaxCacheSize: 16}); got != 42 {
+		t.Fatalf("explicit MaxEntries = %d, want 42", got)
+	}
+	wantDerived := 16 * 1024 * 1024 / itemEffectiveProjectEstimateBytes
+	if got := itemCacheMaxEntries(ItemCacheConfig{MaxCacheSize: 16}); got != wantDerived {
+		t.Fatalf("derived MaxEntries = %d, want %d", got, wantDerived)
+	}
+	if got := itemCacheMaxEntries(ItemCacheConfig{}); got != 0 {
+		t.Fatalf("unconfigured MaxEntries = %d, want 0 (unbounded)", got)
 	}
 }

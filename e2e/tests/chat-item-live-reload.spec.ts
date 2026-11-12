@@ -28,7 +28,6 @@ test.describe('Chat live-reload of work item detail', () => {
     request,
     allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     // Item-detail load always probes /api/items/:id/recurrence; a 404 here
     // means "no recurrence rule configured", which is the normal case.
     allowConsoleError(/\/api\/items\/\d+\/recurrence/);

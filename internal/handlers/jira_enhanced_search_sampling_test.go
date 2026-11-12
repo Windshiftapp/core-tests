@@ -61,7 +61,10 @@ func TestSampleIssuesFetchesAllPagesThroughEnhancedJQLSearch(t *testing.T) {
 		},
 	}
 
-	got := (&JiraImportHandler{}).sampleIssues(context.Background(), client, "CT", false, 200)
+	got, err := (&JiraImportHandler{}).sampleIssues(context.Background(), client, "CT", false, 200)
+	if err != nil {
+		t.Fatalf("sampleIssues error = %v", err)
+	}
 
 	if client.legacyCalls != 0 {
 		t.Fatalf("sampleIssues called the removed legacy search %d times", client.legacyCalls)
@@ -105,7 +108,10 @@ func TestSampleIssuesStopsAtSampleLimitAcrossPages(t *testing.T) {
 		},
 	}
 
-	got := (&JiraImportHandler{}).sampleIssues(context.Background(), client, "CT", false, 150)
+	got, err := (&JiraImportHandler{}).sampleIssues(context.Background(), client, "CT", false, 150)
+	if err != nil {
+		t.Fatalf("sampleIssues error = %v", err)
+	}
 
 	if client.legacyCalls != 0 {
 		t.Fatalf("sampleIssues called the removed legacy search %d times", client.legacyCalls)
@@ -128,7 +134,10 @@ func TestSampleIssuesReturnsEmptyWhenEnhancedSearchFails(t *testing.T) {
 		searchErr: errors.New("jira API error: status 400 - invalid JQL"),
 	}
 
-	got := (&JiraImportHandler{}).sampleIssues(context.Background(), client, "CT", false, 200)
+	got, err := (&JiraImportHandler{}).sampleIssues(context.Background(), client, "CT", false, 200)
+	if err == nil {
+		t.Fatal("sampleIssues error = nil, want the search failure propagated")
+	}
 
 	if len(got) != 0 {
 		t.Fatalf("sampleIssues returned %d issues on search failure, want 0", len(got))

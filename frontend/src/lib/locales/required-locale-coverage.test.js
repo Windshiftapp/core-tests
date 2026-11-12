@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import de from './de/index.js';
 import en from './en/index.js';
 import fr from './fr/index.js';
+import pl from './pl/index.js';
 import zhCN from './zh-CN/index.js';
 
-const GUARDED_LOCALES = { de, fr, 'zh-CN': zhCN };
+const GUARDED_LOCALES = { de, fr, pl, 'zh-CN': zhCN };
 
 function collectLeafKeys(object, prefix = '') {
   const keys = [];
@@ -22,6 +23,24 @@ function collectLeafKeys(object, prefix = '') {
 
 function resolve(object, path) {
   return path.split('.').reduce((acc, part) => acc?.[part], object);
+}
+
+const PLURAL_SUFFIX_PATTERN = /_(zero|one|two|few|many|other)$/;
+
+// Slavic locales carry extra plural forms (`_few`, `_many`) that English does
+// not. Mirror check-i18n.js: an extra key is allowed when its base is a plural
+// base in English and the locale actually uses that plural category.
+function isLocaleSpecificPluralKey(key, englishKeys, localeCode) {
+  const match = key.match(PLURAL_SUFFIX_PATTERN);
+  if (!match) return false;
+
+  const baseKey = key.slice(0, -match[0].length);
+  if (!englishKeys.has(`${baseKey}_other`)) return false;
+
+  const categories = new Set(
+    new Intl.PluralRules(localeCode).resolvedOptions().pluralCategories
+  );
+  return categories.has(match[1]);
 }
 
 // The `{plural}` token is an internal selector, not a user-facing placeholder,
@@ -46,7 +65,10 @@ describe('guarded locale coverage (WI-1659)', () => {
       const localeKeys = new Set(collectLeafKeys(messages));
 
       const missing = englishLeafKeys.filter((key) => !localeKeys.has(key)).sort();
-      const extra = [...localeKeys].filter((key) => !englishKeys.has(key)).sort();
+      const extra = [...localeKeys]
+        .filter((key) => !englishKeys.has(key))
+        .filter((key) => !isLocaleSpecificPluralKey(key, englishKeys, locale))
+        .sort();
 
       expect({ missing, extra }).toEqual({ missing: [], extra: [] });
     });

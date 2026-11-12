@@ -20,7 +20,7 @@ type fakeJiraAttachmentImportClient struct {
 
 func (f *fakeJiraAttachmentImportClient) DownloadAttachment(
 	_ context.Context,
-	_ string,
+	_, _ string,
 ) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader("attachment evidence\n")), "text/plain", nil
 }
@@ -275,7 +275,7 @@ func TestForcedJiraReimportTransfersInternalLinkOwnershipWithoutDuplicates(t *te
 
 func TestJiraWatchersBecomeItemWatchesAndVotesAndSecurityRemainRetrievable(t *testing.T) {
 	db := newJiraServiceManagementTestDB(t)
-	handler := NewJiraImportHandler(db, "jira-watchers-test-secret", "", blobstore.Disabled())
+	handler := NewJiraImportHandler(db, "jira-watchers-test-secret", "", blobstore.Disabled()).WithImportWatchers(true)
 	workspaceID, itemTypeID, statusID := createJiraReimportWorkspace(t, db)
 
 	var userID int
@@ -378,6 +378,84 @@ func TestJiraWatchersBecomeItemWatchesAndVotesAndSecurityRemainRetrievable(t *te
 	}
 	if mappingMetadata["was_created"] != true || mappingMetadata["user_id"] != float64(userID) {
 		t.Fatalf("watch mapping metadata = %#v", mappingMetadata)
+	}
+}
+
+// TestJiraWatchersAreNotImportedByDefault is the WI-1983 contract: the
+// per-issue watcher fetch and item-watch import are opt-in, so a default import
+// writes no watches or watcher-identity metadata while keeping the watcher
+// count that the bulk fetch already returned.
+func TestJiraWatchersAreNotImportedByDefault(t *testing.T) {
+	db := newJiraServiceManagementTestDB(t)
+	handler := NewJiraImportHandler(db, "jira-watchers-default-test-secret", "", blobstore.Disabled())
+	workspaceID, itemTypeID, statusID := createJiraReimportWorkspace(t, db)
+
+	issue := jira.JiraIssue{
+		ID:  "10003",
+		Key: "APP-3",
+		Fields: jira.JiraIssueFields{
+			Summary:   "Watched issue",
+			IssueType: &jira.JiraIssueType{ID: "type"},
+			Status:    &jira.JiraStatus{ID: "status"},
+			Watches:   &jira.JiraWatchSummary{WatchCount: 2},
+			Watchers: []jira.JiraUser{
+				{AccountID: "watcher-1", DisplayName: "Jira Watcher"},
+			},
+			WatcherIdentitiesAvailable: true,
+		},
+	}
+	im := &jiraImportContext{
+		jobID:             "job-jsm",
+		progress:          &ImportProgress{},
+		workspaceID:       workspaceID,
+		statusMap:         map[string]int{"status": statusID},
+		itemTypeMap:       map[string]int{"type": itemTypeID},
+		userMap:           map[string]int{},
+		usernameMap:       map[string]string{},
+		portalCustomerMap: map[string]int{},
+		versionMap:        map[string]int{},
+		iterationMap:      map[string]int{},
+		customFieldIDMap:  map[string]int{},
+		choiceOptionIDs:   map[string]map[string]int{},
+	}
+	if err := handler.importIssue(t.Context(), im, &issue); err != nil {
+		t.Fatalf("import issue: %v", err)
+	}
+
+	var itemID int
+	var customFieldValuesJSON string
+	if err := db.QueryRow(`SELECT id, custom_field_values FROM items WHERE workspace_id = ?`, workspaceID).Scan(&itemID, &customFieldValuesJSON); err != nil {
+		t.Fatalf("load imported item: %v", err)
+	}
+
+	var watchCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM item_watches WHERE item_id = ?`, itemID).Scan(&watchCount); err != nil {
+		t.Fatalf("count item watches: %v", err)
+	}
+	if watchCount != 0 {
+		t.Fatalf("item watches = %d, want none when watcher import is disabled", watchCount)
+	}
+
+	var mappingCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM jira_import_id_mappings WHERE job_id = 'job-jsm' AND entity_type = 'watch'`).Scan(&mappingCount); err != nil {
+		t.Fatalf("count watch mappings: %v", err)
+	}
+	if mappingCount != 0 {
+		t.Fatalf("watch mappings = %d, want none when watcher import is disabled", mappingCount)
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal([]byte(customFieldValuesJSON), &metadata); err != nil {
+		t.Fatalf("decode item metadata: %v", err)
+	}
+	if metadata["_jira_watcher_count"] != float64(2) {
+		t.Fatalf("watcher count metadata = %#v, want the bulk-fetch count preserved", metadata["_jira_watcher_count"])
+	}
+	if _, present := metadata["_jira_watchers"]; present {
+		t.Fatalf("watcher identity metadata present with watcher import disabled: %#v", metadata)
+	}
+	if _, present := metadata["_jira_watcher_identities_available"]; present {
+		t.Fatalf("watcher availability metadata present with watcher import disabled: %#v", metadata)
 	}
 }
 

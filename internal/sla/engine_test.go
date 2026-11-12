@@ -691,6 +691,51 @@ func TestBreachJobInvokesSideEffectEmitter(t *testing.T) {
 	}
 }
 
+// TestBreachJobForInactiveMetricRetiresWithoutSideEffects asserts a breach job
+// that outlives a metric deactivation retires silently. Imported metrics are
+// inactive by default, so this also covers an import that never armed a live
+// SLA.
+func TestBreachJobForInactiveMetricRetiresWithoutSideEffects(t *testing.T) {
+	fixture := newEngineFixture(t)
+	now := time.Date(2025, 1, 8, 12, 0, 0, 0, time.UTC)
+	clock := &advanceClock{now: now}
+	fixture.engine.SetClock(clock)
+	effects := &recordingSideEffects{}
+	fixture.engine.SetSideEffectEmitter(effects)
+	fixture.createMetric(t,
+		[]models.SLACondition{statusCondition(models.SLAPhaseStart, fixture.statusOpen)},
+		fixture.defaultGoal(),
+	)
+	fixture.observe(t, fixture.createdFact())
+
+	var jobID, cycleID int64
+	var deadline time.Time
+	if err := fixture.db.QueryRow(`SELECT id, cycle_id, deadline_at FROM sla_jobs WHERE kind = 'breach'`).Scan(&jobID, &cycleID, &deadline); err != nil {
+		t.Fatalf("load breach job: %v", err)
+	}
+
+	// Deactivate the metric after the job was armed. A stale job must retire
+	// silently instead of emitting a breach for a metric the workspace stopped
+	// running.
+	if _, err := fixture.db.Exec(`UPDATE sla_metrics SET is_active = false`); err != nil {
+		t.Fatalf("deactivate metric: %v", err)
+	}
+	fixture.engine.InvalidateWorkspace(fixture.workspaceID)
+
+	clock.now = deadline.Add(time.Second)
+	if err := fixture.engine.RunJob(context.Background(), models.SLAJob{
+		ID: jobID, Kind: models.SLAJobBreach, CycleID: &cycleID, DueAt: deadline, DeadlineAt: &deadline,
+	}); err != nil {
+		t.Fatalf("RunJob: %v", err)
+	}
+	if effects.breaches != 0 {
+		t.Fatalf("inactive metric emitted %d breach side effects, want 0", effects.breaches)
+	}
+	if got := fixture.breachJobCount(t); got != 0 {
+		t.Fatalf("stale breach job count = %d, want 0 after retirement", got)
+	}
+}
+
 func TestCalendarRecalculationUpdatesExistingCyclesWithoutStartingCycles(t *testing.T) {
 	fixture := newEngineFixture(t)
 	now := time.Date(2025, 1, 8, 16, 0, 0, 0, time.UTC)
@@ -954,7 +999,7 @@ func TestCommentByAgentStopsCycle(t *testing.T) {
 		t.Fatalf("cycle status = %s, want completed after a public agent comment", status)
 	}
 	if elapsed != (5 * time.Minute).Milliseconds() {
-		t.Fatalf("elapsed = %d, want %d", elapsed, (5*time.Minute).Milliseconds())
+		t.Fatalf("elapsed = %d, want %d", elapsed, (5 * time.Minute).Milliseconds())
 	}
 	if !stoppedAt.Equal(clock.now) {
 		t.Fatalf("stopped_at = %s, want %s", stoppedAt, clock.now)

@@ -2,6 +2,7 @@ package aitooladapter
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"testing"
 
@@ -29,6 +30,28 @@ func TestEntriesForStandardUsesMandatoryPresetAndFiltersUnsafeAccess(t *testing.
 		if slices.Contains(names, excluded) {
 			t.Errorf("unsafe tool %q was admitted", excluded)
 		}
+	}
+}
+
+func TestBuildToolsEmitsObjectPropertiesForEveryTool(t *testing.T) {
+	// llama.cpp (and therefore LM Studio) rejects a function whose parameters
+	// schema has no "properties" member, which is how a no-arg Args struct
+	// marshals unless the registry normalizes it.
+	for _, tool := range BuildTools(aitools.Default.All()) {
+		t.Run(tool.Function.Name, func(t *testing.T) {
+			var schema map[string]json.RawMessage
+			if err := json.Unmarshal(tool.Function.Parameters, &schema); err != nil {
+				t.Fatalf("parameters is not an object: %v", err)
+			}
+			properties, ok := schema["properties"]
+			if !ok {
+				t.Fatalf("parameters has no properties member: %s", tool.Function.Parameters)
+			}
+			var props map[string]json.RawMessage
+			if err := json.Unmarshal(properties, &props); err != nil {
+				t.Fatalf("properties is not an object: %v", err)
+			}
+		})
 	}
 }
 

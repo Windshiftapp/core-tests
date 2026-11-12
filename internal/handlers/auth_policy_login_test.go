@@ -59,8 +59,7 @@ func TestPasswordLoginCreatesOnlyRestrictedSessionsUnderPasskeyPolicies(t *testi
 	if err != nil {
 		t.Fatalf("NewPermissionService: %v", err)
 	}
-	rateLimiter := middleware.NewRateLimiter(100, 100, false, nil)
-	defer rateLimiter.Stop()
+	loginLockout := middleware.NewLoginLockout()
 	sessionManager := auth.NewSessionManagerWithValidationCacheTTL(db, false, false, nil, "auth-policy-test-secret", "strict", auth.DefaultSessionValidationCacheTTL)
 	policyHandler := NewAuthPolicyHandlerWithFallback(db, false, logger.NewAuditor(db))
 	handler := NewAuthHandler(
@@ -68,7 +67,7 @@ func TestPasswordLoginCreatesOnlyRestrictedSessionsUnderPasskeyPolicies(t *testi
 		repository.NewCredentialRepository(db),
 		logger.NewAuditor(db),
 		sessionManager,
-		rateLimiter,
+		loginLockout,
 		permissionService,
 		nil,
 		utils.NewIPExtractor(false, nil),
@@ -130,7 +129,7 @@ func TestPasswordLoginCreatesOnlyRestrictedSessionsUnderPasskeyPolicies(t *testi
 		repository.NewCredentialRepository(db),
 		logger.NewAuditor(db),
 		sessionManager,
-		rateLimiter,
+		loginLockout,
 		permissionService,
 		nil,
 		utils.NewIPExtractor(false, nil),
@@ -176,8 +175,7 @@ func TestSSORequiredRejectsPasswordLoginWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPermissionService: %v", err)
 	}
-	rateLimiter := middleware.NewRateLimiter(100, 100, false, nil)
-	defer rateLimiter.Stop()
+	loginLockout := middleware.NewLoginLockout()
 	sessionManager := auth.NewSessionManagerWithValidationCacheTTL(db, false, false, nil, "auth-policy-sso-test-secret", "strict", auth.DefaultSessionValidationCacheTTL)
 	policyHandler := NewAuthPolicyHandlerWithFallback(db, false, logger.NewAuditor(db))
 	if err := policyHandler.upsertSetting("auth_policy", string(AuthPolicySSOPrimary), "string", "test", "auth"); err != nil {
@@ -188,7 +186,7 @@ func TestSSORequiredRejectsPasswordLoginWithoutFallback(t *testing.T) {
 		repository.NewCredentialRepository(db),
 		logger.NewAuditor(db),
 		sessionManager,
-		rateLimiter,
+		loginLockout,
 		permissionService,
 		nil,
 		utils.NewIPExtractor(false, nil),
@@ -212,7 +210,7 @@ func TestSSORequiredRejectsPasswordLoginWithoutFallback(t *testing.T) {
 		repository.NewCredentialRepository(db),
 		logger.NewAuditor(db),
 		sessionManager,
-		rateLimiter,
+		loginLockout,
 		permissionService,
 		nil,
 		utils.NewIPExtractor(false, nil),

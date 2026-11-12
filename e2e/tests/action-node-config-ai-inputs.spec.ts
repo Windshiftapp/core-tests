@@ -41,9 +41,7 @@ test.describe('Action editor — ai_agent input fields', () => {
   test('adding input fields as chips persists an array', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `ai-inputs-${stamp}`,
@@ -74,9 +72,7 @@ test.describe('Action editor — ai_agent input fields', () => {
   test('stored input_fields hydrate back to chips', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `ai-inputs-hyd-${stamp}`,

@@ -14,6 +14,8 @@ describe('findForbiddenEntryAssets', () => {
 
   it.each([
     ['Excalidraw', './_app/excalidraw-abc.js'],
+    ['Mermaid', './_app/mermaid-abc.js'],
+    ['Cytoscape', './_app/cytoscape-abc.js'],
     ['React', './_app/react-dom-abc.js'],
     ['SvelteFlow', './_app/svelteflow-abc.js'],
     ['SvelteFlow', './_app/xyflow-abc.css'],

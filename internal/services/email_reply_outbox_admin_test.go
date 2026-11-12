@@ -268,3 +268,148 @@ func TestChannelRepository_DiscardEmailReply(t *testing.T) {
 		t.Fatalf("delivered discard = (%v, %v), want (NotDiscardable, nil)", deliveredRow, err)
 	}
 }
+
+// TestChannelRepository_DiscardPendingEmailReplies pins the bulk cancel: every
+// pending row on the channel (replies and intake receipts alike) is discarded
+// in one statement, while delivered, in-flight, and other-channel rows keep
+// their state.
+func TestChannelRepository_DiscardPendingEmailReplies(t *testing.T) {
+	db := createCommentTestDB(t)
+	env := setupEmailReplyTestEnv(t, db)
+	for _, commentID := range []int{9101, 9102, 9103, 9104} {
+		insertTestComment(t, db, commentID, env.ItemID, env.UserID)
+		insertPendingReply(t, db, env, commentID, 0, 0)
+	}
+	receiptID := insertPendingReceipt(t, db, env)
+
+	// A delivered row and a leased (in-flight) row must survive the bulk cancel.
+	if _, err := db.Exec(`UPDATE email_reply_outbox SET delivered_at = CURRENT_TIMESTAMP WHERE comment_id = 9103`); err != nil {
+		t.Fatalf("mark delivered: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE email_reply_outbox SET lease_owner = 'worker-a', next_attempt_at = ? WHERE comment_id = 9104`, time.Now().Add(time.Hour).UTC()); err != nil {
+		t.Fatalf("lease in-flight reply: %v", err)
+	}
+
+	// A pending row owned by another channel is not the target's to cancel.
+	var otherChannelID int
+	if err := db.QueryRow(`
+		INSERT INTO channels (name, type, direction, status)
+		VALUES ('Other outbox', 'email', 'inbound', 'enabled')
+		RETURNING id
+	`).Scan(&otherChannelID); err != nil {
+		t.Fatalf("seed other channel: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO email_reply_outbox (
+			comment_id, channel_id, item_id, to_email, subject, html_body, text_body, message_id, from_email
+		) VALUES (9101, ?, ?, 'other@example.com', 'Re: Other', 'body', 'body', '<other@test>', 'noreply@test.com')
+	`, otherChannelID, env.ItemID); err != nil {
+		t.Fatalf("seed other-channel reply: %v", err)
+	}
+
+	repo := repository.NewChannelRepository(db)
+	discarded, err := repo.DiscardPendingEmailReplies(t.Context(), int(env.ChannelID))
+	if err != nil {
+		t.Fatalf("DiscardPendingEmailReplies: %v", err)
+	}
+	if discarded != 3 {
+		t.Fatalf("discarded = %d, want 3", discarded)
+	}
+
+	for _, commentID := range []int{9101, 9102} {
+		if _, _, _, discardedAt, _ := outboxRowState(t, db, commentID); discardedAt == nil {
+			t.Fatalf("comment %d not discarded", commentID)
+		}
+	}
+	var receiptDiscarded *time.Time
+	if err := db.QueryRow(`SELECT discarded_at FROM email_reply_outbox WHERE id = ?`, receiptID).Scan(&receiptDiscarded); err != nil || receiptDiscarded == nil {
+		t.Fatalf("receipt discarded_at = %v (err %v), want set", receiptDiscarded, err)
+	}
+
+	_, _, deliveredAt, deliveredDiscarded, _ := outboxRowState(t, db, 9103)
+	if deliveredAt == nil || deliveredDiscarded != nil {
+		t.Fatalf("delivered row = delivered %v discarded %v, want delivered and not discarded", deliveredAt, deliveredDiscarded)
+	}
+	var leaseOwner *string
+	var inFlightDiscarded *time.Time
+	if err := db.QueryRow(`SELECT lease_owner, discarded_at FROM email_reply_outbox WHERE comment_id = 9104`).Scan(&leaseOwner, &inFlightDiscarded); err != nil {
+		t.Fatalf("load in-flight row: %v", err)
+	}
+	if leaseOwner == nil || *leaseOwner != "worker-a" || inFlightDiscarded != nil {
+		t.Fatalf("in-flight row = lease %v discarded %v, want worker-a lease and not discarded", leaseOwner, inFlightDiscarded)
+	}
+
+	var otherDiscarded *time.Time
+	if err := db.QueryRow(`SELECT discarded_at FROM email_reply_outbox WHERE channel_id = ?`, otherChannelID).Scan(&otherDiscarded); err != nil || otherDiscarded != nil {
+		t.Fatalf("other-channel discarded_at = %v (err %v), want NULL", otherDiscarded, err)
+	}
+
+	if again, err := repo.DiscardPendingEmailReplies(t.Context(), int(env.ChannelID)); err != nil || again != 0 {
+		t.Fatalf("repeat discard = (%d, %v), want (0, nil)", again, err)
+	}
+}
+
+// insertPendingReceipt seeds an intake_confirmation outbox row. Receipts carry
+// no comment_id, so the outbox row id is their only handle. The row is inserted
+// directly because only the inbound-mail pipeline enqueues receipts.
+func insertPendingReceipt(t *testing.T, db database.Database, env emailReplyTestEnv) int {
+	t.Helper()
+	var id int
+	if err := db.QueryRow(`
+		INSERT INTO email_reply_outbox (
+			kind, comment_id, channel_id, item_id, to_email, to_name, subject,
+			html_body, text_body, message_id, in_reply_to, references_json,
+			from_email, from_name, attempt_count, next_attempt_at, created_at, updated_at
+		) VALUES ('intake_confirmation', NULL, ?, ?, 'customer@example.com', 'Customer One', 'We received your request',
+			'<p>body</p>', 'body', ?, '', '[]',
+			'noreply@test.com', 'Test App', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		RETURNING id
+	`, env.ChannelID, env.ItemID, fmt.Sprintf("<ws-confirm-%d@test.com>", env.ItemID)).Scan(&id); err != nil {
+		t.Fatalf("seed intake receipt: %v", err)
+	}
+	return id
+}
+
+// TestChannelRepository_DiscardEmailReplyByID pins the row-scoped discard: an
+// intake receipt (no comment_id) cancels once, never across channels, and the
+// delivered and in-flight states keep their exact refusals.
+func TestChannelRepository_DiscardEmailReplyByID(t *testing.T) {
+	db := createCommentTestDB(t)
+	env := setupEmailReplyTestEnv(t, db)
+	repo := repository.NewChannelRepository(db)
+	ctx := t.Context()
+
+	receiptID := insertPendingReceipt(t, db, env)
+
+	if outcome, err := repo.DiscardEmailReplyByID(ctx, int(env.ChannelID), receiptID); err != nil || outcome != repository.EmailReplyDiscarded {
+		t.Fatalf("pending receipt discard = (%v, %v), want (Discarded, nil)", outcome, err)
+	}
+	var discardedAt *time.Time
+	if err := db.QueryRow(`SELECT discarded_at FROM email_reply_outbox WHERE id = ?`, receiptID).Scan(&discardedAt); err != nil || discardedAt == nil {
+		t.Fatalf("receipt discarded_at = %v (err %v), want set", discardedAt, err)
+	}
+
+	if again, err := repo.DiscardEmailReplyByID(ctx, int(env.ChannelID), receiptID); err != nil || again != repository.EmailReplyNotDiscardable {
+		t.Fatalf("repeat receipt discard = (%v, %v), want (NotDiscardable, nil)", again, err)
+	}
+
+	// A channel that does not own the row must not be able to cancel it.
+	if wrong, err := repo.DiscardEmailReplyByID(ctx, int(env.ChannelID)+999, receiptID); err != nil || wrong != repository.EmailReplyNotDiscardable {
+		t.Fatalf("cross-channel receipt discard = (%v, %v), want (NotDiscardable, nil)", wrong, err)
+	}
+
+	if _, err := db.Exec(`UPDATE email_reply_outbox SET discarded_at = NULL, delivered_at = CURRENT_TIMESTAMP WHERE id = ?`, receiptID); err != nil {
+		t.Fatalf("mark receipt delivered: %v", err)
+	}
+	if delivered, err := repo.DiscardEmailReplyByID(ctx, int(env.ChannelID), receiptID); err != nil || delivered != repository.EmailReplyNotDiscardable {
+		t.Fatalf("delivered receipt discard = (%v, %v), want (NotDiscardable, nil)", delivered, err)
+	}
+
+	// A live lease reports Sending instead of a false cancellation.
+	if _, err := db.Exec(`UPDATE email_reply_outbox SET delivered_at = NULL, lease_owner = 'worker-a', next_attempt_at = ? WHERE id = ?`, time.Now().Add(time.Hour).UTC(), receiptID); err != nil {
+		t.Fatalf("lease receipt: %v", err)
+	}
+	if sending, err := repo.DiscardEmailReplyByID(ctx, int(env.ChannelID), receiptID); err != nil || sending != repository.EmailReplySending {
+		t.Fatalf("in-flight receipt discard = (%v, %v), want (Sending, nil)", sending, err)
+	}
+}
