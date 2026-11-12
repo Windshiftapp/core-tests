@@ -57,14 +57,10 @@ func TestAuthenticationSessionConcurrentConsume(t *testing.T) {
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	result, err := db.ExecWrite(`
+	userID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, created_at, updated_at)
 		VALUES (?, ?, ?, ?, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, "race@example.com", "race", "Race", "Test")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID64, _ := result.LastInsertId()
 	userID := int(userID64)
 
 	// Widen the read-then-delete window so a non-atomic consume is observable.
@@ -120,14 +116,10 @@ func TestAuthenticationSessionBinding(t *testing.T) {
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	result, err := db.ExecWrite(`
+	userID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, created_at, updated_at)
 		VALUES (?, ?, ?, ?, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, "bound-session@example.com", "bound-session", "Bound", "Session")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID64, _ := result.LastInsertId()
 	userID := int(userID64)
 
 	store := NewSessionStore(db)

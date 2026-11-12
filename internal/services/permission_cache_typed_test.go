@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/cacheutil"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 // The typed cache must hand back the exact stored pointer: a round-trip through
@@ -94,14 +95,10 @@ func TestGetGroupMembershipsReturnsACopy(t *testing.T) {
 // permissions, which is the path that used to shallow-copy the owner snapshot.
 func (e *permTestEnv) insertAgent(ownerID int, email string) int {
 	e.tb.Helper()
-	res, err := e.db.Exec(
+	id := testutils.InsertID(e.tb, e.db, 
 		`INSERT INTO users (email, username, first_name, last_name, is_agent, agent_owner_user_id) VALUES (?, ?, ?, '', true, ?)`,
 		email, email, email, ownerID,
 	)
-	if err != nil {
-		e.tb.Fatalf("insert agent %s: %v", email, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 

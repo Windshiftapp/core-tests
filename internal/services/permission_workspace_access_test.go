@@ -15,6 +15,7 @@ import (
 	"windshift/internal/database"
 	"windshift/internal/models"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 type failingPermissionQueryDatabase struct {
@@ -53,17 +54,10 @@ func TestPermissionSnapshotFailsClosedWhenExplicitAssignmentsCannotLoad(t *testi
 	if err := baseDB.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	result, err := baseDB.ExecWrite(`
+	userID := testutils.InsertID(t, baseDB, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('fail-closed@example.test', 'fail-closed', 'Fail', 'Closed', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
 
 	wrapped := &failingPermissionQueryDatabase{
 		Database: baseDB,
@@ -94,28 +88,14 @@ func TestBatchWorkspacePermissionsAreIndependentOfCacheWarmth(t *testing.T) {
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	userResult, err := db.ExecWrite(`
+	userID := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('warmth@example.test', 'warmth', 'Cache', 'Warmth', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID, err := userResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("user LastInsertId: %v", err)
-	}
-	workspaceResult, err := db.ExecWrite(`
+	workspaceID := testutils.InsertID(t, db, `
 		INSERT INTO workspaces (name, key, description, active, is_personal)
 		VALUES ('Warmth', 'WARM', '', true, false)
 	`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
 	if _, err := db.ExecWrite(`
 		INSERT INTO user_workspace_roles (user_id, workspace_id, role_id)
 		SELECT ?, ?, id FROM workspace_roles WHERE builtin_key = ?
@@ -159,22 +139,14 @@ func TestBuiltInRoleRenameDoesNotChangeEveryoneAuthorization(t *testing.T) {
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	userResult, err := db.ExecWrite(`
+	userID := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('role-rename@example.test', 'role-rename', 'Role', 'Rename', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID, _ := userResult.LastInsertId()
-	workspaceResult, err := db.ExecWrite(`
+	workspaceID := testutils.InsertID(t, db, `
 		INSERT INTO workspaces (name, key, description, active, is_personal)
 		VALUES ('Role Rename', 'RENAME', '', true, false)
 	`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, _ := workspaceResult.LastInsertId()
 	service, err := NewPermissionService(db, PermissionCacheConfig{TTL: time.Minute, MaxCacheSize: 16, BatchSize: 10})
 	if err != nil {
 		t.Fatalf("NewPermissionService: %v", err)
@@ -212,11 +184,7 @@ func TestItemWorkspaceLookupCannotRestoreInvalidatedPermissionSnapshot(t *testin
 	if err := baseDB.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	workspaceResult, err := baseDB.ExecWrite(`INSERT INTO workspaces (name, key, active) VALUES ('Item Lookup', 'LOOKUP', true)`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, _ := workspaceResult.LastInsertId()
+	workspaceID := testutils.InsertID(t, baseDB, `INSERT INTO workspaces (name, key, active) VALUES ('Item Lookup', 'LOOKUP', true)`)
 	itemID, err := CreateItem(baseDB, ItemCreationParams{
 		WorkspaceID: int(workspaceID),
 		Title:       "Lookup Item",
@@ -302,17 +270,10 @@ func TestRecentlyActiveUsersUsesCurrentSessionAndUserSchema(t *testing.T) {
 			t.Fatalf("Initialize: %v", err)
 		}
 
-		result, err := db.ExecWrite(`
+		userID := testutils.InsertID(t, db, `
 			INSERT INTO users (email, username, first_name, last_name)
 			VALUES ('active@example.test', 'active-user', 'Active', 'User')
 		`)
-		if err != nil {
-			t.Fatalf("insert user: %v", err)
-		}
-		userID, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
 		if _, err := db.ExecWrite(`
 			INSERT INTO user_sessions (user_id, session_token, expires_at, is_active)
 			VALUES (?, 'active-session', ?, true)
@@ -396,41 +357,20 @@ func TestEffectivePermissionSnapshotRetriesWhenInvalidatedDuringBuild(t *testing
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	userResult, err := baseDB.ExecWrite(`
+	userID := testutils.InsertID(t, baseDB, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('generation@example.test', 'generation-user', 'Generation', 'User', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID, err := userResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
 
-	assigneeResult, err := baseDB.ExecWrite(`
+	assigneeID := testutils.InsertID(t, baseDB, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('assignee@example.test', 'assignee-user', 'Assigned', 'User', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert assigned user: %v", err)
-	}
-	assigneeID, err := assigneeResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("assigned user LastInsertId: %v", err)
-	}
 
-	workspaceResult, err := baseDB.ExecWrite(`
+	workspaceID := testutils.InsertID(t, baseDB, `
 		INSERT INTO workspaces (name, key, description, active, is_personal)
 		VALUES ('Generation Workspace', 'GEN', '', true, false)
 	`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
 
 	wrappedDB := &invalidatingPermissionDatabase{
 		Database:    baseDB,
@@ -492,17 +432,10 @@ func TestAccessibleWorkspaceIDsReusesWarmSnapshotWithoutDecode(t *testing.T) {
 
 	insertWorkspace := func(name, key string, active bool) int {
 		t.Helper()
-		result, err := baseDB.ExecWrite(`
+		id := testutils.InsertID(t, baseDB, `
 			INSERT INTO workspaces (name, key, description, active, is_personal, created_at, updated_at)
 			VALUES (?, ?, '', ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		`, name, key, active)
-		if err != nil {
-			t.Fatalf("insert workspace %s: %v", key, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
 		return int(id)
 	}
 

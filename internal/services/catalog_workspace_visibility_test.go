@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/models"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 // permissionServiceAccess adapts PermissionService to CatalogAccess the same
@@ -45,25 +46,17 @@ func newCatalogPermissionEnv(t *testing.T) (*permTestEnv, *CatalogReadService) {
 
 func (e *permTestEnv) insertActiveWorkspace(name string) int {
 	e.tb.Helper()
-	res, err := e.db.Exec(
+	wid := testutils.InsertID(e.tb, e.db, 
 		`INSERT INTO workspaces (name, key, description, active, is_personal, internal_comments_enabled) VALUES (?, ?, ?, true, false, false)`,
 		name, name, "description of "+name)
-	if err != nil {
-		e.tb.Fatalf("insert workspace %s: %v", name, err)
-	}
-	wid, _ := res.LastInsertId()
 	return int(wid)
 }
 
 func (e *permTestEnv) insertInactiveWorkspace(name string) int {
 	e.tb.Helper()
-	res, err := e.db.Exec(
+	wid := testutils.InsertID(e.tb, e.db, 
 		`INSERT INTO workspaces (name, key, description, active, is_personal, internal_comments_enabled) VALUES (?, ?, ?, false, false, false)`,
 		name, name, "description of "+name)
-	if err != nil {
-		e.tb.Fatalf("insert inactive workspace %s: %v", name, err)
-	}
-	wid, _ := res.LastInsertId()
 	return int(wid)
 }
 

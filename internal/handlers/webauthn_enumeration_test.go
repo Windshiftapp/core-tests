@@ -12,6 +12,7 @@ import (
 
 	"windshift/internal/auth"
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 	"windshift/internal/utils"
 	wswebauthn "windshift/internal/webauthn"
 )
@@ -105,13 +106,9 @@ func TestStartFIDOLoginDoesNotEnumerateAccountOrCredentialState(t *testing.T) {
 
 func insertWebAuthnTestUser(t *testing.T, db database.Database, email, username string, active bool) int {
 	t.Helper()
-	result, err := db.ExecWrite(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, email, username, "WebAuthn", "Test", active)
-	if err != nil {
-		t.Fatalf("insert user %s: %v", username, err)
-	}
-	id, _ := result.LastInsertId()
 	return int(id)
 }

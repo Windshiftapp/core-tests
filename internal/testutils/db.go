@@ -86,7 +86,7 @@ func CreateFreshDB(t *testing.T, inMemory bool) *TestDB {
 
 // InsertID inserts one row and returns its generated id on both SQLite and
 // PostgreSQL. The query must not already contain a RETURNING clause.
-func InsertID(t *testing.T, db database.Database, query string, args ...any) int {
+func InsertID(t testing.TB, db database.Database, query string, args ...any) int {
 	t.Helper()
 	var id int
 	if err := db.QueryRow(strings.TrimSpace(query)+" RETURNING id", args...).Scan(&id); err != nil {

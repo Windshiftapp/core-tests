@@ -10,6 +10,7 @@ import (
 
 	"windshift/internal/auth"
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func newTokenTestDB(t *testing.T) (database.Database, int) {
@@ -23,12 +24,8 @@ func newTokenTestDB(t *testing.T) (database.Database, int) {
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("init db: %v", err)
 	}
-	res, err := db.Exec(`INSERT INTO users(email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
+	id64 := testutils.InsertID(t, db, `INSERT INTO users(email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
 		"agent@example.com", "agent", "Agent")
-	if err != nil {
-		t.Fatalf("insert acting user: %v", err)
-	}
-	id64, _ := res.LastInsertId()
 	return db, int(id64)
 }
 

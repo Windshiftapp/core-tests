@@ -9,6 +9,7 @@ import (
 
 	"windshift/internal/models"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 func TestApprovalSetServiceAcceptsFromAllTransitions(t *testing.T) {
@@ -92,16 +93,9 @@ func TestApprovalFromAllTransitionIsGatedAndFinalizes(t *testing.T) {
 
 func (e *approvalTestEnv) insertFromAllTransition(toStatusID int) int {
 	e.t.Helper()
-	result, err := e.db.Exec(`
+	id := testutils.InsertID(e.t, e.db, `
 		INSERT INTO workflow_transitions (workflow_id, from_status_id, to_status_id, from_all_statuses)
 		VALUES (?, NULL, ?, TRUE)
 	`, e.workflowID, toStatusID)
-	if err != nil {
-		e.t.Fatalf("insert from-all transition: %v", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		e.t.Fatalf("from-all transition id: %v", err)
-	}
 	return int(id)
 }

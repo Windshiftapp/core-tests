@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 type createStatusFixture struct {
@@ -141,13 +142,6 @@ func mustExec(t *testing.T, db database.Database, query string, args ...interfac
 
 func mustExecInsertID(t *testing.T, db database.Database, query string, args ...interface{}) int {
 	t.Helper()
-	result, err := db.ExecWrite(query, args...)
-	if err != nil {
-		t.Fatalf("exec insert %q: %v", query, err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
-	}
+	id := testutils.InsertID(t, db, query, args...)
 	return int(id)
 }

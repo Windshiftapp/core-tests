@@ -12,6 +12,7 @@ import (
 	"windshift/internal/database"
 	"windshift/internal/models"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 // approvalTestEnv is a fully-initialized in-memory DB plus the entities the
@@ -91,11 +92,7 @@ func (e *approvalTestEnv) bootstrap() {
 	e.approver3 = e.insertUser("dave@example.com", "dave")
 
 	// Workspace (non-personal so the approval pipeline runs).
-	res, err := e.db.Exec(`INSERT INTO workspaces (name, key, active, is_personal) VALUES (?, ?, true, false)`, "TestWS", "TWS")
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	wid, _ := res.LastInsertId()
+	wid := testutils.InsertID(t, e.db, `INSERT INTO workspaces (name, key, active, is_personal) VALUES (?, ?, true, false)`, "TestWS", "TWS")
 	e.workspaceID = int(wid)
 
 	// Workflow + statuses + transitions. Initialize() seeds default categories;
@@ -106,11 +103,7 @@ func (e *approvalTestEnv) bootstrap() {
 		_ = e.db.QueryRow(`SELECT id FROM status_categories LIMIT 1`).Scan(&todoCat)
 	}
 
-	res, err = e.db.Exec(`INSERT INTO workflows (name, description, is_default) VALUES ('test-wf', '', false)`)
-	if err != nil {
-		t.Fatalf("insert workflow: %v", err)
-	}
-	wfID, _ := res.LastInsertId()
+	wfID := testutils.InsertID(t, e.db, `INSERT INTO workflows (name, description, is_default) VALUES ('test-wf', '', false)`)
 	e.workflowID = int(wfID)
 
 	// Statuses must be globally unique by name; namespace by test name.
@@ -128,18 +121,10 @@ func (e *approvalTestEnv) bootstrap() {
 	// Item type + configuration set with workspace_configuration_sets link, so
 	// GetApprovalSetIDForItem can resolve. item_types.name is globally unique;
 	// namespace by test.
-	res, err = e.db.Exec(`INSERT INTO item_types (name, hierarchy_level) VALUES (?, 3)`, prefix+"-Task")
-	if err != nil {
-		t.Fatalf("insert item_type: %v", err)
-	}
-	itID, _ := res.LastInsertId()
+	itID := testutils.InsertID(t, e.db, `INSERT INTO item_types (name, hierarchy_level) VALUES (?, 3)`, prefix+"-Task")
 	e.itemTypeID = int(itID)
 
-	res, err = e.db.Exec(`INSERT INTO configuration_sets (name, workflow_id) VALUES ('cs', ?)`, e.workflowID)
-	if err != nil {
-		t.Fatalf("insert configuration_set: %v", err)
-	}
-	csID, _ := res.LastInsertId()
+	csID := testutils.InsertID(t, e.db, `INSERT INTO configuration_sets (name, workflow_id) VALUES ('cs', ?)`, e.workflowID)
 	e.configurationSetID = int(csID)
 	if _, err := e.db.Exec(`INSERT INTO workspace_configuration_sets (workspace_id, configuration_set_id) VALUES (?, ?)`,
 		e.workspaceID, e.configurationSetID); err != nil {
@@ -169,32 +154,20 @@ func (e *approvalTestEnv) bootstrap() {
 
 func (e *approvalTestEnv) insertUser(email, username string) int {
 	e.t.Helper()
-	res, err := e.db.Exec(`INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`, email, username, username)
-	if err != nil {
-		e.t.Fatalf("insert user %s: %v", email, err)
-	}
-	uid, _ := res.LastInsertId()
+	uid := testutils.InsertID(e.t, e.db, `INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`, email, username, username)
 	return int(uid)
 }
 
 func (e *approvalTestEnv) insertStatus(name string, categoryID int) int {
 	e.t.Helper()
-	res, err := e.db.Exec(`INSERT INTO statuses (name, category_id) VALUES (?, ?)`, name, categoryID)
-	if err != nil {
-		e.t.Fatalf("insert status %s: %v", name, err)
-	}
-	sid, _ := res.LastInsertId()
+	sid := testutils.InsertID(e.t, e.db, `INSERT INTO statuses (name, category_id) VALUES (?, ?)`, name, categoryID)
 	return int(sid)
 }
 
 func (e *approvalTestEnv) insertTransition(workflowID, fromID, toID int) int {
 	e.t.Helper()
-	res, err := e.db.Exec(`INSERT INTO workflow_transitions (workflow_id, from_status_id, to_status_id) VALUES (?, ?, ?)`,
+	tid := testutils.InsertID(e.t, e.db, `INSERT INTO workflow_transitions (workflow_id, from_status_id, to_status_id) VALUES (?, ?, ?)`,
 		workflowID, fromID, toID)
-	if err != nil {
-		e.t.Fatalf("insert transition: %v", err)
-	}
-	tid, _ := res.LastInsertId()
 	return int(tid)
 }
 
@@ -232,26 +205,18 @@ type approvalStepSpec struct {
 func (e *approvalTestEnv) createApprovalSet(spec approvalSetSpec) int {
 	t := e.t
 	t.Helper()
-	res, err := e.db.Exec(`INSERT INTO approval_sets (name, workflow_id) VALUES ('test-set', ?)`, e.workflowID)
-	if err != nil {
-		t.Fatalf("insert approval_set: %v", err)
-	}
-	setID64, _ := res.LastInsertId()
+	setID64 := testutils.InsertID(t, e.db, `INSERT INTO approval_sets (name, workflow_id) VALUES ('test-set', ?)`, e.workflowID)
 	setID := int(setID64)
 
 	stepMode := spec.stepMode
 	if stepMode == "" {
 		stepMode = models.ApprovalStepModeSequential
 	}
-	res, err = e.db.Exec(`
+	assID64 := testutils.InsertID(t, e.db, `
 		INSERT INTO approval_set_statuses
 			(approval_set_id, status_id, approve_transition_id, deny_transition_id, step_mode)
 		VALUES (?, ?, ?, ?, ?)
 	`, setID, e.statusReviewID, e.transitionReviewToApproved, e.transitionReviewToRejected, stepMode)
-	if err != nil {
-		t.Fatalf("insert approval_set_status: %v", err)
-	}
-	assID64, _ := res.LastInsertId()
 	assID := int(assID64)
 
 	for _, step := range spec.steps {
@@ -537,11 +502,7 @@ func TestApproval_Quorum_Count(t *testing.T) {
 	})
 
 	// Seed a workspace role and assign approver1+approver2+approver3 to it.
-	res, err := env.db.Exec(`INSERT INTO workspace_roles (name) VALUES ('reviewer')`)
-	if err != nil {
-		t.Fatalf("insert role: %v", err)
-	}
-	roleID64, _ := res.LastInsertId()
+	roleID64 := testutils.InsertID(t, env.db, `INSERT INTO workspace_roles (name) VALUES ('reviewer')`)
 	roleID := int(roleID64)
 	if _, err := env.db.Exec(`UPDATE approval_steps SET approver_role_id = ? WHERE approver_role_id = 1`, roleID); err != nil {
 		t.Fatalf("update role id on step: %v", err)
@@ -591,11 +552,7 @@ func TestApproval_Decision_DoubleVoteRejected(t *testing.T) {
 			},
 		},
 	})
-	res, err := env.db.Exec(`INSERT INTO workspace_roles (name) VALUES ('reviewer')`)
-	if err != nil {
-		t.Fatalf("insert role: %v", err)
-	}
-	rid64, _ := res.LastInsertId()
+	rid64 := testutils.InsertID(t, env.db, `INSERT INTO workspace_roles (name) VALUES ('reviewer')`)
 	roleID := int(rid64)
 	if _, err := env.db.Exec(`UPDATE approval_steps SET approver_role_id = ? WHERE approver_role_id = 1`, roleID); err != nil {
 		t.Fatalf("update role: %v", err)
@@ -980,11 +937,7 @@ func TestApproval_Creator_PortalCustomer(t *testing.T) {
 	env := newApprovalTestEnv(t)
 
 	// Seed a portal customer + retag the item as customer-created.
-	res, err := env.db.Exec(`INSERT INTO portal_customers (name, email) VALUES ('Acme', 'acme@example.com')`)
-	if err != nil {
-		t.Fatalf("insert portal_customer: %v", err)
-	}
-	cid64, _ := res.LastInsertId()
+	cid64 := testutils.InsertID(t, env.db, `INSERT INTO portal_customers (name, email) VALUES ('Acme', 'acme@example.com')`)
 	customerID := int(cid64)
 
 	if _, err := env.db.Exec(`UPDATE items SET creator_id = NULL, creator_portal_customer_id = ? WHERE id = ?`, customerID, env.itemID); err != nil {
@@ -1105,14 +1058,7 @@ func TestApproval_PortalCustomerCannotVoteTwice(t *testing.T) {
 
 func approvalPortalCustomer(t *testing.T, env *approvalTestEnv, name, email string) int {
 	t.Helper()
-	res, err := env.db.Exec(`INSERT INTO portal_customers (name, email) VALUES (?, ?)`, name, email)
-	if err != nil {
-		t.Fatalf("insert portal customer: %v", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("portal customer id: %v", err)
-	}
+	id := testutils.InsertID(t, env.db, `INSERT INTO portal_customers (name, email) VALUES (?, ?)`, name, email)
 	return int(id)
 }
 
@@ -1128,11 +1074,7 @@ func TestApproval_PortalCustomerNotInPool(t *testing.T) {
 		t.Fatalf("RequestApproval: %v", err)
 	}
 
-	res, err := env.db.Exec(`INSERT INTO portal_customers (name, email) VALUES ('Stranger', 'stranger@example.com')`)
-	if err != nil {
-		t.Fatalf("insert customer: %v", err)
-	}
-	strangerID64, _ := res.LastInsertId()
+	strangerID64 := testutils.InsertID(t, env.db, `INSERT INTO portal_customers (name, email) VALUES ('Stranger', 'stranger@example.com')`)
 	strangerID := int(strangerID64)
 
 	if _, _, err := env.approvalService.DecideAsCustomer(context.Background(), req.ID, strangerID, models.ApprovalDecisionApprove, "", DecideOptions{}); err == nil {
@@ -1159,11 +1101,7 @@ func TestApproval_LabelOnlyRole_StillResolvesApprovers(t *testing.T) {
 	})
 
 	// Seed a label-only role (permissions_enabled = FALSE) and assign three users.
-	res, err := env.db.Exec(`INSERT INTO workspace_roles (name, permissions_enabled) VALUES ('label-only-reviewers', FALSE)`)
-	if err != nil {
-		t.Fatalf("insert label-only role: %v", err)
-	}
-	roleID64, _ := res.LastInsertId()
+	roleID64 := testutils.InsertID(t, env.db, `INSERT INTO workspace_roles (name, permissions_enabled) VALUES ('label-only-reviewers', FALSE)`)
 	roleID := int(roleID64)
 	if _, err := env.db.Exec(`UPDATE approval_steps SET approver_role_id = ? WHERE approver_role_id = 1`, roleID); err != nil {
 		t.Fatalf("rewire approver_role_id: %v", err)
@@ -1209,21 +1147,13 @@ func TestPermissionCache_LabelOnlyRole_DoesNotGrantPermissions(t *testing.T) {
 	}
 
 	// Two roles: one label-only, one permission-bearing — both grant item.delete.
-	r1, err := env.db.Exec(`INSERT INTO workspace_roles (name, permissions_enabled) VALUES ('label-only', FALSE)`)
-	if err != nil {
-		t.Fatalf("insert label-only role: %v", err)
-	}
-	labelRoleID64, _ := r1.LastInsertId()
+	labelRoleID64 := testutils.InsertID(t, env.db, `INSERT INTO workspace_roles (name, permissions_enabled) VALUES ('label-only', FALSE)`)
 	labelRoleID := int(labelRoleID64)
 	if _, err := env.db.Exec(`INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)`, labelRoleID, permID); err != nil {
 		t.Fatalf("attach perm to label role: %v", err)
 	}
 
-	r2, err := env.db.Exec(`INSERT INTO workspace_roles (name, permissions_enabled) VALUES ('permission-bearing', TRUE)`)
-	if err != nil {
-		t.Fatalf("insert permission role: %v", err)
-	}
-	permRoleID64, _ := r2.LastInsertId()
+	permRoleID64 := testutils.InsertID(t, env.db, `INSERT INTO workspace_roles (name, permissions_enabled) VALUES ('permission-bearing', TRUE)`)
 	permRoleID := int(permRoleID64)
 	if _, err := env.db.Exec(`INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)`, permRoleID, permID); err != nil {
 		t.Fatalf("attach perm to perm role: %v", err)
@@ -1339,11 +1269,7 @@ func TestApproval_PortalCustomerHasActivePoolMembershipOnItem(t *testing.T) {
 
 	// Mirror TestApproval_Creator_PortalCustomer: the customer becomes a pool
 	// member by being the item creator with approver_source=creator.
-	res, err := env.db.Exec(`INSERT INTO portal_customers (name, email) VALUES ('Reviewer', 'rev@example.com')`)
-	if err != nil {
-		t.Fatalf("insert customer: %v", err)
-	}
-	cid64, _ := res.LastInsertId()
+	cid64 := testutils.InsertID(t, env.db, `INSERT INTO portal_customers (name, email) VALUES ('Reviewer', 'rev@example.com')`)
 	customerID := int(cid64)
 
 	if _, err := env.db.Exec(`UPDATE items SET creator_id = NULL, creator_portal_customer_id = ? WHERE id = ?`, customerID, env.itemID); err != nil {
@@ -1377,11 +1303,7 @@ func TestApproval_PortalCustomerHasActivePoolMembershipOnItem(t *testing.T) {
 	}
 
 	// A different (unrelated) customer must not get a positive answer.
-	res2, err := env.db.Exec(`INSERT INTO portal_customers (name, email) VALUES ('Stranger', 'stranger@example.com')`)
-	if err != nil {
-		t.Fatalf("insert stranger customer: %v", err)
-	}
-	stranger64, _ := res2.LastInsertId()
+	stranger64 := testutils.InsertID(t, env.db, `INSERT INTO portal_customers (name, email) VALUES ('Stranger', 'stranger@example.com')`)
 	got, err = env.approvalService.PortalCustomerHasActivePoolMembershipOnItem(context.Background(), int(stranger64), env.itemID, nil)
 	if err != nil {
 		t.Fatalf("stranger membership: %v", err)
@@ -1418,17 +1340,9 @@ func TestApproval_ActivePoolMembership_ScopedToChannel(t *testing.T) {
 	}
 
 	// Two distinct portal channels. Place the item in channel A.
-	res, err := env.db.Exec(`INSERT INTO channels (name, type, direction, status) VALUES ('Portal A', 'portal', 'inbound', 'enabled')`)
-	if err != nil {
-		t.Fatalf("insert channel A: %v", err)
-	}
-	chA64, _ := res.LastInsertId()
+	chA64 := testutils.InsertID(t, env.db, `INSERT INTO channels (name, type, direction, status) VALUES ('Portal A', 'portal', 'inbound', 'enabled')`)
 	channelA := int(chA64)
-	res, err = env.db.Exec(`INSERT INTO channels (name, type, direction, status) VALUES ('Portal B', 'portal', 'inbound', 'enabled')`)
-	if err != nil {
-		t.Fatalf("insert channel B: %v", err)
-	}
-	chB64, _ := res.LastInsertId()
+	chB64 := testutils.InsertID(t, env.db, `INSERT INTO channels (name, type, direction, status) VALUES ('Portal B', 'portal', 'inbound', 'enabled')`)
 	channelB := int(chB64)
 	if _, err := env.db.Exec(`UPDATE items SET channel_id = ? WHERE id = ?`, channelA, env.itemID); err != nil {
 		t.Fatalf("set item channel: %v", err)
@@ -1611,11 +1525,7 @@ func TestApproval_ApproverResolverSourcesAndSelfApproval(t *testing.T) {
 				}
 				expected = env.approver3
 			case models.ApprovalSourceGroup:
-				res, err := env.db.Exec(`INSERT INTO groups (name, is_active) VALUES (?, true)`, "approval-group-"+strings.ReplaceAll(t.Name(), "/", "-"))
-				if err != nil {
-					t.Fatalf("insert group: %v", err)
-				}
-				groupID64, _ := res.LastInsertId()
+				groupID64 := testutils.InsertID(t, env.db, `INSERT INTO groups (name, is_active) VALUES (?, true)`, "approval-group-"+strings.ReplaceAll(t.Name(), "/", "-"))
 				groupID := int(groupID64)
 				step.ApproverGroupID = &groupID
 				if _, err := env.db.Exec(`INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`, groupID, env.approver2); err != nil {
@@ -1671,11 +1581,7 @@ func TestApproval_GetRequestHonorsCanceledContext(t *testing.T) {
 
 func (e *approvalTestEnv) insertApprovalRole(userIDs ...int) int {
 	e.t.Helper()
-	res, err := e.db.Exec(`INSERT INTO workspace_roles (name) VALUES (?)`, "Approvers-"+strings.ReplaceAll(e.t.Name(), "/", "-"))
-	if err != nil {
-		e.t.Fatalf("insert role: %v", err)
-	}
-	roleID64, _ := res.LastInsertId()
+	roleID64 := testutils.InsertID(e.t, e.db, `INSERT INTO workspace_roles (name) VALUES (?)`, "Approvers-"+strings.ReplaceAll(e.t.Name(), "/", "-"))
 	roleID := int(roleID64)
 	for _, userID := range userIDs {
 		if _, err := e.db.Exec(`INSERT INTO user_workspace_roles (user_id, workspace_id, role_id) VALUES (?, ?, ?)`, userID, e.workspaceID, roleID); err != nil {

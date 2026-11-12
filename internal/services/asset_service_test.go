@@ -7,6 +7,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 func TestValidateCustomFieldsSchema(t *testing.T) {
@@ -119,14 +120,7 @@ func TestValidateCustomFieldsSchema(t *testing.T) {
 
 func mustAssetExecInsertID(t *testing.T, db database.Database, query string, args ...interface{}) int {
 	t.Helper()
-	result, err := db.ExecWrite(query, args...)
-	if err != nil {
-		t.Fatalf("exec %q: %v", query, err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
-	}
+	id := testutils.InsertID(t, db, query, args...)
 	return int(id)
 }
 

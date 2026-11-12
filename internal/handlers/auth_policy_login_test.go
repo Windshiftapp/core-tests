@@ -17,6 +17,7 @@ import (
 	"windshift/internal/middleware"
 	"windshift/internal/repository"
 	"windshift/internal/services"
+	"windshift/internal/testutils"
 	"windshift/internal/utils"
 )
 
@@ -228,14 +229,10 @@ func TestSSORequiredRejectsPasswordLoginWithoutFallback(t *testing.T) {
 
 func insertAuthTestUser(t *testing.T, db database.Database, email, username, passwordHash string) int {
 	t.Helper()
-	result, err := db.ExecWrite(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, password_hash, is_active, email_verified, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, email, username, "Auth", "Test", passwordHash)
-	if err != nil {
-		t.Fatalf("insert user %s: %v", username, err)
-	}
-	id, _ := result.LastInsertId()
 	return int(id)
 }
 

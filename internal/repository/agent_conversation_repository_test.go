@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 type conversationFixture struct {
@@ -25,14 +26,10 @@ func newConversationFixture(t *testing.T) conversationFixture {
 	db := openAgentRunTestDB(t)
 	seedUser := func(email, username string, isAgent bool) int {
 		t.Helper()
-		res, err := db.Exec(`
+		id := testutils.InsertID(t, db, `
 			INSERT INTO users(email, username, first_name, last_name, is_agent, is_active)
 			VALUES (?, ?, ?, 'User', ?, true)
 		`, email, username, username, isAgent)
-		if err != nil {
-			t.Fatal(err)
-		}
-		id, _ := res.LastInsertId()
 		return int(id)
 	}
 	return conversationFixture{

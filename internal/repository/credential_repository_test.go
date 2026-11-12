@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestCredentialRepositoryHasActiveFIDOIncludesModernWebAuthn(t *testing.T) {
@@ -17,14 +18,10 @@ func TestCredentialRepositoryHasActiveFIDOIncludesModernWebAuthn(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	result, err := db.ExecWrite(`
+	userID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, created_at, updated_at)
 		VALUES (?, ?, ?, ?, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, "passkey@example.com", "passkey", "Pass", "Key")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID64, _ := result.LastInsertId()
 	userID := int(userID64)
 
 	repo := NewCredentialRepository(db)

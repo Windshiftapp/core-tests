@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 // applyContinuation is the shared seam that turns a trigger into a continuation
@@ -135,16 +136,8 @@ func TestBindingService_Rerun_ContinuesOpenPR(t *testing.T) {
 // (scm_connection_id → workspace_scm_connections) resolves.
 func seedServiceSCMConnection(t *testing.T, st *bindingTestStack, workspaceID int) int {
 	t.Helper()
-	pres, err := st.DB.Exec(`INSERT INTO scm_providers(slug, name, provider_type, auth_method, enabled) VALUES ('gh', 'GitHub', 'github', 'pat', TRUE)`)
-	if err != nil {
-		t.Fatalf("seed scm provider: %v", err)
-	}
-	providerID, _ := pres.LastInsertId()
-	cres, err := st.DB.Exec(`INSERT INTO workspace_scm_connections(workspace_id, scm_provider_id, enabled) VALUES (?, ?, TRUE)`,
+	providerID := testutils.InsertID(t, st.DB, `INSERT INTO scm_providers(slug, name, provider_type, auth_method, enabled) VALUES ('gh', 'GitHub', 'github', 'pat', TRUE)`)
+	id := testutils.InsertID(t, st.DB, `INSERT INTO workspace_scm_connections(workspace_id, scm_provider_id, enabled) VALUES (?, ?, TRUE)`,
 		workspaceID, providerID)
-	if err != nil {
-		t.Fatalf("seed scm connection: %v", err)
-	}
-	id, _ := cres.LastInsertId()
 	return int(id)
 }

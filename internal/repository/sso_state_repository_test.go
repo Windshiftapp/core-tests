@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestSSOStateRepositoryPreservesRememberMeAndEnforcesExpiry(t *testing.T) {
@@ -20,17 +21,10 @@ func TestSSOStateRepositoryPreservesRememberMeAndEnforcesExpiry(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	result, err := db.ExecWrite(`
+	providerID := testutils.InsertID(t, db, `
 		INSERT INTO sso_providers (slug, name, provider_type, enabled)
 		VALUES ('test-oidc', 'Test OIDC', 'oidc', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert provider: %v", err)
-	}
-	providerID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
 
 	now := time.Now().UTC().Truncate(time.Second)
 	repo := NewSSOStateRepository(db)

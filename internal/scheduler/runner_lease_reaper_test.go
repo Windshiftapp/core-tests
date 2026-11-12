@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 func newReaperTestDB(t *testing.T) database.Database {
@@ -38,17 +39,10 @@ func TestReaper_FlagsStalledQueuedRuns(t *testing.T) {
 	reaper := NewRunnerLeaseReaper(runs, runners)
 
 	insertQueued := func(age time.Duration) int {
-		res, err := db.Exec(
+		id := testutils.InsertID(t, db, 
 			`INSERT INTO agent_runs(workspace_id, status, target_pool_id, queued_at) VALUES (1, 'queued', 5, ?)`,
 			time.Now().UTC().Add(-age),
 		)
-		if err != nil {
-			t.Fatalf("seed queued run: %v", err)
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			t.Fatalf("run id: %v", err)
-		}
 		return int(id)
 	}
 	stalled := insertQueued(10 * time.Minute)

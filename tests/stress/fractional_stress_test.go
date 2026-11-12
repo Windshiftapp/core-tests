@@ -433,12 +433,11 @@ func printFracIndexStatistics(t *testing.T, stats *FracIndexStats) {
 
 // Helper function to create test workspace
 func createTestWorkspace(t *testing.T, db *sql.DB, name string) int {
-	result, err := db.Exec("INSERT INTO workspaces (name, key) VALUES (?, ?)", name, fmt.Sprintf("WS%d", time.Now().UnixNano()))
-	if err != nil {
+	var id int
+	if err := db.QueryRow("INSERT INTO workspaces (name, key) VALUES (?, ?) RETURNING id", name, fmt.Sprintf("WS%d", time.Now().UnixNano())).Scan(&id); err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
-	id, _ := result.LastInsertId()
-	return int(id)
+	return id
 }
 
 // Helper function to create test item with frac_index
@@ -465,18 +464,17 @@ func createTestItemWithFracIndex(t *testing.T, db *sql.DB, workspaceID int, pare
 		t.Fatalf("Failed to get default priority ID: %v", err)
 	}
 
-	var result sql.Result
+	var id int
 	if parentID == nil {
-		result, err = db.Exec("INSERT INTO items (workspace_id, workspace_item_number, title, status_id, priority_id, frac_index) VALUES (?, ?, ?, ?, ?, ?)",
-			workspaceID, nextItemNumber, title, statusID, priorityID, fracIndex)
+		err = db.QueryRow("INSERT INTO items (workspace_id, workspace_item_number, title, status_id, priority_id, frac_index) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+			workspaceID, nextItemNumber, title, statusID, priorityID, fracIndex).Scan(&id)
 	} else {
-		result, err = db.Exec("INSERT INTO items (workspace_id, workspace_item_number, parent_id, title, status_id, priority_id, frac_index) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			workspaceID, nextItemNumber, *parentID, title, statusID, priorityID, fracIndex)
+		err = db.QueryRow("INSERT INTO items (workspace_id, workspace_item_number, parent_id, title, status_id, priority_id, frac_index) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+			workspaceID, nextItemNumber, *parentID, title, statusID, priorityID, fracIndex).Scan(&id)
 	}
 
 	if err != nil {
 		t.Fatalf("Failed to create item: %v", err)
 	}
-	id, _ := result.LastInsertId()
-	return int(id)
+	return id
 }

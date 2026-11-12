@@ -13,6 +13,7 @@ import (
 	"windshift/internal/database"
 	"windshift/internal/models"
 	"windshift/internal/services"
+	"windshift/internal/testutils"
 )
 
 func TestPlanningEnumMutationsRequireGlobalPermissionInHandler(t *testing.T) {
@@ -34,17 +35,10 @@ func TestPlanningEnumMutationsRequireGlobalPermissionInHandler(t *testing.T) {
 
 	insertUser := func(name string) *models.User {
 		t.Helper()
-		result, err := db.ExecWrite(`
+		id := testutils.InsertID(t, db, `
 			INSERT INTO users (email, username, first_name, last_name, is_active)
 			VALUES (?, ?, ?, 'User', true)
 		`, name+"@example.test", name, name)
-		if err != nil {
-			t.Fatalf("insert user %s: %v", name, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
 		return &models.User{ID: int(id), Username: name, Email: name + "@example.test"}
 	}
 	grant := func(userID int, permission string) {

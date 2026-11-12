@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 // Regression test for docs/bughunt-2026-05-19-pass-2.md F6.
@@ -34,40 +35,24 @@ func newPortalServiceTestDB(t *testing.T) database.Database {
 
 func seedCustomFieldDef(t *testing.T, db database.Database, name string) int {
 	t.Helper()
-	res, err := db.Exec(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO custom_field_definitions (name, field_type, required, options, display_order, system_default, applies_to_portal_customers, applies_to_customer_organisations)
 		VALUES (?, 'text', false, '[]', 0, false, false, false)
 	`, name)
-	if err != nil {
-		t.Fatalf("seed cfd %s: %v", name, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 
 func seedChannel(t *testing.T, db database.Database) (int, int) {
 	t.Helper()
-	workspaceResult, err := db.Exec(`INSERT INTO workspaces (name, key) VALUES ('Portal Service', 'PSVC')`)
-	if err != nil {
-		t.Fatalf("seed workspace: %v", err)
-	}
-	workspaceID64, _ := workspaceResult.LastInsertId()
+	workspaceID64 := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key) VALUES ('Portal Service', 'PSVC')`)
 	workspaceID := int(workspaceID64)
 
 	var itemTypeID int
 	if err := db.QueryRow(`SELECT id FROM item_types LIMIT 1`).Scan(&itemTypeID); err != nil {
 		t.Fatalf("no item_type: %v", err)
 	}
-	configResult, err := db.Exec(`INSERT INTO configuration_sets (name) VALUES ('Portal Service Config')`)
-	if err != nil {
-		t.Fatalf("seed configuration set: %v", err)
-	}
-	configID64, _ := configResult.LastInsertId()
-	screenResult, err := db.Exec(`INSERT INTO screens (name) VALUES ('Portal Service Create')`)
-	if err != nil {
-		t.Fatalf("seed create screen: %v", err)
-	}
-	screenID64, _ := screenResult.LastInsertId()
+	configID64 := testutils.InsertID(t, db, `INSERT INTO configuration_sets (name) VALUES ('Portal Service Config')`)
+	screenID64 := testutils.InsertID(t, db, `INSERT INTO screens (name) VALUES ('Portal Service Create')`)
 	if _, err := db.Exec(`INSERT INTO workspace_configuration_sets (workspace_id, configuration_set_id) VALUES (?, ?)`, workspaceID, configID64); err != nil {
 		t.Fatalf("bind workspace configuration: %v", err)
 	}
@@ -78,14 +63,10 @@ func seedChannel(t *testing.T, db database.Database) (int, int) {
 		t.Fatalf("bind create screen: %v", err)
 	}
 
-	res, err := db.Exec(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO channels (name, type, direction, status, config)
 		VALUES ('TestPortal', 'portal', 'inbound', 'enabled', ?)
 	`, fmt.Sprintf(`{"portal_workspace_ids":[%d]}`, workspaceID))
-	if err != nil {
-		t.Fatalf("seed channel: %v", err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id), workspaceID
 }
 
@@ -97,14 +78,10 @@ func seedRequestTypeForPortal(t *testing.T, db database.Database, channelID, wor
 	}
 	groups, _ := json.Marshal(visibilityGroupIDs)
 	orgs, _ := json.Marshal(visibilityOrgIDs)
-	res, err := db.Exec(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO request_types (channel_id, name, item_type_id, workspace_id, config, is_active, visibility_group_ids, visibility_org_ids)
 		VALUES (?, ?, ?, ?, '{}', true, ?, ?)
 	`, channelID, fmt.Sprintf("RT-%d-%d", channelID, len(visibilityGroupIDs)+len(visibilityOrgIDs)), itemTypeID, workspaceID, string(groups), string(orgs))
-	if err != nil {
-		t.Fatalf("seed request_type: %v", err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 

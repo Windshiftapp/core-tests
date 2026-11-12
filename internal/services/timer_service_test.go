@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 // timerTestEnv is a minimal in-memory environment for TimerService:
@@ -103,12 +104,8 @@ func (e *timerTestEnv) bootstrap() {
 	t.Helper()
 	exec := func(q string, args ...interface{}) int64 {
 		t.Helper()
-		res, err := e.db.Exec(q, args...)
-		if err != nil {
-			t.Fatalf("exec %q: %v", q, err)
-		}
-		id, _ := res.LastInsertId()
-		return id
+		id := testutils.InsertID(t, e.db, q, args...)
+		return int64(id)
 	}
 
 	// Users.
@@ -220,12 +217,8 @@ func TestTimerService_StopActiveForUser_DropsRevokedItemLink(t *testing.T) {
 	// the old buggy start_timer or mid-timer access revocation.)
 	exec := func(q string, args ...interface{}) int64 {
 		env.t.Helper()
-		res, err := env.db.Exec(q, args...)
-		if err != nil {
-			env.t.Fatalf("exec %q: %v", q, err)
-		}
-		id, _ := res.LastInsertId()
-		return id
+		id := testutils.InsertID(t, env.db, q, args...)
+		return int64(id)
 	}
 	exec(`INSERT INTO active_timers (workspace_id, item_id, project_id, user_id, description, start_time_utc, created_at)
 	      VALUES (?, ?, ?, ?, 'leaked', ?, ?)`,

@@ -13,6 +13,7 @@ import (
 	"windshift/internal/contextkeys"
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 func TestUpdateOwnedAgentName(t *testing.T) {
@@ -27,34 +28,20 @@ func TestUpdateOwnedAgentName(t *testing.T) {
 
 	insertUser := func(username string) *models.User {
 		t.Helper()
-		result, err := db.ExecWrite(`
+		id := testutils.InsertID(t, db, `
 			INSERT INTO users (email, username, first_name, last_name, is_active)
 			VALUES (?, ?, ?, 'User', true)
 		`, username+"@example.test", username, username)
-		if err != nil {
-			t.Fatalf("insert user: %v", err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
 		return &models.User{ID: int(id), Username: username, Email: username + "@example.test"}
 	}
 	insertAgent := func(ownerID int, username string) int {
 		t.Helper()
-		result, err := db.ExecWrite(`
+		id := testutils.InsertID(t, db, `
 			INSERT INTO users (
 				email, username, first_name, last_name, is_active, is_agent,
 				agent_owner_user_id, agent_provenance
 			) VALUES (?, ?, 'Old', 'Name', true, true, ?, 'user')
 		`, username+"@agents.test", username, ownerID)
-		if err != nil {
-			t.Fatalf("insert agent: %v", err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
 		return int(id)
 	}
 	request := func(agentID int, body string, user *models.User) *http.Request {

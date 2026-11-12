@@ -36,19 +36,12 @@ func TestItemCRUDService_GetBacklogItemsUsesCollectionScopedStatuses(t *testing.
 		t.Fatalf("get Done status: %v", err)
 	}
 
-	collectionResult, err := db.ExecWrite(
+	collectionID64 := testutils.InsertID(t, db, 
 		`INSERT INTO collections (name, ql_query, workspace_id, created_by) VALUES (?, '', ?, ?)`,
 		"Backlog scope",
 		workspaceID,
 		creatorID,
 	)
-	if err != nil {
-		t.Fatalf("create collection: %v", err)
-	}
-	collectionID64, err := collectionResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("collection LastInsertId: %v", err)
-	}
 	collectionID := int(collectionID64)
 
 	if _, err := db.ExecWrite(
@@ -135,19 +128,12 @@ func TestItemCRUDService_GetBacklogItemsFallsBackForUnconfiguredCollection(t *te
 		t.Fatalf("create workspace backlog config: %v", err)
 	}
 
-	collectionResult, err := db.ExecWrite(
+	collectionID64 := testutils.InsertID(t, db, 
 		`INSERT INTO collections (name, ql_query, workspace_id, created_by) VALUES (?, '', ?, ?)`,
 		"Unconfigured backlog scope",
 		workspaceID,
 		creatorID,
 	)
-	if err != nil {
-		t.Fatalf("create collection: %v", err)
-	}
-	collectionID64, err := collectionResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("collection LastInsertId: %v", err)
-	}
 	collectionID := int(collectionID64)
 
 	openItemID, err := f.CreateItem(factory.CreateItemOpts{

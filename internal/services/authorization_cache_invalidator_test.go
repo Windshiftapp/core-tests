@@ -7,6 +7,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 func TestGroupDeletePlanUsesPreDeleteMembersAndInvalidatesAfterCommit(t *testing.T) {
@@ -18,40 +19,19 @@ func TestGroupDeletePlanUsesPreDeleteMembersAndInvalidatesAfterCommit(t *testing
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	userResult, err := db.ExecWrite(`
+	userID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('group-member@example.test', 'group-member', 'Group', 'Member', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID64, err := userResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("user LastInsertId: %v", err)
-	}
 	userID := int(userID64)
-	workspaceResult, err := db.ExecWrite(`
+	workspaceID64 := testutils.InsertID(t, db, `
 		INSERT INTO workspaces (name, key, description, active, is_personal)
 		VALUES ('Group Delete', 'GRPDEL', '', true, false)
 	`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
 	workspaceID := int(workspaceID64)
-	groupResult, err := db.ExecWrite(`
+	groupID64 := testutils.InsertID(t, db, `
 		INSERT INTO groups (name, description, is_active) VALUES ('Delete Me', '', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert group: %v", err)
-	}
-	groupID64, err := groupResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("group LastInsertId: %v", err)
-	}
 	groupID := int(groupID64)
 	if _, err := db.ExecWrite(`INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`, groupID, userID); err != nil {
 		t.Fatalf("insert group member: %v", err)
@@ -114,16 +94,8 @@ func TestGroupDeletePlanDetectsLastDefaultRoleAssignment(t *testing.T) {
 	if err := db.Initialize(); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, active) VALUES ('Plan', 'PLAN', true)`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, _ := workspaceResult.LastInsertId()
-	groupResult, err := db.ExecWrite(`INSERT INTO groups (name, description, is_active) VALUES ('Gate', '', true)`)
-	if err != nil {
-		t.Fatalf("insert group: %v", err)
-	}
-	groupID, _ := groupResult.LastInsertId()
+	workspaceID := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, active) VALUES ('Plan', 'PLAN', true)`)
+	groupID := testutils.InsertID(t, db, `INSERT INTO groups (name, description, is_active) VALUES ('Gate', '', true)`)
 	if _, err := db.ExecWrite(`
 		INSERT INTO group_workspace_roles (group_id, workspace_id, role_id)
 		SELECT ?, ?, id FROM workspace_roles WHERE builtin_key = ?

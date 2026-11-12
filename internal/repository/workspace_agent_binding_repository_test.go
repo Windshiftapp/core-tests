@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 func openBindingTestDB(t *testing.T) (database.Database, int, int, int) {
@@ -25,14 +26,10 @@ func openBindingTestDB(t *testing.T) (database.Database, int, int, int) {
 		t.Fatalf("seed workspace: %v", err)
 	}
 	mkUser := func(email, username string, isAgent bool) int {
-		res, err := db.Exec(
+		id := testutils.InsertID(t, db, 
 			`INSERT INTO users(email, username, first_name, last_name, is_agent) VALUES (?, ?, '', '', ?)`,
 			email, username, isAgent,
 		)
-		if err != nil {
-			t.Fatalf("seed user %s: %v", username, err)
-		}
-		id, _ := res.LastInsertId()
 		return int(id)
 	}
 	admin := mkUser("admin@example.com", "admin", false)

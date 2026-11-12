@@ -7,6 +7,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 type timerServiceFixture struct {
@@ -109,14 +110,7 @@ func newTimerServiceFixture(t *testing.T, withCustomer, withItem bool) timerServ
 
 	insert := func(query string, args ...interface{}) int {
 		t.Helper()
-		result, err := db.ExecWrite(query, args...)
-		if err != nil {
-			t.Fatalf("insert fixture row: %v", err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
+		id := testutils.InsertID(t, db, query, args...)
 		return int(id)
 	}
 

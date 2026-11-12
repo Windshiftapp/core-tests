@@ -11,6 +11,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 type trackingWorkspaceKeyInvalidator struct {
@@ -35,25 +36,17 @@ func newOffboardEnv(t *testing.T) (database.Database, int) {
 		t.Fatalf("init schema: %v", err)
 	}
 
-	res, err := db.Exec(`INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
+	uid64 := testutils.InsertID(t, db, `INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
 		"hank@example.com", "hank", "Hank")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	uid64, _ := res.LastInsertId()
 	return db, int(uid64)
 }
 
 func insertAPIToken(t *testing.T, db database.Database, userID int, name string) int {
 	t.Helper()
-	res, err := db.Exec(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, permissions)
 		VALUES (?, ?, ?, ?, '["read"]')
 	`, userID, name, "hash-"+name, "crw_"+name)
-	if err != nil {
-		t.Fatalf("insert api_token %s: %v", name, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 
@@ -99,29 +92,15 @@ func TestOffboardUser_NoTokens_ReturnsEmptySlice(t *testing.T) {
 
 func TestOffboardUserInvalidatesImplicitAndWorkspaceCaches(t *testing.T) {
 	db, offboardedUserID := newOffboardEnv(t)
-	observerResult, err := db.Exec(`
+	observerID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active)
 		VALUES ('observer@example.test', 'observer', 'Other', 'User', true)
 	`)
-	if err != nil {
-		t.Fatalf("insert observer: %v", err)
-	}
-	observerID64, err := observerResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("observer LastInsertId: %v", err)
-	}
 	observerID := int(observerID64)
-	workspaceResult, err := db.Exec(`
+	workspaceID64 := testutils.InsertID(t, db, `
 		INSERT INTO workspaces (name, key, description, active, is_personal)
 		VALUES ('Offboard', 'OFF', '', true, false)
 	`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
 	workspaceID := int(workspaceID64)
 	if _, err := db.Exec(`
 		INSERT INTO user_workspace_roles (user_id, workspace_id, role_id)
@@ -262,14 +241,10 @@ func TestOffboardUser_RemovesUserOwnedSecretsAndSyncState(t *testing.T) {
 func TestOffboardUser_RemovesMembershipsSchedulesAndRoles(t *testing.T) {
 	db, uid := newOffboardEnv(t)
 
-	res, err := db.Exec(`
+	keeperID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name)
 		VALUES ('keeper@example.test', 'keeper', 'Keep', 'Er')
 	`)
-	if err != nil {
-		t.Fatalf("insert keeper: %v", err)
-	}
-	keeperID64, _ := res.LastInsertId()
 	keeperID := int(keeperID64)
 
 	offboardExec(t, db, `INSERT INTO teams (name) VALUES ('offboard-team')`)

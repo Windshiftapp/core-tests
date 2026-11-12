@@ -10,6 +10,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 type countingPluginDispatcher struct {
@@ -126,17 +127,10 @@ func TestSubscriptionIndexCachesAndInvalidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
-	result, err := db.ExecWrite(`
+	channelID := testutils.InsertID(t, db, `
 		INSERT INTO channels (name, type, direction, status, config)
 		VALUES ('indexed', 'webhook', 'outbound', 'enabled', ?)
 	`, string(configJSON))
-	if err != nil {
-		t.Fatalf("insert channel: %v", err)
-	}
-	channelID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("channel id: %v", err)
-	}
 
 	sender := NewWebhookSender(db)
 	t.Cleanup(func() {

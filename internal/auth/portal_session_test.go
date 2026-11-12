@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestPortalSessionManagerHashesTokensAndSupportsLegacySessions(t *testing.T) {
@@ -21,21 +22,13 @@ func TestPortalSessionManagerHashesTokensAndSupportsLegacySessions(t *testing.T)
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	channelResult, err := db.ExecWrite(`
+	channelID64 := testutils.InsertID(t, db, `
 		INSERT INTO channels (name, type, direction, status)
 		VALUES (?, ?, ?, ?)
 	`, "Customer portal", "portal", "inbound", "enabled")
-	if err != nil {
-		t.Fatalf("insert channel: %v", err)
-	}
-	channelID64, _ := channelResult.LastInsertId()
-	customerResult, err := db.ExecWrite(`
+	customerID64 := testutils.InsertID(t, db, `
 		INSERT INTO portal_customers (name, email) VALUES (?, ?)
 	`, "Portal User", "portal-session@example.com")
-	if err != nil {
-		t.Fatalf("insert portal customer: %v", err)
-	}
-	customerID64, _ := customerResult.LastInsertId()
 	channelID, customerID := int(channelID64), int(customerID64)
 
 	sm := NewPortalSessionManager(db, false, false, nil, "portal-test-secret", "strict")

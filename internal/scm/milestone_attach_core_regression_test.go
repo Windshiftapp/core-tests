@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestMilestoneCommitLedgerIsIndependentAndObjectScoped(t *testing.T) {
@@ -20,14 +21,7 @@ func TestMilestoneCommitLedgerIsIndependentAndObjectScoped(t *testing.T) {
 
 	insertID := func(query string, args ...interface{}) int {
 		t.Helper()
-		result, err := db.ExecWrite(query, args...)
-		if err != nil {
-			t.Fatalf("fixture insert: %v", err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
+		id := testutils.InsertID(t, db, query, args...)
 		return int(id)
 	}
 

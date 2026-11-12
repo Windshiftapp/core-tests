@@ -198,18 +198,11 @@ func newAuditLogTestDB(t *testing.T) database.Database {
 
 func seedAuditLog(t *testing.T, db database.Database, action string) int {
 	t.Helper()
-	res, err := db.ExecWrite(
+	id := testutils.InsertID(t, db, 
 		`INSERT INTO audit_logs (timestamp, username, action_type, resource_type, success)
 		 VALUES (?, ?, ?, ?, ?)`,
 		time.Now(), "tester", action, "test", true,
 	)
-	if err != nil {
-		t.Fatalf("insert audit_log: %v", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
-	}
 	return int(id)
 }
 

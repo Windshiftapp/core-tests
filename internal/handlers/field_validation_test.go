@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/services"
+	"windshift/internal/testutils"
 )
 
 // Regression tests for docs/bughunt-2026-05-19-pass-2.md findings #2 and #3.
@@ -34,14 +35,10 @@ func seedRequestTypeWithCustomFields(t *testing.T, db database.Database, rtID in
 		t.Fatalf("seed workspace: %v", err)
 	}
 	// request_types.channel_id is NOT NULL; seed one channel per request type.
-	res, err := db.Exec(`
+	chID64 := testutils.InsertID(t, db, `
 		INSERT INTO channels (name, type, direction, status, config)
 		VALUES (?, 'portal', 'inbound', 'enabled', ?)
 	`, "ch-rt-"+strconv.Itoa(rtID), `{"portal_workspace_ids":[`+strconv.Itoa(workspaceID)+`]}`)
-	if err != nil {
-		t.Fatalf("seed channel: %v", err)
-	}
-	chID64, _ := res.LastInsertId()
 	var configSetID, screenID int
 	if err := db.QueryRow(`INSERT INTO configuration_sets (name) VALUES (?) RETURNING id`, "Config RT "+strconv.Itoa(rtID)).Scan(&configSetID); err != nil {
 		t.Fatalf("seed configuration set: %v", err)

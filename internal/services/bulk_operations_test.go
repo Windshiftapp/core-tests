@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 type bulkFixture struct {
@@ -38,14 +39,7 @@ func newBulkTestDB(t *testing.T) database.Database {
 
 func bulkInsertID(t *testing.T, db database.Database, query string, args ...any) int {
 	t.Helper()
-	result, err := db.ExecWrite(query, args...)
-	if err != nil {
-		t.Fatalf("fixture insert: %v\nquery: %s", err, query)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
+	id := testutils.InsertID(t, db, query, args...)
 	return int(id)
 }
 

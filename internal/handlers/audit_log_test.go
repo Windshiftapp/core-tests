@@ -12,6 +12,7 @@ import (
 	"windshift/internal/database"
 	"windshift/internal/logger"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 func TestListAuditLogsRejectsInvalidFilters(t *testing.T) {
@@ -73,15 +74,11 @@ func newAuditLogStreamTestHandler(t *testing.T) (*AuditLogHandler, database.Data
 
 func seedStreamRow(t *testing.T, db database.Database, action string) int {
 	t.Helper()
-	res, err := db.ExecWrite(
+	id := testutils.InsertID(t, db, 
 		`INSERT INTO audit_logs (timestamp, username, action_type, resource_type, success)
 		 VALUES (?, ?, ?, ?, ?)`,
 		time.Now(), "tester", action, "test", true,
 	)
-	if err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 

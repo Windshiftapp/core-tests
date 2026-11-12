@@ -152,24 +152,10 @@ func TestFindAllWithDetailsUsesLatestCurrentStatusTransition(t *testing.T) {
 		t.Fatalf("status history index count = %d, want 1", indexCount)
 	}
 
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "List Test", "LIST")
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
+	workspaceID64 := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "List Test", "LIST")
 	workspaceID := int(workspaceID64)
 
-	userResult, err := db.ExecWrite(`INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, ?)`, "list@example.com", "list-test", "List", "Test")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID, err := userResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("user LastInsertId: %v", err)
-	}
+	userID := testutils.InsertID(t, db, `INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, ?)`, "list@example.com", "list-test", "List", "Test")
 
 	var openStatusID, doneStatusID int
 	if err := db.QueryRow(`SELECT id FROM statuses WHERE name = 'Open'`).Scan(&openStatusID); err != nil {
@@ -182,17 +168,10 @@ func TestFindAllWithDetailsUsesLatestCurrentStatusTransition(t *testing.T) {
 	createdAt := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	insertItem := func(number, statusID int, title string) int {
 		t.Helper()
-		result, err := db.ExecWrite(`
+		id := testutils.InsertID(t, db, `
 			INSERT INTO items (workspace_id, workspace_item_number, title, description, status_id, frac_index, created_at, updated_at)
 			VALUES (?, ?, ?, '', ?, ?, ?, ?)
 		`, workspaceID, number, title, statusID, testutils.NextTestFracIndex(), createdAt.Format(time.RFC3339Nano), createdAt.Format(time.RFC3339Nano))
-		if err != nil {
-			t.Fatalf("insert item %s: %v", title, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("item LastInsertId: %v", err)
-		}
 		return int(id)
 	}
 
@@ -285,40 +264,19 @@ func TestFindAllWithDetailsUsesLatestCurrentStatusTransition(t *testing.T) {
 func BenchmarkCurrentStatusTransitionLookup(b *testing.B) {
 	db := newItemListTestDB(b, "item-list-status-benchmark")
 
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES ('Benchmark', 'BENCH', '', true)`)
-	if err != nil {
-		b.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, err := workspaceResult.LastInsertId()
-	if err != nil {
-		b.Fatalf("workspace LastInsertId: %v", err)
-	}
-	userResult, err := db.ExecWrite(`INSERT INTO users (email, username, first_name, last_name) VALUES ('bench@example.com', 'bench', 'Bench', 'Mark')`)
-	if err != nil {
-		b.Fatalf("insert user: %v", err)
-	}
-	userID, err := userResult.LastInsertId()
-	if err != nil {
-		b.Fatalf("user LastInsertId: %v", err)
-	}
+	workspaceID := testutils.InsertID(b, db, `INSERT INTO workspaces (name, key, description, active) VALUES ('Benchmark', 'BENCH', '', true)`)
+	userID := testutils.InsertID(b, db, `INSERT INTO users (email, username, first_name, last_name) VALUES ('bench@example.com', 'bench', 'Bench', 'Mark')`)
 	var doneStatusID int
 	if err := db.QueryRow(`SELECT id FROM statuses WHERE name = 'Done'`).Scan(&doneStatusID); err != nil {
 		b.Fatalf("load Done status: %v", err)
 	}
-	itemResult, err := db.ExecWrite(`
+	itemID := testutils.InsertID(b, db, `
 		INSERT INTO items (workspace_id, workspace_item_number, title, description, status_id, frac_index)
 		VALUES (?, 1, 'Benchmark item', '', ?, ?)
 	`, workspaceID, doneStatusID, testutils.NextTestFracIndex())
-	if err != nil {
-		b.Fatalf("insert item: %v", err)
-	}
-	itemID, err := itemResult.LastInsertId()
-	if err != nil {
-		b.Fatalf("item LastInsertId: %v", err)
-	}
 
 	const historyRows = 10_000
-	err = database.WithTx(db, func(tx database.Tx) error {
+	err := database.WithTx(db, func(tx database.Tx) error {
 		for i := range historyRows {
 			fieldName := "title"
 			newValue := "updated"

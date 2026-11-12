@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 type scmConnectionReadCountingDB struct {
@@ -29,14 +30,7 @@ func TestListConnectionsForWorkspacesUsesOneScopedRead(t *testing.T) {
 	}
 	insertID := func(label, query string, args ...interface{}) int {
 		t.Helper()
-		result, err := db.ExecWrite(query, args...)
-		if err != nil {
-			t.Fatalf("insert %s: %v", label, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId for %s: %v", label, err)
-		}
+		id := testutils.InsertID(t, db, query, args...)
 		return int(id)
 	}
 	providerID := insertID(
@@ -89,14 +83,7 @@ func TestSCMConnectionEnrichmentsUseBoundedWorkspaceReads(t *testing.T) {
 	}
 	insertID := func(label, query string, args ...interface{}) int {
 		t.Helper()
-		result, err := db.ExecWrite(query, args...)
-		if err != nil {
-			t.Fatalf("insert %s: %v", label, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId for %s: %v", label, err)
-		}
+		id := testutils.InsertID(t, db, query, args...)
 		return int(id)
 	}
 	userID := insertID("user", `INSERT INTO users (email, username, first_name, last_name) VALUES ('scm@example.test', 'scm-user', 'SCM', 'User')`)

@@ -36,14 +36,7 @@ func BenchmarkItemTextSearch(b *testing.B) {
 
 func createItemSearchBenchWorkspace(b *testing.B, db database.Database) int {
 	b.Helper()
-	result, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES ('Item search bench', 'ISBENCH', '', true)`)
-	if err != nil {
-		b.Fatalf("insert workspace: %v", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		b.Fatalf("workspace id: %v", err)
-	}
+	id := testutils.InsertID(b, db, `INSERT INTO workspaces (name, key, description, active) VALUES ('Item search bench', 'ISBENCH', '', true)`)
 	return int(id)
 }
 

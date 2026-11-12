@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 // permTestEnv is the minimal setup for exercising group-derived permissions.
@@ -41,21 +42,13 @@ func newPermTestEnv(tb testing.TB) *permTestEnv {
 
 func (e *permTestEnv) insertUser(email string) int {
 	e.tb.Helper()
-	res, err := e.db.Exec(`INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`, email, email, email)
-	if err != nil {
-		e.tb.Fatalf("insert user %s: %v", email, err)
-	}
-	uid, _ := res.LastInsertId()
+	uid := testutils.InsertID(e.tb, e.db, `INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`, email, email, email)
 	return int(uid)
 }
 
 func (e *permTestEnv) insertGroup(name string, active bool) int {
 	e.tb.Helper()
-	res, err := e.db.Exec(`INSERT INTO groups (name, is_active) VALUES (?, ?)`, name, active)
-	if err != nil {
-		e.tb.Fatalf("insert group %s: %v", name, err)
-	}
-	gid, _ := res.LastInsertId()
+	gid := testutils.InsertID(e.tb, e.db, `INSERT INTO groups (name, is_active) VALUES (?, ?)`, name, active)
 	return int(gid)
 }
 
@@ -91,11 +84,7 @@ func (e *permTestEnv) grantGroupGlobal(groupID int, permKey string) {
 
 func (e *permTestEnv) insertWorkspace(name string) int {
 	e.tb.Helper()
-	res, err := e.db.Exec(`INSERT INTO workspaces (name, key, active, is_personal) VALUES (?, ?, true, false)`, name, name)
-	if err != nil {
-		e.tb.Fatalf("insert workspace: %v", err)
-	}
-	wid, _ := res.LastInsertId()
+	wid := testutils.InsertID(e.tb, e.db, `INSERT INTO workspaces (name, key, active, is_personal) VALUES (?, ?, true, false)`, name, name)
 	return int(wid)
 }
 

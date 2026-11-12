@@ -17,6 +17,7 @@ import (
 	"windshift/internal/models"
 	"windshift/internal/repository"
 	"windshift/internal/services"
+	"windshift/internal/testutils"
 )
 
 func TestListSchedulesIncludesCompleteOverviewForTeamMembers(t *testing.T) {
@@ -38,14 +39,7 @@ func TestListSchedulesIncludesCompleteOverviewForTeamMembers(t *testing.T) {
 
 	insertID := func(label, query string, args ...interface{}) int {
 		t.Helper()
-		result, err := db.ExecWrite(query, args...)
-		if err != nil {
-			t.Fatalf("insert %s: %v", label, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId for %s: %v", label, err)
-		}
+		id := testutils.InsertID(t, db, query, args...)
 		return int(id)
 	}
 	memberID := insertID(

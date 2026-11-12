@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 // seedCustomerErasureFixture seeds the full customer data matrix the erasure
@@ -20,18 +21,10 @@ import (
 func seedCustomerErasureFixture(t *testing.T, env *approvalTestEnv, customerID int) (channelID int, stepInstanceID int) {
 	t.Helper()
 
-	res, err := env.db.Exec(`INSERT INTO channels (name, type, direction, status) VALUES ('erasure-portal', 'portal', 'inbound', 'enabled')`)
-	if err != nil {
-		t.Fatalf("insert channel: %v", err)
-	}
-	cid, _ := res.LastInsertId()
+	cid := testutils.InsertID(t, env.db, `INSERT INTO channels (name, type, direction, status) VALUES ('erasure-portal', 'portal', 'inbound', 'enabled')`)
 	channelID = int(cid)
 
-	res, err = env.db.Exec(`INSERT INTO request_types (channel_id, name, item_type_id, workspace_id) VALUES (?, 'Erasure Request', ?, ?)`, channelID, env.itemTypeID, env.workspaceID)
-	if err != nil {
-		t.Fatalf("insert request type: %v", err)
-	}
-	requestTypeID, _ := res.LastInsertId()
+	requestTypeID := testutils.InsertID(t, env.db, `INSERT INTO request_types (channel_id, name, item_type_id, workspace_id) VALUES (?, 'Erasure Request', ?, ?)`, channelID, env.itemTypeID, env.workspaceID)
 
 	for _, stmt := range []struct {
 		query string

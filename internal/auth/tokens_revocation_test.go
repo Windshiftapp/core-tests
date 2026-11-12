@@ -8,6 +8,7 @@ import (
 	"windshift/internal/auth"
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 // newTokenManagerEnv brings up an in-memory SQLite + a TokenManager with a
@@ -25,12 +26,8 @@ func newTokenManagerEnv(t *testing.T) (*auth.TokenManager, database.Database, in
 		t.Fatalf("init schema: %v", err)
 	}
 
-	res, err := db.Exec(`INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
+	uid64 := testutils.InsertID(t, db, `INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
 		"tok@example.com", "tok", "Tok")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	uid64, _ := res.LastInsertId()
 	uid := int(uid64)
 
 	tm := auth.NewTokenManager(db, nil)

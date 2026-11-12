@@ -7,6 +7,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 // newSCMSchema sets up an in-memory SQLite DB with the minimum tables this
@@ -84,28 +85,14 @@ func newSCMSchema(t *testing.T) database.Database {
 // workspace_repository_id.
 func insertRepo(t *testing.T, db database.Database, workspaceID int, repoName string) int {
 	t.Helper()
-	res, err := db.Exec(
+	connID := testutils.InsertID(t, db, 
 		"INSERT INTO workspace_scm_connections (workspace_id, scm_provider_id) VALUES (?, 1)",
 		workspaceID,
 	)
-	if err != nil {
-		t.Fatalf("insert connection: %v", err)
-	}
-	connID, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("conn id: %v", err)
-	}
-	res, err = db.Exec(
+	repoID := testutils.InsertID(t, db, 
 		"INSERT INTO workspace_repositories (workspace_scm_connection_id, repository_external_id, repository_name) VALUES (?, ?, ?)",
 		connID, "ext-"+repoName, repoName,
 	)
-	if err != nil {
-		t.Fatalf("insert repo: %v", err)
-	}
-	repoID, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("repo id: %v", err)
-	}
 	return int(repoID)
 }
 

@@ -27,23 +27,15 @@ import (
 // seedLocalGroup inserts a group row with scim_managed = false.
 func seedLocalGroup(t *testing.T, db database.Database, name string) int {
 	t.Helper()
-	res, err := db.Exec(`INSERT INTO groups (name, scim_managed) VALUES (?, false)`, name)
-	if err != nil {
-		t.Fatalf("seed local group %s: %v", name, err)
-	}
-	id, _ := res.LastInsertId()
+	id := testutils.InsertID(t, db, `INSERT INTO groups (name, scim_managed) VALUES (?, false)`, name)
 	return int(id)
 }
 
 // seedLocalUser inserts a user row with scim_managed = false.
 func seedLocalUser(t *testing.T, db database.Database, username string) int {
 	t.Helper()
-	res, err := db.Exec(`INSERT INTO users (email, username, scim_managed) VALUES (?, ?, false)`,
+	id := testutils.InsertID(t, db, `INSERT INTO users (email, username, scim_managed) VALUES (?, ?, false)`,
 		username+"@example.com", username)
-	if err != nil {
-		t.Fatalf("seed local user %s: %v", username, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 

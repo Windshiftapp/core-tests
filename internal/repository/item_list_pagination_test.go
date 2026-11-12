@@ -15,14 +15,7 @@ import (
 
 func TestFindAllWithDetailsPageContextCursorPaginatesDefaultWorkspaceOrder(t *testing.T) {
 	db := newItemListTestDB(t, "item-list-cursor")
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Cursor", "CURSOR")
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace id: %v", err)
-	}
+	workspaceID64 := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Cursor", "CURSOR")
 	workspaceID := int(workspaceID64)
 	for number, rank := range []string{"0|a1", "0|a2", "0|a3"} {
 		if _, err := db.ExecWrite(`
@@ -266,14 +259,7 @@ func TestDefaultItemListOrderUsesWorkspaceRankIndexOnSQLite(t *testing.T) {
 
 func TestFindAllWithDetailsPageContextIgnoresCursorForCollectionPlan(t *testing.T) {
 	db := newItemListTestDB(t, "item-list-collection-cursor")
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Collection", "COLLECTION")
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace id: %v", err)
-	}
+	workspaceID64 := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Collection", "COLLECTION")
 	workspaceID := int(workspaceID64)
 	for number, title := range []string{"collection-first", "collection-second"} {
 		if _, err := db.ExecWrite(`
@@ -308,14 +294,7 @@ func TestFindAllWithDetailsOrdersCanonicalRanksAcrossPages(t *testing.T) {
 	// Repository-layer setup is intentionally direct here: the API always
 	// generates a canonical non-null rank, and the repository preserves that
 	// bytewise order across offset pages.
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Ranked", "RANKED")
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace id: %v", err)
-	}
+	workspaceID64 := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Ranked", "RANKED")
 	workspaceID := int(workspaceID64)
 
 	insert := func(number int, title, rank string) {
@@ -349,14 +328,7 @@ func TestFindAllWithDetailsRefreshesWorkspaceTotalAfterPostCommitInvalidation(t 
 	db := newItemListTestDB(t, "item-list-count-invalidation")
 	// This is a repository test, so the minimal production-schema seed avoids
 	// coupling the count-cache assertion to HTTP authentication and routing.
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Counts", "COUNTS")
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace id: %v", err)
-	}
+	workspaceID64 := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`, "Counts", "COUNTS")
 	workspaceID := int(workspaceID64)
 	if _, err := db.ExecWrite(`
 		INSERT INTO items (workspace_id, workspace_item_number, title, description, frac_index)

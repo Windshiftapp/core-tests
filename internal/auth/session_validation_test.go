@@ -12,6 +12,7 @@ import (
 
 	"windshift/internal/cacheutil"
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 const sessionValidationTestIP = "198.51.100.10"
@@ -28,17 +29,10 @@ func newSessionValidationTestManager(t testing.TB, ttl time.Duration) (database.
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	result, err := db.ExecWrite(`
+	userID := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, email_verified, created_at, updated_at)
 		VALUES (?, ?, ?, ?, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, "cache-test@example.com", "cache-test", "Cache", "Test")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
 
 	manager := NewSessionManagerWithValidationCacheTTL(
 		db,
@@ -192,17 +186,10 @@ func TestSessionValidationUserInvalidationKeepsUnrelatedSessionWarm(t *testing.T
 		t.Fatalf("mark first user unverified: %v", err)
 	}
 
-	result, err := db.ExecWrite(`
+	secondUserID := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, email_verified, created_at, updated_at)
 		VALUES ('second-cache@example.com', 'second-cache', 'Second', 'Cache', true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`)
-	if err != nil {
-		t.Fatalf("insert second user: %v", err)
-	}
-	secondUserID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("second user LastInsertId: %v", err)
-	}
 	second, err := manager.CreateSession(int(secondUserID), sessionValidationTestIP, "second-agent", false)
 	if err != nil {
 		t.Fatalf("CreateSession(second): %v", err)
@@ -246,17 +233,10 @@ func TestSessionValidationUserInvalidationKeepsUnrelatedSessionWarm(t *testing.T
 
 func TestSessionValidationTokenInvalidationKeepsUnrelatedSessionWarm(t *testing.T) {
 	db, manager, first := newSessionValidationTestManager(t, time.Hour)
-	result, err := db.ExecWrite(`
+	peerUserID := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, email_verified, created_at, updated_at)
 		VALUES ('refresh-peer@example.com', 'refresh-peer', 'Refresh', 'Peer', true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`)
-	if err != nil {
-		t.Fatalf("insert peer user: %v", err)
-	}
-	peerUserID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("peer LastInsertId: %v", err)
-	}
 	peer, err := manager.CreateSession(int(peerUserID), sessionValidationTestIP, "peer-agent", false)
 	if err != nil {
 		t.Fatalf("CreateSession(peer): %v", err)

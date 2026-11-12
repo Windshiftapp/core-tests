@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestSessionManagerStoresHashedTokensAndValidatesLegacyPlaintext(t *testing.T) {
@@ -20,17 +21,10 @@ func TestSessionManagerStoresHashedTokensAndValidatesLegacyPlaintext(t *testing.
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	res, err := db.ExecWrite(`
+	userID64 := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, first_name, last_name, is_active, email_verified, created_at, updated_at)
 		VALUES (?, ?, ?, ?, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, "session-test@example.com", "session-test", "Session", "Test")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	userID64, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
 	userID := int(userID64)
 
 	sm := NewSessionManagerWithValidationCacheTTL(db, false, false, nil, "test-cookie-secret", "strict", DefaultSessionValidationCacheTTL)

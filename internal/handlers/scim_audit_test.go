@@ -17,6 +17,7 @@ import (
 	"windshift/internal/models"
 	"windshift/internal/repository"
 	"windshift/internal/services"
+	"windshift/internal/testutils"
 )
 
 // These tests exercise the SCIM audit-logging paths end-to-end against an
@@ -285,23 +286,15 @@ func seedUser(t *testing.T, db database.Database, username string) int {
 	// SCIM write paths refuse non-SCIM-managed targets with 404, so every
 	// helper-seeded user must carry scim_managed = true to stand in for an
 	// IdP-provisioned identity.
-	res, err := db.Exec(`INSERT INTO users (email, username, scim_managed) VALUES (?, ?, true)`,
+	id := testutils.InsertID(t, db, `INSERT INTO users (email, username, scim_managed) VALUES (?, ?, true)`,
 		username+"@example.com", username)
-	if err != nil {
-		t.Fatalf("seed user %s: %v", username, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 
 // seedGroup inserts a bare-minimum SCIM-managed group row and returns its ID.
 func seedGroup(t *testing.T, db database.Database, name string) int {
 	t.Helper()
-	res, err := db.Exec(`INSERT INTO groups (name, scim_managed) VALUES (?, true)`, name)
-	if err != nil {
-		t.Fatalf("seed group %s: %v", name, err)
-	}
-	id, _ := res.LastInsertId()
+	id := testutils.InsertID(t, db, `INSERT INTO groups (name, scim_managed) VALUES (?, true)`, name)
 	return int(id)
 }
 
@@ -586,14 +579,10 @@ func TestCreateGroup_MemberInsertFailure_AuditsSuccessFalse(t *testing.T) {
 // seedAgent inserts an agent user owned by ownerID and returns its ID.
 func seedAgent(t *testing.T, db database.Database, ownerID int, username string) int {
 	t.Helper()
-	res, err := db.Exec(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO users (email, username, is_agent, agent_owner_user_id)
 		VALUES (?, ?, true, ?)
 	`, username+"@agents.local", username, ownerID)
-	if err != nil {
-		t.Fatalf("seed agent %s: %v", username, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 

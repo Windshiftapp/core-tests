@@ -86,18 +86,11 @@ func TestFindAllWithDetailsCustomFieldSortContracts(t *testing.T) {
 func TestFindAllWithDetailsOrdersBubblePagesByEffectiveActivity(t *testing.T) {
 	db := newItemListTestDB(t, "item-list-bubble-order")
 
-	workspaceResult, err := db.ExecWrite(
+	workspaceID64 := testutils.InsertID(t, db, 
 		`INSERT INTO workspaces (name, key, description, active) VALUES (?, ?, '', true)`,
 		"Bubble Test",
 		"BUB",
 	)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID64, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
 	workspaceID := int(workspaceID64)
 
 	base := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)

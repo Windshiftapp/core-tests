@@ -14,6 +14,7 @@ import (
 	"windshift/internal/database"
 	"windshift/internal/models"
 	"windshift/internal/services"
+	"windshift/internal/testutils"
 )
 
 // Tests for the entity_type='page' branches of AttachmentHandler.Download
@@ -50,20 +51,13 @@ func newPageAttachmentHandler(t *testing.T) (*AttachmentHandler, *services.PageS
 // (auth-rejection) Download paths short-circuit before file IO.
 func insertPageAttachment(t *testing.T, db database.Database, pageID, uploaderID int) int {
 	t.Helper()
-	res, err := db.Exec(`
+	id := testutils.InsertID(t, db, `
 		INSERT INTO attachments
 			(item_id, entity_type, filename, original_filename, file_path,
 			 mime_type, file_size, uploaded_by, thumbnail_path)
 		VALUES (?, 'page', ?, ?, ?, 'text/plain', 12, ?, NULL)
 	`, pageID, "page-attach.txt", "page-attach.txt",
 		"pages/"+strconv.Itoa(pageID)+"/page-attach.txt", uploaderID)
-	if err != nil {
-		t.Fatalf("seed page attachment: %v", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
-	}
 	return int(id)
 }
 
@@ -243,19 +237,15 @@ func TestAttachmentDownload_Page_NullItemIDRejected(t *testing.T) {
 	seedWorkspaceWithRole(t, db, 1, userID, "Editor")
 
 	// Insert directly — service won't let us, so go around it.
-	res, err := db.Exec(`
+	id64 := testutils.InsertID(t, db, `
 		INSERT INTO attachments
 			(item_id, entity_type, filename, original_filename, file_path,
 			 mime_type, file_size, uploaded_by, thumbnail_path)
 		VALUES (NULL, 'page', 'x.txt', 'x.txt', 'pages/x.txt', 'text/plain', 1, ?, NULL)
 	`, userID)
-	if err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	id64, _ := res.LastInsertId()
 
-	req := authedRequest(http.MethodGet, "/attachments/"+strconv.FormatInt(id64, 10)+"/download", userID, nil)
-	req.SetPathValue("id", strconv.FormatInt(id64, 10))
+	req := authedRequest(http.MethodGet, "/attachments/"+strconv.FormatInt(int64(id64), 10)+"/download", userID, nil)
+	req.SetPathValue("id", strconv.FormatInt(int64(id64), 10))
 	rec := httptest.NewRecorder()
 	h.Download(rec, req)
 

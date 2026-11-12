@@ -8,6 +8,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 func openIdentityTestDB(t *testing.T) (database.Database, *repository.AgentSecurityRepository) {
@@ -36,14 +37,10 @@ func seedIdentityUser(t *testing.T, db database.Database, email, username, first
 	if ownerID != nil {
 		owner = *ownerID
 	}
-	res, err := db.Exec(
+	id := testutils.InsertID(t, db, 
 		`INSERT INTO users(email, username, first_name, last_name, is_agent, agent_owner_user_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		email, username, firstName, lastName, isAgent, owner, isActive,
 	)
-	if err != nil {
-		t.Fatalf("seed user %s: %v", username, err)
-	}
-	id, _ := res.LastInsertId()
 	return int(id)
 }
 

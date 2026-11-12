@@ -24,13 +24,9 @@ func TestMigration_AgentRuns_SchemaSanity(t *testing.T) {
 		t.Fatalf("seed workspace: %v", err)
 	}
 
-	res, err := db.Exec(`INSERT INTO agent_runs(workspace_id, item_id) VALUES (1, NULL)`)
-	if err != nil {
+	var runID int
+	if err := db.QueryRow(`INSERT INTO agent_runs(workspace_id, item_id) VALUES (1, NULL) RETURNING id`).Scan(&runID); err != nil {
 		t.Fatalf("insert agent_run: %v", err)
-	}
-	runID, err := res.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
 	}
 
 	if _, err := db.Exec(`

@@ -7,6 +7,7 @@ import (
 	"windshift/internal/database"
 	"windshift/internal/models"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 type testCaseWorkspacePermissions struct {
@@ -42,14 +43,7 @@ func newTestCaseLinkPermissionDB(t *testing.T) database.Database {
 
 func insertTestCaseLinkPermissionRow(t *testing.T, db database.Database, query string, args ...any) int {
 	t.Helper()
-	result, err := db.ExecWrite(query, args...)
-	if err != nil {
-		t.Fatalf("insert fixture row: %v\nquery: %s", err, query)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
+	id := testutils.InsertID(t, db, query, args...)
 	return int(id)
 }
 

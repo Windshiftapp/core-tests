@@ -10,6 +10,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 func TestParseWorklogTimesStrictClockAndDurationBounds(t *testing.T) {
@@ -240,14 +241,7 @@ func TestResolveAccessibleWorklogItemUsesSameGateForIDAndKey(t *testing.T) {
 		t.Fatalf("Initialize: %v", err)
 	}
 
-	workspaceResult, err := db.ExecWrite(`INSERT INTO workspaces (name, key, description, active) VALUES ('Secret', 'SEC', '', true)`)
-	if err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	workspaceID, err := workspaceResult.LastInsertId()
-	if err != nil {
-		t.Fatalf("workspace LastInsertId: %v", err)
-	}
+	workspaceID := testutils.InsertID(t, db, `INSERT INTO workspaces (name, key, description, active) VALUES ('Secret', 'SEC', '', true)`)
 	itemID64, err := CreateItem(db, ItemCreationParams{
 		WorkspaceID: int(workspaceID),
 		Title:       "Restricted",

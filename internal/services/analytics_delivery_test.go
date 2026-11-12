@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 type analyticsDeliveryFixture struct {
@@ -31,14 +32,7 @@ func newAnalyticsDeliveryFixture(t *testing.T) analyticsDeliveryFixture {
 
 	insertID := func(query string, args ...interface{}) int {
 		t.Helper()
-		result, err := db.ExecWrite(query, args...)
-		if err != nil {
-			t.Fatalf("fixture insert: %v\nquery: %s", err, query)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			t.Fatalf("LastInsertId: %v", err)
-		}
+		id := testutils.InsertID(t, db, query, args...)
 		return int(id)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"windshift/internal/auth"
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 func TestBearerAuthMiddleware_DeleteRequiresAuth(t *testing.T) {
@@ -109,12 +110,8 @@ func newMCPTestEnv(t *testing.T) (*auth.TokenManager, database.Database, int) {
 		t.Fatalf("init schema: %v", err)
 	}
 
-	res, err := db.Exec(`INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
+	uid64 := testutils.InsertID(t, db, `INSERT INTO users (email, username, first_name, last_name) VALUES (?, ?, ?, '')`,
 		"mcp@example.com", "mcp", "Mcp")
-	if err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	uid64, _ := res.LastInsertId()
 	tm := auth.NewTokenManager(db, nil)
 	return tm, db, int(uid64)
 }

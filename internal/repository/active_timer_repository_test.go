@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"windshift/internal/database"
+	"windshift/internal/testutils"
 )
 
 func TestFinalizeTimerRollsBackWorklogWhenTimerDeleteFails(t *testing.T) {
@@ -115,14 +116,7 @@ func newActiveTimerFixture(t *testing.T) activeTimerFixture {
 
 func insertTestRow(t *testing.T, db database.Database, query string, args ...interface{}) int {
 	t.Helper()
-	result, err := db.ExecWrite(query, args...)
-	if err != nil {
-		t.Fatalf("insert test row: %v", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("LastInsertId: %v", err)
-	}
+	id := testutils.InsertID(t, db, query, args...)
 	return int(id)
 }
 

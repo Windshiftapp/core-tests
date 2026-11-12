@@ -7,6 +7,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 // Regression coverage for TimePermissionService.MaskInaccessibleProjectNames
@@ -50,12 +51,8 @@ func newMaskingTestEnv(t *testing.T) *maskingTestEnv {
 
 	exec := func(q string, args ...interface{}) int64 {
 		t.Helper()
-		res, err := db.Exec(q, args...)
-		if err != nil {
-			t.Fatalf("exec %q: %v", q, err)
-		}
-		id, _ := res.LastInsertId()
-		return id
+		id := testutils.InsertID(t, db, q, args...)
+		return int64(id)
 	}
 
 	env.viewerID = int(exec(`INSERT INTO users (email, username, first_name, last_name) VALUES ('viewer@test', 'viewer', 'viewer', '')`))

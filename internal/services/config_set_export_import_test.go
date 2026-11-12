@@ -10,6 +10,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/repository"
+	"windshift/internal/testutils"
 )
 
 // configSetTplTestEnv seeds the minimum schema fixtures required to round-trip
@@ -56,18 +57,12 @@ func (e *configSetTplTestEnv) seed() {
 		_ = e.db.QueryRow(`SELECT id FROM status_categories LIMIT 1`).Scan(&catID)
 	}
 
-	res, err := e.db.Exec(`INSERT INTO statuses (name, category_id) VALUES (?, ?)`, prefix+"-Open", catID)
-	if err != nil {
-		t.Fatalf("status open: %v", err)
-	}
-	id, _ := res.LastInsertId()
+	id := testutils.InsertID(t, e.db, `INSERT INTO statuses (name, category_id) VALUES (?, ?)`, prefix+"-Open", catID)
 	e.statusOpenID = int(id)
-	res, _ = e.db.Exec(`INSERT INTO statuses (name, category_id) VALUES (?, ?)`, prefix+"-Done", catID)
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO statuses (name, category_id) VALUES (?, ?)`, prefix+"-Done", catID)
 	e.statusDoneID = int(id)
 
-	res, _ = e.db.Exec(`INSERT INTO workflows (name, description, is_default) VALUES (?, ?, false)`, prefix+"-WF", "")
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO workflows (name, description, is_default) VALUES (?, ?, false)`, prefix+"-WF", "")
 	e.workflowID = int(id)
 
 	// Open → Done transition + an initial-state transition (NULL from).
@@ -85,27 +80,20 @@ func (e *configSetTplTestEnv) seed() {
 		t.Fatalf("lookup transition: %v", err)
 	}
 
-	res, _ = e.db.Exec(`INSERT INTO item_types (name, hierarchy_level) VALUES (?, 3)`, prefix+"-Bug")
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO item_types (name, hierarchy_level) VALUES (?, 3)`, prefix+"-Bug")
 	itemTypeID := int(id)
 
-	res, _ = e.db.Exec(`INSERT INTO priorities (name, sort_order) VALUES (?, 0)`, prefix+"-High")
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO priorities (name, sort_order) VALUES (?, 0)`, prefix+"-High")
 	priorityID := int(id)
 
-	res, err = e.db.Exec(`
+	id = testutils.InsertID(t, e.db, `
 		INSERT INTO custom_field_definitions (name, field_type, description, required, options, display_order, system_default)
 		VALUES (?, 'text', '', false, '', 0, false)
 	`, prefix+"-Severity")
-	if err != nil {
-		t.Fatalf("custom field: %v", err)
-	}
-	id, _ = res.LastInsertId()
 	e.customFieldID = int(id)
 
 	// Screen with one custom-field row + one default + one system field.
-	res, _ = e.db.Exec(`INSERT INTO screens (name, description) VALUES (?, '')`, prefix+"-Screen")
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO screens (name, description) VALUES (?, '')`, prefix+"-Screen")
 	screenID := int(id)
 	if _, err := e.db.Exec(`
 		INSERT INTO screen_fields (screen_id, field_type, field_identifier, display_order, is_required, field_width)
@@ -124,23 +112,17 @@ func (e *configSetTplTestEnv) seed() {
 	}
 
 	// A workspace_role to exercise role-name resolution in conditions.
-	res, err = e.db.Exec(`
+	id = testutils.InsertID(t, e.db, `
 		INSERT INTO workspace_roles (name, description, is_system, permissions_enabled, display_order)
 		VALUES (?, '', false, false, 0)
 	`, prefix+"-Reviewer")
-	if err != nil {
-		t.Fatalf("role: %v", err)
-	}
-	id, _ = res.LastInsertId()
 	e.roleID = int(id)
 
 	// Condition set with one user_in_role condition gating Open→Done.
-	res, _ = e.db.Exec(`INSERT INTO condition_sets (name, description, workflow_id) VALUES (?, '', ?)`, prefix+"-CS", e.workflowID)
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO condition_sets (name, description, workflow_id) VALUES (?, '', ?)`, prefix+"-CS", e.workflowID)
 	conditionSetID := int(id)
-	res, _ = e.db.Exec(`INSERT INTO condition_set_transitions (condition_set_id, transition_id, logic_mode) VALUES (?, ?, 'and')`,
+	id = testutils.InsertID(t, e.db, `INSERT INTO condition_set_transitions (condition_set_id, transition_id, logic_mode) VALUES (?, ?, 'and')`,
 		conditionSetID, transitionID)
-	id, _ = res.LastInsertId()
 	cstID := int(id)
 	cfgJSON := fmt.Sprintf(`{"source":"current_user","role_id":%d}`, e.roleID)
 	if _, err := e.db.Exec(`
@@ -151,14 +133,12 @@ func (e *configSetTplTestEnv) seed() {
 	}
 
 	// Approval set with one status (Open) and one role-based step.
-	res, _ = e.db.Exec(`INSERT INTO approval_sets (name, description, workflow_id) VALUES (?, '', ?)`, prefix+"-AS", e.workflowID)
-	id, _ = res.LastInsertId()
+	id = testutils.InsertID(t, e.db, `INSERT INTO approval_sets (name, description, workflow_id) VALUES (?, '', ?)`, prefix+"-AS", e.workflowID)
 	approvalSetID := int(id)
-	res, _ = e.db.Exec(`
+	id = testutils.InsertID(t, e.db, `
 		INSERT INTO approval_set_statuses (approval_set_id, status_id, approve_transition_id, deny_transition_id, step_mode)
 		VALUES (?, ?, ?, ?, 'sequential')
 	`, approvalSetID, e.statusOpenID, transitionID, transitionID)
-	id, _ = res.LastInsertId()
 	assID := int(id)
 	if _, err := e.db.Exec(`
 		INSERT INTO approval_steps
@@ -170,11 +150,10 @@ func (e *configSetTplTestEnv) seed() {
 	}
 
 	// Configuration set wiring everything together.
-	res, _ = e.db.Exec(`
+	id = testutils.InsertID(t, e.db, `
 		INSERT INTO configuration_sets (name, description, is_default, differentiate_by_item_type, workflow_id, condition_set_id, approval_set_id, default_item_type_id)
 		VALUES (?, ?, false, false, ?, ?, ?, ?)
 	`, prefix+"-CS", "fixture", e.workflowID, conditionSetID, approvalSetID, itemTypeID)
-	id, _ = res.LastInsertId()
 	e.configSetID = int(id)
 	if _, err := e.db.Exec(`INSERT INTO configuration_set_screens (configuration_set_id, screen_id, context) VALUES (?, ?, 'create')`,
 		e.configSetID, screenID); err != nil {

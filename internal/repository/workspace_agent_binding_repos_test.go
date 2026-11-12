@@ -6,6 +6,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/models"
+	"windshift/internal/testutils"
 )
 
 func intPtr(v int) *int { return &v }
@@ -15,19 +16,11 @@ func intPtr(v int) *int { return &v }
 // satisfiable under PRAGMA foreign_keys=ON.
 func seedSCMConnection(t *testing.T, db database.Database, workspaceID int) int {
 	t.Helper()
-	pres, err := db.Exec(
+	providerID := testutils.InsertID(t, db, 
 		`INSERT INTO scm_providers(slug, name, provider_type, auth_method, enabled) VALUES ('gh', 'GitHub', 'github', 'pat', TRUE)`)
-	if err != nil {
-		t.Fatalf("seed scm provider: %v", err)
-	}
-	providerID, _ := pres.LastInsertId()
-	cres, err := db.Exec(
+	id := testutils.InsertID(t, db, 
 		`INSERT INTO workspace_scm_connections(workspace_id, scm_provider_id, enabled) VALUES (?, ?, TRUE)`,
 		workspaceID, providerID)
-	if err != nil {
-		t.Fatalf("seed scm connection: %v", err)
-	}
-	id, _ := cres.LastInsertId()
 	return int(id)
 }
 
