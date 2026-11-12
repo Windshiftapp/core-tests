@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -11,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/allegro/bigcache/v3"
 
 	"windshift/internal/cacheutil"
 	"windshift/internal/database"
@@ -483,7 +480,7 @@ func (db *countingPermissionDatabase) QueryRow(query string, args ...interface{}
 	return db.Database.QueryRow(query, args...)
 }
 
-func TestAccessibleWorkspaceIDsUsesOneDecodeAndNoWarmDatabaseQueries(t *testing.T) {
+func TestAccessibleWorkspaceIDsReusesWarmSnapshotWithoutDecode(t *testing.T) {
 	baseDB, err := database.NewSQLiteDB(filepath.Join(t.TempDir(), "permissions.db"))
 	if err != nil {
 		t.Fatalf("NewSQLiteDB: %v", err)
@@ -540,7 +537,7 @@ func TestAccessibleWorkspaceIDsUsesOneDecodeAndNoWarmDatabaseQueries(t *testing.
 	}
 
 	countingDB.calls.Store(0)
-	before := service.GetWorkspaceAccessStats()
+	before := service.GetCacheStats()
 	ids, err := service.AccessibleWorkspaceIDs(userID)
 	if err != nil {
 		t.Fatalf("first AccessibleWorkspaceIDs: %v", err)
@@ -551,9 +548,12 @@ func TestAccessibleWorkspaceIDsUsesOneDecodeAndNoWarmDatabaseQueries(t *testing.
 	if calls := countingDB.calls.Load(); calls != 1 {
 		t.Fatalf("cold active-workspace DB calls = %d, want 1", calls)
 	}
-	afterCold := service.GetWorkspaceAccessStats()
-	if afterCold.PermissionSnapshotDecodes-before.PermissionSnapshotDecodes != 1 {
-		t.Fatalf("cold permission decodes delta = %d, want 1", afterCold.PermissionSnapshotDecodes-before.PermissionSnapshotDecodes)
+	afterCold := service.GetCacheStats()
+	if afterCold.PermissionSnapshotDecodes != before.PermissionSnapshotDecodes {
+		t.Fatalf("cold permission decodes changed from %d to %d, want none", before.PermissionSnapshotDecodes, afterCold.PermissionSnapshotDecodes)
+	}
+	if hits := afterCold.Hits - before.Hits; hits != 1 {
+		t.Fatalf("cold permission cache hits = %d, want 1", hits)
 	}
 
 	countingDB.calls.Store(0)
@@ -564,21 +564,31 @@ func TestAccessibleWorkspaceIDsUsesOneDecodeAndNoWarmDatabaseQueries(t *testing.
 	if calls := countingDB.calls.Load(); calls != 0 {
 		t.Fatalf("warm accessible-workspace DB calls = %d, want 0", calls)
 	}
-	afterWarm := service.GetWorkspaceAccessStats()
-	if afterWarm.PermissionSnapshotDecodes-afterCold.PermissionSnapshotDecodes != 1 {
-		t.Fatalf("warm permission decodes delta = %d, want 1", afterWarm.PermissionSnapshotDecodes-afterCold.PermissionSnapshotDecodes)
+	afterWarm := service.GetCacheStats()
+	if afterWarm.PermissionSnapshotDecodes != afterCold.PermissionSnapshotDecodes {
+		t.Fatalf("warm permission decodes changed from %d to %d, want none", afterCold.PermissionSnapshotDecodes, afterWarm.PermissionSnapshotDecodes)
+	}
+	if hits := afterWarm.Hits - afterCold.Hits; hits != 1 {
+		t.Fatalf("warm permission cache hits = %d, want 1", hits)
 	}
 	if afterWarm.ActiveWorkspaceCacheHits == 0 {
 		t.Fatal("warm active-workspace cache hit was not recorded")
 	}
 
 	newID := insertWorkspace("New", "NEW", true)
-	snapshot, err := service.getUserPermissionCache(userID)
-	if err != nil {
-		t.Fatalf("get permission cache: %v", err)
-	}
-	snapshot.WorkspaceEveryone[newID] = map[string]bool{models.PermissionItemView: true}
-	if err := service.storeUserPermissionCache(userID, snapshot); err != nil {
+	// Store a fresh snapshot: cached snapshots are shared pointers and must not
+	// be mutated in place.
+	if err := service.storeUserPermissionCache(userID, &models.UserPermissionCache{
+		UserID: userID,
+		WorkspaceEveryone: map[int]map[string]bool{
+			openID:     {models.PermissionItemView: true},
+			inactiveID: {models.PermissionItemView: true},
+			newID:      {models.PermissionItemView: true},
+		},
+		WorkspacePermissions: map[int]map[string]bool{},
+		CachedAt:             time.Now(),
+		ExpiresAt:            time.Now().Add(time.Minute),
+	}); err != nil {
 		t.Fatalf("update permission cache: %v", err)
 	}
 	service.InvalidateActiveWorkspaceCache()
@@ -597,18 +607,10 @@ func TestAccessibleWorkspaceIDsUsesOneDecodeAndNoWarmDatabaseQueries(t *testing.
 
 func newSyntheticWorkspaceAccessService(tb testing.TB, workspaceCount int) *PermissionService {
 	tb.Helper()
-	cacheConfig := cacheutil.NewBigCacheConfig(cacheutil.BigCacheOptions{
-		TTL:             time.Hour,
-		MaxCacheMB:      32,
-		Shards:          16,
-		MaxEntrySize:    1024 * 1024,
-		MaxEntriesInWin: 100,
-		CleanWindow:     time.Minute,
+	cache := cacheutil.NewTyped[*models.UserPermissionCache]("permission_workspace_access_test", cacheutil.TypedCacheOptions{
+		TTL:    time.Hour,
+		Shards: 16,
 	})
-	cache, err := bigcache.New(context.Background(), cacheConfig)
-	if err != nil {
-		tb.Fatalf("bigcache.New: %v", err)
-	}
 	tb.Cleanup(func() { _ = cache.Close() })
 
 	service := &PermissionService{
@@ -654,7 +656,7 @@ func TestAccessibleWorkspaceIDsDecodeCountDoesNotScale(t *testing.T) {
 			service := newSyntheticWorkspaceAccessService(t, workspaceCount)
 			service.db = countingDB
 			countingDB.calls.Store(0)
-			before := service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
+			before := service.GetCacheStats()
 			ids, err := service.AccessibleWorkspaceIDs(1)
 			if err != nil {
 				t.Fatalf("AccessibleWorkspaceIDs: %v", err)
@@ -662,9 +664,12 @@ func TestAccessibleWorkspaceIDsDecodeCountDoesNotScale(t *testing.T) {
 			if len(ids) != workspaceCount {
 				t.Fatalf("accessible workspace count = %d, want %d", len(ids), workspaceCount)
 			}
-			decodes := service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - before
-			if decodes != 1 {
-				t.Fatalf("permission snapshot decodes = %d, want 1", decodes)
+			after := service.GetCacheStats()
+			if decodes := after.PermissionSnapshotDecodes - before.PermissionSnapshotDecodes; decodes != 0 {
+				t.Fatalf("permission snapshot decodes = %d, want 0", decodes)
+			}
+			if hits := after.Hits - before.Hits; hits != 1 {
+				t.Fatalf("permission cache hits = %d, want 1", hits)
 			}
 			if calls := countingDB.calls.Load(); calls != 0 {
 				t.Fatalf("warm permission-store queries = %d, want 0", calls)
@@ -677,7 +682,7 @@ func BenchmarkAccessibleWorkspaceIDs(b *testing.B) {
 	for _, workspaceCount := range []int{10, 100, 1000} {
 		b.Run(fmt.Sprintf("legacy_%d_workspaces_parallel", workspaceCount), func(b *testing.B) {
 			service := newSyntheticWorkspaceAccessService(b, workspaceCount)
-			before := service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
+			before := service.GetCacheStats().Hits
 			b.ReportAllocs()
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
@@ -691,13 +696,13 @@ func BenchmarkAccessibleWorkspaceIDs(b *testing.B) {
 				}
 			})
 			b.StopTimer()
-			decodes := service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - before
-			b.ReportMetric(float64(decodes)/float64(b.N), "permission-decodes/op")
+			hits := service.GetCacheStats().Hits - before
+			b.ReportMetric(float64(hits)/float64(b.N), "permission-cache-hits/op")
 		})
 
 		b.Run(fmt.Sprintf("snapshot_%d_workspaces_parallel", workspaceCount), func(b *testing.B) {
 			service := newSyntheticWorkspaceAccessService(b, workspaceCount)
-			before := service.GetWorkspaceAccessStats().PermissionSnapshotDecodes
+			before := service.GetCacheStats().Hits
 			b.ReportAllocs()
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
@@ -709,8 +714,8 @@ func BenchmarkAccessibleWorkspaceIDs(b *testing.B) {
 				}
 			})
 			b.StopTimer()
-			decodes := service.GetWorkspaceAccessStats().PermissionSnapshotDecodes - before
-			b.ReportMetric(float64(decodes)/float64(b.N), "permission-decodes/op")
+			hits := service.GetCacheStats().Hits - before
+			b.ReportMetric(float64(hits)/float64(b.N), "permission-cache-hits/op")
 		})
 	}
 }

@@ -3,7 +3,7 @@ import { tick } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../api/sla.js', () => ({
-  sla: { getItemSLA: vi.fn() },
+  sla: { getItemSLA: vi.fn(), getItemSLABatch: vi.fn() },
 }));
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
@@ -15,6 +15,7 @@ vi.mock('../../utils/dateFormatter.js', () => ({
 }));
 
 import { sla } from '../../api/sla.js';
+import { resetSLAState } from '../sla/slaState.js';
 import ItemSLAPanel from './ItemSLAPanel.svelte';
 
 const stateWithCycle = [
@@ -52,13 +53,14 @@ function deferred() {
 describe('ItemSLAPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSLAState();
   });
 
   it('hides itself when the item has no SLA cycles', async () => {
     sla.getItemSLA.mockResolvedValue([]);
     render(ItemSLAPanel, { itemId: 42 });
 
-    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(42));
+    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(42, expect.anything()));
     expect(screen.queryByTestId('item-sla-panel')).toBeNull();
   });
 
@@ -142,6 +144,15 @@ describe('ItemSLAPanel', () => {
     expect(await screen.findByText(/Asia\/Tokyo numeric:2-digit/)).toBeTruthy();
   });
 
+  it('reads through the shared workspace batch so badges and the panel share one request', async () => {
+    sla.getItemSLABatch.mockResolvedValue({ 42: stateWithCycle });
+    render(ItemSLAPanel, { itemId: 42, workspaceId: 5 });
+
+    expect(await screen.findByTestId('item-sla-panel')).toBeTruthy();
+    expect(sla.getItemSLABatch).toHaveBeenCalledWith(5, [42], expect.anything());
+    expect(sla.getItemSLA).not.toHaveBeenCalled();
+  });
+
   it('reloads when item mutations fire refresh-work-items', async () => {
     sla.getItemSLA.mockResolvedValue(stateWithCycle);
     render(ItemSLAPanel, { itemId: 42 });
@@ -150,7 +161,28 @@ describe('ItemSLAPanel', () => {
     sla.getItemSLA.mockClear();
     window.dispatchEvent(new CustomEvent('refresh-work-items'));
 
-    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(42));
+    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(42, expect.anything()));
+  });
+
+  it('ignores a burst that names another workspace', async () => {
+    sla.getItemSLA.mockResolvedValue(stateWithCycle);
+    render(ItemSLAPanel, { itemId: 42, workspaceId: 5 });
+    await screen.findByTestId('item-sla-panel');
+
+    sla.getItemSLA.mockClear();
+    vi.useFakeTimers();
+    try {
+      window.dispatchEvent(
+        new CustomEvent('refresh-work-items', {
+          detail: { itemId: 42, item: { id: 42, workspace_id: 99 } },
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(20);
+      expect(sla.getItemSLA).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refreshes an ongoing timer on an interval without item mutations', async () => {
@@ -196,9 +228,9 @@ describe('ItemSLAPanel', () => {
     sla.getItemSLA.mockImplementation((id) => (id === 1 ? first.promise : second.promise));
 
     const { rerender } = render(ItemSLAPanel, { props: { itemId: 1 } });
-    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(1, expect.anything()));
     await rerender({ itemId: 2 });
-    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(sla.getItemSLA).toHaveBeenCalledWith(2, expect.anything()));
 
     second.resolve([{ ...stateWithCycle[0], metric_name: 'Newer metric' }]);
     expect(await screen.findByText('Newer metric')).toBeTruthy();

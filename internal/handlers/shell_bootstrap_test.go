@@ -54,7 +54,7 @@ func TestShellBootstrapRequiresAuthentication(t *testing.T) {
 func TestShellBootstrapComposesFeatureSnapshot(t *testing.T) {
 	channels := &stubChannelManagementCapability{manages: true}
 	handler := NewShellBootstrapHandler(
-		NewFeaturesHandler(nil, true, true),
+		NewFeaturesHandler(nil, true),
 		nil,
 		nil,
 		nil,
@@ -76,7 +76,7 @@ func TestShellBootstrapComposesFeatureSnapshot(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !response.Features.SSHAvailable || !response.Features.LogbookAvailable {
+	if !response.Features.SSHAvailable {
 		t.Fatalf("feature snapshot = %+v", response.Features)
 	}
 	if response.AttachmentStatus == nil || response.AttachmentStatus.Enabled {

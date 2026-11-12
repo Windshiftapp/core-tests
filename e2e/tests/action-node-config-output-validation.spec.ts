@@ -15,9 +15,7 @@ test.describe('Action editor — output field validation', () => {
   test('invalid output name shows inline error; valid name saves', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `output-valid-${stamp}`,
@@ -67,9 +65,7 @@ test.describe('Action editor — output field validation', () => {
   test('whitespace-padded valid name serializes trimmed', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `output-trim-${stamp}`,

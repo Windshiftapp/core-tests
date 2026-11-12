@@ -134,17 +134,19 @@ describe("completed item visibility", () => {
 		expect(collectionStore.itemsTotalCount).toBe(0);
 	});
 
-	it("reloads backlog data after visiting a board that included completed work", async () => {
+	it("reloads backlog without a completion filter after visiting a board that included completed work", async () => {
 		await collectionStore.load("41", null, "workspace-board");
 		await collectionStore.setShowCompleted(true);
 		await collectionStore.load("41", null, "workspace-list");
 		mocks.backlog.mockClear();
 		await collectionStore.load("41", null, "workspace-backlog");
+		// Backlog membership comes from the configured backlog statuses, so the
+		// board's completed-visibility preference must not leak into the request.
 		expect(mocks.backlog).toHaveBeenCalledWith(
 			"41",
 			null,
 			expect.objectContaining({
-				sub_ql: "status_completed = false",
+				sub_ql: undefined,
 			}),
 		);
 	});
@@ -191,12 +193,11 @@ describe("completed item visibility", () => {
 		}
 	});
 
-	it.each(["list", "tree", "map", "roadmap", "backlog"])(
+	it.each(["list", "tree", "map", "roadmap"])(
 		"filters %s by completion category before pagination",
 		async (view) => {
 			await collectionStore.load("41", null, `workspace-${view}`);
-			const fetch = view === "backlog" ? mocks.backlog : mocks.items;
-			expect(fetch).toHaveBeenLastCalledWith(
+			expect(mocks.items).toHaveBeenLastCalledWith(
 				"41",
 				null,
 				expect.objectContaining({
@@ -205,6 +206,17 @@ describe("completed item visibility", () => {
 			);
 		},
 	);
+
+	it("does not filter backlog by completion category before pagination", async () => {
+		await collectionStore.load("41", null, "workspace-backlog");
+		expect(mocks.backlog).toHaveBeenLastCalledWith(
+			"41",
+			null,
+			expect.objectContaining({
+				sub_ql: undefined,
+			}),
+		);
+	});
 
 	it.each(["workspace-board", "collection-board"])(
 		"leaves completed visibility to board configuration in %s despite a saved hide preference",
@@ -290,6 +302,30 @@ describe("completed item visibility", () => {
 			"41",
 			null,
 			expect.objectContaining({ sub_ql: "status_completed = false" }),
+		);
+	});
+
+	it("keeps the backlog sub-filter without a completion clause across refresh and polling", async () => {
+		await collectionStore.load("41", null, "workspace-backlog");
+		collectionStore.setSubFilter('priority = "High" OR priority = "Low"');
+		await vi.waitFor(() => expect(collectionStore.loading).toBe(false));
+		const sub_ql = 'priority = "High" OR priority = "Low"';
+		expect(mocks.backlog).toHaveBeenLastCalledWith(
+			"41",
+			null,
+			expect.objectContaining({ sub_ql }),
+		);
+		await collectionStore.refresh();
+		expect(mocks.backlog).toHaveBeenLastCalledWith(
+			"41",
+			null,
+			expect.objectContaining({ sub_ql }),
+		);
+		await collectionStore.refreshDeltas();
+		expect(mocks.changes).toHaveBeenLastCalledWith(
+			"41",
+			null,
+			expect.objectContaining({ sub_ql }),
 		);
 	});
 });

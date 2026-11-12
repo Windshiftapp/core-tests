@@ -87,7 +87,7 @@ vi.mock('../stores/workspacePermissions.svelte.js', () => ({
 }));
 
 vi.mock('../stores/i18n.svelte.js', () => ({ t: (key) => key }));
-vi.mock('../stores/toasts.svelte.js', () => ({ errorToast }));
+vi.mock('../stores/toasts.svelte.js', () => ({ surfaceError: vi.fn(), errorToast }));
 vi.mock('../utils/createdItemToast.js', () => ({ showCreatedItemToast }));
 
 import CreateModal from './CreateModal.svelte';

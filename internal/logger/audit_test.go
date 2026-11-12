@@ -361,6 +361,92 @@ func TestLogAudit_DetailsRedaction_KeepsBooleanFlags(t *testing.T) {
 	}
 }
 
+// TestLogAudit_DetailsRedaction_TypedContainers verifies that redaction
+// traverses typed containers (structs and typed slices), not only the
+// map[string]any/[]any shapes the fast path handles. Regression: a
+// []typedSource payload was marshalled unredacted because the sanitizer fell
+// through to its default case.
+func TestLogAudit_DetailsRedaction_TypedContainers(t *testing.T) {
+	type typedSource struct {
+		Name      string `json:"name"`
+		APISecret string `json:"api_secret"`
+	}
+
+	db := newAuditDetailsTestDB(t)
+
+	if err := LogAudit(db, AuditEvent{
+		UserID:       6,
+		Username:     "typed",
+		ActionType:   "test.action",
+		ResourceType: "test",
+		Details: map[string]interface{}{
+			"sources": []typedSource{{Name: "kept", APISecret: "leak-me"}},
+			"primary": typedSource{Name: "kept2", APISecret: "leak-me-too"},
+		},
+		Success: true,
+	}); err != nil {
+		t.Fatalf("LogAudit returned error: %v", err)
+	}
+
+	var details string
+	if err := db.QueryRow(`SELECT details FROM audit_logs WHERE username = ?`, "typed").Scan(&details); err != nil {
+		t.Fatalf("query audit row: %v", err)
+	}
+	if strings.Contains(details, "leak-me") {
+		t.Fatalf("typed container leaked a sensitive value: %s", details)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(details), &parsed); err != nil {
+		t.Fatalf("details JSON invalid: %v", err)
+	}
+	sources, ok := parsed["sources"].([]interface{})
+	if !ok || len(sources) != 1 {
+		t.Fatalf("typed slice not preserved: %#v", parsed["sources"])
+	}
+	first, ok := sources[0].(map[string]interface{})
+	if !ok || first["api_secret"] != auditDetailsRedactedValue || first["name"] != "kept" {
+		t.Fatalf("typed slice element unexpected: %#v", sources[0])
+	}
+	primary, ok := parsed["primary"].(map[string]interface{})
+	if !ok || primary["api_secret"] != auditDetailsRedactedValue || primary["name"] != "kept2" {
+		t.Fatalf("typed struct unexpected: %#v", parsed["primary"])
+	}
+}
+
+// TestLogAudit_FailedEventStructuredLog_IncludesErrorAndDetails verifies the
+// live log line carries the failure reason and the redacted details, so an
+// operator can diagnose a denied or failed mutation without the DB row.
+func TestLogAudit_FailedEventStructuredLog_IncludesErrorAndDetails(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	db := newAuditDetailsTestDB(t)
+
+	_ = LogAudit(db, AuditEvent{
+		UserID:       8,
+		Username:     "denied",
+		ActionType:   "access.denied",
+		ResourceType: "route",
+		Details:      map[string]interface{}{"required_permission": "system.admin", "api_secret": "leak"},
+		Success:      false,
+		ErrorMessage: "permission_denied",
+	})
+
+	logged := buf.String()
+	if !strings.Contains(logged, "error_message=permission_denied") {
+		t.Errorf("failed event log missing error_message: %q", logged)
+	}
+	if !strings.Contains(logged, "details=") || !strings.Contains(logged, "required_permission") {
+		t.Errorf("failed event log missing details: %q", logged)
+	}
+	if strings.Contains(logged, "leak") {
+		t.Errorf("structured log leaked a sensitive detail: %q", logged)
+	}
+}
+
 // TestLogAudit_DetailsTruncation_PreservesScalars verifies that an oversized
 // details payload is shrunk rather than replaced wholesale, so summary
 // scalars survive for large operations such as bulk cleanup.

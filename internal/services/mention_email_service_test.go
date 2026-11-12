@@ -29,7 +29,7 @@ type fakeMentionSend struct {
 
 func (f *fakeMentionEmailSender) IsSMTPConfigured() bool { return f.configured }
 
-func (f *fakeMentionEmailSender) SendTransactionalContext(_ context.Context, toEmail, templateName string, data any) error {
+func (f *fakeMentionEmailSender) SendTransactionalContext(_ context.Context, toEmail, _ string, templateName string, data any) error {
 	if f.sendErr != nil {
 		return f.sendErr
 	}

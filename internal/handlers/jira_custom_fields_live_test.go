@@ -109,7 +109,7 @@ func TestLiveJiraCustomFieldFidelity(t *testing.T) {
 	}
 
 	handler := NewJiraImportHandler(nil, "live-jira-field-read-only-secret", "", blobstore.Disabled())
-	issueKeysByProject, _, _, choiceLabels := handler.preflightJiraCustomFields(
+	issueKeysByProject, _, _, _, choiceLabels := handler.preflightJiraCustomFields(
 		ctx,
 		"",
 		client,

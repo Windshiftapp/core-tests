@@ -84,3 +84,54 @@ func TestCloudClientReadsServiceManagementEntitiesWithGet(t *testing.T) {
 		}
 	}
 }
+
+// TestDataCenterClientSendsExperimentalOptInForOrganizationReads is the WI-2074
+// regression: JSM 5.x requires X-ExperimentalApi on the organization-list and
+// organization-member reads, which are read-only.
+func TestDataCenterClientSendsExperimentalOptInForOrganizationReads(t *testing.T) {
+	t.Parallel()
+
+	var orgOptIns, memberOptIns []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/rest/servicedeskapi/servicedesk/1/organization":
+			orgOptIns = append(orgOptIns, r.Header.Get("X-ExperimentalApi"))
+			_ = json.NewEncoder(w).Encode(JiraServiceDeskPage[JiraServiceDeskOrganization]{
+				IsLastPage: true,
+				Values:     []JiraServiceDeskOrganization{{ID: "4", Name: "Example Customer"}},
+			})
+		case "/rest/servicedeskapi/organization/4/user":
+			memberOptIns = append(memberOptIns, r.Header.Get("X-ExperimentalApi"))
+			_ = json.NewEncoder(w).Encode(JiraServiceDeskPage[JiraUser]{
+				IsLastPage: true,
+				Values:     []JiraUser{{Name: "customer"}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := &dataCenterClient{
+		serviceDeskURL: server.URL + "/rest/servicedeskapi",
+		authHeader:     "Bearer pat",
+		httpClient:     server.Client(),
+		limiter:        rate.NewLimiter(rate.Inf, 1),
+	}
+
+	if _, err := client.ListServiceDeskOrganizations(context.Background(), "1"); err != nil {
+		t.Fatalf("ListServiceDeskOrganizations() error = %v", err)
+	}
+	if _, err := client.ListServiceDeskOrganizationUsers(context.Background(), "4"); err != nil {
+		t.Fatalf("ListServiceDeskOrganizationUsers() error = %v", err)
+	}
+	for _, header := range append(orgOptIns, memberOptIns...) {
+		if header != "true" {
+			t.Fatalf("X-ExperimentalApi = %q, want true", header)
+		}
+	}
+	if len(orgOptIns) == 0 || len(memberOptIns) == 0 {
+		t.Fatalf("opt-in headers not observed: org=%v member=%v", orgOptIns, memberOptIns)
+	}
+}

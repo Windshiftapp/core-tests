@@ -1,26 +1,41 @@
+import type { APIRequestContext } from "@playwright/test";
 import {
 	createCollectionViaAPI,
 	createItemViaAPI,
 	createWorkspaceViaAPI,
+	listItemTypesViaAPI,
 } from "../fixtures/api-helpers";
 import { expect, test } from "../fixtures/errors";
+
+// The tree is rooted at one item-type level, so a fixture hierarchy must use
+// adjacent item types (Epic -> Story -> Task); untyped items all default to
+// level 0 and would render as siblings.
+async function hierarchyItemTypes(request: APIRequestContext) {
+	const itemTypes = await listItemTypesViaAPI(request);
+	const byKey = (key: string) =>
+		itemTypes.find((type: { builtin_key?: string }) => type.builtin_key === key);
+	return { epic: byKey("epic"), story: byKey("story"), task: byKey("task") };
+}
 
 test("navigates and drills into the same hierarchy across tree, map, and roadmap", async ({
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Hierarchy views ${stamp}`,
 		key: `HV${stamp.toString().slice(-6)}`.toUpperCase(),
 		description: "Playwright collection hierarchy coverage",
 	});
+	const types = await hierarchyItemTypes(request);
 	const parent = await createItemViaAPI(request, workspace.id, {
 		title: `Parent initiative ${stamp}`,
+		item_type_id: types.epic.id,
 	});
 	const child = await createItemViaAPI(request, workspace.id, {
 		title: `Child delivery ${stamp}`,
 		parent_id: parent.id,
+		item_type_id: types.story.id,
 	});
 	const collection = await createCollectionViaAPI(request, {
 		name: `Hierarchy collection ${stamp}`,
@@ -71,26 +86,70 @@ test("navigates and drills into the same hierarchy across tree, map, and roadmap
 	await expect(modal.getByTestId("item-title-edit")).toHaveText(child.title);
 });
 
+test("roadmap expand-all reveals a collapsed subtree", async ({
+	page,
+	request,
+}) => {
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	const workspace = await createWorkspaceViaAPI(request, {
+		name: `Roadmap expand ${stamp}`,
+		key: `RE${stamp.toString().slice(-6)}`.toUpperCase(),
+		description: "Playwright roadmap expand-all coverage",
+	});
+	const types = await hierarchyItemTypes(request);
+	const epic = await createItemViaAPI(request, workspace.id, {
+		title: `Expand epic ${stamp}`,
+		item_type_id: types.epic.id,
+	});
+	const story = await createItemViaAPI(request, workspace.id, {
+		title: `Expand story ${stamp}`,
+		parent_id: epic.id,
+		item_type_id: types.story.id,
+	});
+	const task = await createItemViaAPI(request, workspace.id, {
+		title: `Expand task ${stamp}`,
+		parent_id: story.id,
+		item_type_id: types.task.id,
+	});
+
+	await page.goto(`/workspaces/${workspace.id}/roadmap`);
+	await expect(page.getByTestId("roadmap-view")).toBeVisible();
+	await expect(page.getByTestId(`roadmap-item-${story.id}`)).toBeVisible();
+	// The task starts collapsed under the story; roots auto-expand, so the first
+	// click collapses everything and the second expands the whole tree.
+	await expect(page.getByTestId(`roadmap-item-${task.id}`)).toHaveCount(0);
+
+	await page.getByTestId("roadmap-expand-toggle").click();
+	await expect(page.getByTestId(`roadmap-item-${story.id}`)).toHaveCount(0);
+
+	await page.getByTestId("roadmap-expand-toggle").click();
+	await expect(page.getByTestId(`roadmap-item-${task.id}`)).toBeVisible();
+});
+
 test("indents nested tree rows by hierarchy depth", async ({
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Tree indent ${stamp}`,
 		key: `TI${stamp.toString().slice(-6)}`.toUpperCase(),
 		description: "Playwright tree indentation coverage",
 	});
+	const types = await hierarchyItemTypes(request);
 	const parent = await createItemViaAPI(request, workspace.id, {
 		title: `Indent parent ${stamp}`,
+		item_type_id: types.epic.id,
 	});
 	const child = await createItemViaAPI(request, workspace.id, {
 		title: `Indent child ${stamp}`,
 		parent_id: parent.id,
+		item_type_id: types.story.id,
 	});
 	const grandchild = await createItemViaAPI(request, workspace.id, {
 		title: `Indent grandchild ${stamp}`,
 		parent_id: child.id,
+		item_type_id: types.task.id,
 	});
 	const collection = await createCollectionViaAPI(request, {
 		name: `Indent collection ${stamp}`,
@@ -123,28 +182,86 @@ test("indents nested tree rows by hierarchy depth", async ({
 	expect(secondStep).toBeCloseTo(firstStep, 1);
 });
 
+test("tree expansion survives a reload", async ({ page, request }) => {
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	const workspace = await createWorkspaceViaAPI(request, {
+		name: `Tree persistence ${stamp}`,
+		key: `TP${stamp.toString().slice(-6)}`.toUpperCase(),
+		description: "Playwright tree expansion persistence coverage",
+	});
+	const types = await hierarchyItemTypes(request);
+	const epic = await createItemViaAPI(request, workspace.id, {
+		title: `Persist epic ${stamp}`,
+		item_type_id: types.epic.id,
+	});
+	const story = await createItemViaAPI(request, workspace.id, {
+		title: `Persist story ${stamp}`,
+		parent_id: epic.id,
+		item_type_id: types.story.id,
+	});
+	const task = await createItemViaAPI(request, workspace.id, {
+		title: `Persist task ${stamp}`,
+		parent_id: story.id,
+		item_type_id: types.task.id,
+	});
+	const collection = await createCollectionViaAPI(request, {
+		name: `Persist collection ${stamp}`,
+		workspace_id: workspace.id,
+		ql_query: `title ~ "${stamp}"`,
+	});
+
+	const url = `/workspaces/${workspace.id}/collections/${collection.id}/tree`;
+	await page.goto(url);
+	await expect(page.getByTestId(`tree-row-${epic.id}`)).toBeVisible();
+	// Roots start expanded, so the story is visible and the task is collapsed.
+	await expect(page.getByTestId(`tree-row-${story.id}`)).toBeVisible();
+	await expect(page.getByTestId(`tree-row-${task.id}`)).toHaveCount(0);
+
+	// Wait for the debounced view-state PATCH that carries the expansion, not
+	// the level save that may still be in flight from mount.
+	const saved = page.waitForResponse((response) => {
+		if (
+			!response.url().includes("/api/v2/users/me/preferences") ||
+			response.request().method() !== "PATCH"
+		) {
+			return false;
+		}
+		return (response.request().postData() ?? "").includes("expanded_ids");
+	});
+	await page.getByTestId(`tree-expand-${story.id}`).click();
+	await expect(page.getByTestId(`tree-row-${task.id}`)).toBeVisible();
+	await saved;
+
+	await page.reload();
+	await expect(page.getByTestId(`tree-row-${story.id}`)).toBeVisible();
+	await expect(page.getByTestId(`tree-row-${task.id}`)).toBeVisible();
+});
+
 test("dragging at the map edge scrolls the hierarchy horizontally", {
 	tag: "@critical-browser",
 }, async ({ page, request }) => {
 	await page.setViewportSize({ width: 800, height: 720 });
 
-	const stamp = Date.now();
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Map drag scroll ${stamp}`,
 		key: `MS${stamp.toString().slice(-6)}`.toUpperCase(),
 		description: "Playwright map drag-scroll coverage",
 	});
+	const types = await hierarchyItemTypes(request);
 	const parents = [];
 	for (let index = 0; index < 7; index += 1) {
 		parents.push(
 			await createItemViaAPI(request, workspace.id, {
 				title: `Map parent ${index} ${stamp}`,
+				item_type_id: types.epic.id,
 			}),
 		);
 	}
 	const child = await createItemViaAPI(request, workspace.id, {
 		title: `Map draggable child ${stamp}`,
 		parent_id: parents[0].id,
+		item_type_id: types.story.id,
 	});
 
 	await page.goto(`/workspaces/${workspace.id}/map`);

@@ -37,6 +37,14 @@ test('drops an asset report onto a portal section from the customize panel', asy
   expect(assetSetResponse.ok(), `create asset set: ${await assetSetResponse.text()}`).toBeTruthy();
   const assetSet = (await assetSetResponse.json()).data;
 
+  // The set must carry a portal-access grant or its reports stay hidden from
+  // the portal catalog.
+  const portalAccessResponse = await request.put(`/api/v2/asset-sets/${assetSet.id}/portal-access`, {
+    headers: SEC_FETCH,
+    data: { enabled: true },
+  });
+  expect(portalAccessResponse.ok(), `grant portal access: ${await portalAccessResponse.text()}`).toBeTruthy();
+
   const reportResponse = await request.post(`/api/channels/${channel.channelId}/asset-reports`, {
     headers: SEC_FETCH,
     data: {

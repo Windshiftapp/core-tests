@@ -333,4 +333,72 @@ test.describe('Workflow designer UI round-trip', () => {
       timeout: 10_000,
     });
   });
+
+  test('clicking a transition edge opens the inspector with its controls in view', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+
+    const stamp = Date.now();
+    const prefix = `wfd-inspector-${stamp}`;
+    const categoryId = await defaultCategoryId(request);
+
+    const from = await createStatus(request, `${prefix}-From`, categoryId);
+    const to = await createStatus(request, `${prefix}-To`, categoryId);
+    const workflow = await createWorkflow(request, `${prefix}-wf`);
+    const transitions = await setTransitions(request, workflow.id, [
+      { from_status_id: null, to_status_id: from.id },
+      { from_status_id: from.id, to_status_id: to.id },
+    ]);
+    const edge = transitions.find(
+      (transition) => transition.from_status_id === from.id && transition.to_status_id === to.id
+    );
+    expect(edge, 'from -> to transition not created').toBeTruthy();
+
+    // Bind a screen through the API (setup), so the inspector renders its
+    // bound-state controls. The name is deliberately long: the picker's widest
+    // option drives its min-content width, which is what pushed the Unbind
+    // button off screen.
+    const screenName = `${prefix}-Support Ticket Resolution Screen With A Long Name`;
+    const screenResp = await request.post('/api/v2/screens', {
+      headers: SEC_FETCH,
+      data: { name: screenName, description: 'e2e transition screen' },
+    });
+    expect(
+      screenResp.ok(),
+      `create screen: ${screenResp.status()} ${await screenResp.text()}`
+    ).toBeTruthy();
+    const screen = (await screenResp.json()).data;
+    const bindResp = await request.put(`/api/v2/transitions/${edge!.id}/screen`, {
+      headers: SEC_FETCH,
+      data: { screen_id: screen.id },
+    });
+    expect(bindResp.ok(), `bind screen: ${bindResp.status()} ${await bindResp.text()}`).toBeTruthy();
+
+    await page.goto(`/workflows/${workflow.id}/design`);
+    await expect(page.getByTestId('workflow-canvas')).toBeVisible({ timeout: 20_000 });
+
+    // A narrow laptop viewport: palette + canvas + inspector must still fit, or
+    // the inspector's right-hand controls get pushed off screen.
+    await page.setViewportSize({ width: 1024, height: 768 });
+
+    // The edge carries a stable test id derived from the persisted transition
+    // id. Dispatch the click so the assertion is about the inspector, not
+    // about hitting a one-pixel SVG stroke.
+    await page.getByTestId(`workflow-edge-${edge!.id}`).dispatchEvent('click');
+
+    await expect(page.getByTestId('transition-inspector')).toBeVisible();
+    await expect(page.getByTestId('transition-inspector-screen-name')).toHaveText(screenName);
+
+    // The canvas must not push the inspector's right-hand controls off the
+    // viewport (WI-1835 follow-up).
+    await expect(page.getByTestId('transition-inspector-unbind')).toBeInViewport();
+    await expect(page.getByTestId('transition-inspector-create-screen')).toBeInViewport();
+
+    // The screen's fields are editable from the inspector, not just on the
+    // Screens admin page.
+    await page.getByTestId('transition-inspector-edit-fields').click();
+    await expect(page.getByTestId('screen-field-layout-editor')).toBeVisible();
+  });
 });

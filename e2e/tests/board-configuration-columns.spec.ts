@@ -144,6 +144,14 @@ test.describe('Board configuration columns', () => {
     await expect(page.getByTestId('board-completed-retention-days')).toHaveCount(0);
     await expect(page.getByTestId('board-rightmost-limit-enabled')).toHaveCount(0);
 
+    // Every preset renders its translated label instead of the raw i18n key.
+    const completedVisibility = page.getByTestId('board-completed-visibility');
+    await expect(completedVisibility).toContainText('Show all');
+    await expect(completedVisibility).toContainText('Last day');
+    await expect(completedVisibility).toContainText('Last week');
+    await expect(completedVisibility).toContainText('Limit to');
+    await expect(completedVisibility).toContainText('Hide completed');
+
     await page.getByTestId('board-completed-visibility').selectOption('last_week');
 
     const filteredItemsRequest = page.waitForRequest((candidate) => {
@@ -181,5 +189,33 @@ test.describe('Board configuration columns', () => {
     config = (await configResponse.json()).data;
     expect(config.view_settings?.completed_visibility).toBe('all');
     expect(config.completed_item_retention_days ?? null).toBeNull();
+
+    // The limit preset persists its cap, and the board's completed read asks
+    // for exactly that many items instead of paging further.
+    await page.goto(configureURL);
+    await page.getByTestId('board-completed-visibility').selectOption('limit');
+    await page.getByTestId('board-completed-limit').fill('25');
+    const cappedRequest = page.waitForRequest((candidate) => {
+      if (!candidate.url().includes('/api/v2/items?')) return false;
+      const params = new URL(candidate.url()).searchParams;
+      return params.get('status_id') !== null && params.get('page_size') === '25';
+    });
+    await page.getByTestId('board-config-save').click();
+    await cappedRequest;
+    await page.waitForURL((url) => url.pathname === `/workspaces/${workspace.id}/board`);
+
+    configResponse = await request.get(
+      `/api/v2/workspaces/${workspace.id}/board-configuration`,
+      { headers: SEC_FETCH }
+    );
+    expect(configResponse.ok()).toBeTruthy();
+    config = (await configResponse.json()).data;
+    expect(config.view_settings?.completed_visibility).toBe('limit');
+    expect(config.view_settings?.completed_limit).toBe(25);
+
+    // The preset and its cap round-trip into the controls.
+    await page.goto(configureURL);
+    await expect(page.getByTestId('board-completed-visibility')).toHaveValue('limit');
+    await expect(page.getByTestId('board-completed-limit')).toHaveValue('25');
   });
 });

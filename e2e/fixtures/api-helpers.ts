@@ -313,7 +313,8 @@ export async function listCustomFieldsViaAPI(request: APIRequestContext) {
 }
 
 /**
- * Create a custom field via the API (bypasses UI for faster test setup)
+ * Create a custom field via the API (bypasses UI for faster test setup).
+ * Uses the v2 contract; the response wraps the field in `custom_field`.
  */
 export async function createCustomFieldViaAPI(
 	request: APIRequestContext,
@@ -328,26 +329,30 @@ export async function createCustomFieldViaAPI(
 	},
 ) {
 	const { field_name, ...rest } = data;
-	const response = await request.post(`${BASE_URL}/api/admin/custom-fields`, {
+	const response = await request.post(`${BASE_URL}/api/v2/custom-fields`, {
 		headers: defaultHeaders,
 		data: {
 			...rest,
 			name: data.name ?? field_name,
 		},
 	});
-	expect(response.ok()).toBeTruthy();
-	return response.json();
+	expect(
+		response.ok(),
+		`create custom field failed (${response.status()}): ${await response.text()}`,
+	).toBeTruthy();
+	const body = await response.json();
+	return body.data?.custom_field ?? body.data ?? body;
 }
 
 /**
- * Delete a custom field via the API
+ * Delete a custom field via the API (v2).
  */
 export async function deleteCustomFieldViaAPI(
 	request: APIRequestContext,
 	fieldId: number,
 ) {
 	const response = await request.delete(
-		`${BASE_URL}/api/admin/custom-fields/${fieldId}`,
+		`${BASE_URL}/api/v2/custom-fields/${fieldId}`,
 		{
 			headers: defaultHeaders,
 		},

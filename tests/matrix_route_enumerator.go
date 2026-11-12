@@ -34,10 +34,9 @@ type RegisteredRoute struct {
 //     /scim/v2 (the only such group
 //     server.go declares today)
 //
-// Direct mux.Handle("METHOD /path", ...) registrations in server.go (the
-// logbook/LLM proxies) are intentionally excluded — they bypass the
-// middleware chain and are mostly internal. Add them if a test surfaces a
-// concrete need.
+// Direct mux.Handle("METHOD /path", ...) registrations in server.go (internal
+// endpoints) are intentionally excluded — they bypass the middleware chain and
+// are mostly internal. Add them if a test surfaces a concrete need.
 //
 // The function fails the test if it cannot locate the routes/ directory
 // from any of the candidate roots — silent zero-result is too easy to

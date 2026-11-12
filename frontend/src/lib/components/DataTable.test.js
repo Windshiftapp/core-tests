@@ -386,4 +386,23 @@ describe('DataTable', () => {
       expect(headerCells[1].classList.contains('text-right')).toBe(true);
     });
   });
+
+  describe('bidi direction', () => {
+    it('defaults cells to logical start alignment and content direction', () => {
+      render(DataTable, {
+        props: {
+          columns: sampleColumns,
+          data: sampleData,
+        },
+      });
+
+      const header = document.querySelector('thead th');
+      expect(header.classList.contains('text-start')).toBe(true);
+      expect(header.classList.contains('text-left')).toBe(false);
+
+      const cell = document.querySelector('tbody td span[dir="auto"]');
+      expect(cell).not.toBeNull();
+      expect(cell.textContent).toContain('Alice');
+    });
+  });
 });

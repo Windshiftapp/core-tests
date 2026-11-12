@@ -42,7 +42,7 @@ func TestNotificationDigestRendersActionLinks(t *testing.T) {
 
 	_, htmlBody, textBody, err := sender.RenderEmail(
 		emailutil.TemplateNotificationBatch,
-		buildNotificationBatchData(sender.baseURL, "Alex", notifications),
+		buildNotificationBatchData(sender.baseURL, "Alex", "en", "UTC", notifications),
 	)
 	if err != nil {
 		t.Fatalf("RenderEmail: %v", err)
@@ -67,7 +67,7 @@ func TestNotificationDigestOmitsLinkWhenActionURLMissing(t *testing.T) {
 
 	_, htmlBody, textBody, err := sender.RenderEmail(
 		emailutil.TemplateNotificationBatch,
-		buildNotificationBatchData("https://app.example.com", "Alex", notifications),
+		buildNotificationBatchData("https://app.example.com", "Alex", "en", "UTC", notifications),
 	)
 	if err != nil {
 		t.Fatalf("RenderEmail: %v", err)

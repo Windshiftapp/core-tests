@@ -1,5 +1,9 @@
-import { cleanup, render, screen } from "@testing-library/svelte";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { userPreferencesMock } = vi.hoisted(() => ({
+	userPreferencesMock: { get: vi.fn(), update: vi.fn() },
+}));
 
 const { store, workspaceData, defaultBacklogItems } = vi.hoisted(() => ({
 	defaultBacklogItems: [
@@ -40,6 +44,9 @@ vi.mock("../../stores/collectionContext.js", () => ({
 vi.mock('../../stores/backlogStore.svelte.js', () => ({
   backlogStore: { setCount: vi.fn() },
 }))
+vi.mock("../../api/users.js", () => ({
+  userPreferences: userPreferencesMock,
+}));
 
 vi.mock('../../stores/workspaceDataStore.svelte.js', () => ({
   workspaceDataStore: workspaceData,
@@ -68,7 +75,7 @@ vi.mock("../../stores/i18n.svelte.js", () => ({
 }));
 vi.mock(
 	"./BacklogIterationSection.svelte",
-	() => import("./EmptyBacklogChild.svelte"),
+	() => import("./BacklogIterationSectionStub.svelte"),
 );
 vi.mock("./SubFilterBar.svelte", () => import("./EmptyBacklogChild.svelte"));
 vi.mock(
@@ -89,13 +96,21 @@ vi.mock(
 );
 
 import CollectionBacklog from "./CollectionBacklog.svelte";
+import { scheduleCollectionReconciliation } from "../../stores/collectionContext.js";
 import { screens } from '../../api/configuration.js';
 import { iterations } from '../../api/milestones.js';
+import { collectionPreferences } from '../../stores/collectionPreferences.svelte.js';
 
+beforeEach(() => {
+	userPreferencesMock.get.mockResolvedValue({ view_state: {}, saved_filters: {} });
+	userPreferencesMock.update.mockResolvedValue({});
+});
 
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+	collectionPreferences.reset();
+	iterations.getAll.mockResolvedValue([]);
 	store.backlogItems = [...defaultBacklogItems];
 	store.backlogPagination = { total_items: 293 };
 	store.backlogHasMore = true;
@@ -103,7 +118,8 @@ afterEach(() => {
 });
 
 describe("backlog creation events", () => {
-	it("routes a created item through the store instead of writing the array", async () => {
+	it("reconciles a created item instead of writing the array", async () => {
+		scheduleCollectionReconciliation.mockClear();
 		store.insertCreatedItem.mockClear();
 		render(CollectionBacklog, { workspaceId: 1 });
 
@@ -113,12 +129,12 @@ describe("backlog creation events", () => {
 			}),
 		);
 
+		// Configured statuses decide backlog membership, so the created item is
+		// routed through an authoritative reconcile rather than inserted directly.
 		await vi.waitFor(() =>
-			expect(store.insertCreatedItem).toHaveBeenCalledWith(
-				{ id: 55, workspace_id: 1 },
-				{ backlog: true },
-			),
+			expect(scheduleCollectionReconciliation).toHaveBeenCalled(),
 		);
+		expect(store.insertCreatedItem).not.toHaveBeenCalled();
 	});
 });
 
@@ -147,6 +163,69 @@ describe("backlog field availability", () => {
 
 		await Promise.resolve();
 		expect(workspaceData.screenConfigFor).not.toHaveBeenCalled();
+	});
+});
+
+describe("completed iteration visibility", () => {
+	const activeIteration = {
+		id: 11,
+		name: "Current sprint",
+		status: "active",
+		is_global: false,
+		workspace_id: 1,
+	};
+	const completedIteration = {
+		id: 10,
+		name: "Old sprint",
+		status: "completed",
+		is_global: false,
+		workspace_id: 1,
+	};
+
+	it("hides completed iterations by default and reveals them from the toggle", async () => {
+		iterations.getAll.mockResolvedValue([activeIteration, completedIteration]);
+		render(CollectionBacklog, { workspaceId: 1 });
+
+		expect(
+			await screen.findByTestId("backlog-iteration-section-11"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("backlog-iteration-section-10"),
+		).not.toBeInTheDocument();
+
+		await fireEvent.click(
+			screen.getByTestId("backlog-show-completed-iterations"),
+		);
+
+		expect(
+			await screen.findByTestId("backlog-iteration-section-10"),
+		).toHaveAttribute("data-iteration-status", "completed");
+	});
+
+	it("persists the show-completed-iterations preference per view", async () => {
+		iterations.getAll.mockResolvedValue([activeIteration, completedIteration]);
+		render(CollectionBacklog, { workspaceId: 1 });
+
+		await fireEvent.click(
+			await screen.findByTestId("backlog-show-completed-iterations"),
+		);
+
+		expect(
+			collectionPreferences.viewStateValue(1, null, "backlog", "show_completed_iterations"),
+		).toBe(true);
+	});
+
+	it("restores the stored preference when the view mounts", async () => {
+		iterations.getAll.mockResolvedValue([activeIteration, completedIteration]);
+		collectionPreferences.viewState = {
+			"workspace-1": { backlog: { show_completed_iterations: true } },
+		};
+
+		render(CollectionBacklog, { workspaceId: 1 });
+
+		expect(
+			await screen.findByTestId("backlog-iteration-section-10"),
+		).toBeInTheDocument();
 	});
 });
 

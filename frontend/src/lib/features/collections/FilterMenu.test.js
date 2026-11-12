@@ -25,6 +25,7 @@ vi.mock('../../api/queues.js', () => ({
 }));
 vi.mock('../../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   successToast: vi.fn(),
   warningToast: vi.fn(),
 }));
@@ -170,6 +171,98 @@ describe('FilterMenu personal filters', () => {
     const stub = await screen.findByTestId('filter-builder-stub');
     expect(stub.dataset.saveMode).toBe('true');
   });
+
+  it('treats a null-operator row as an active filter', async () => {
+    const nullRows = [
+      { field: { id: 'cf_Risk level', type: 'select' }, operator: 'IS NULL', value: '', values: [] },
+    ];
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu({ activeRows: nullRows, applied: false });
+
+    expect(screen.getByTestId('filter-menu-save')).toBeInTheDocument();
+    expect(screen.getByTestId('dynamic-filter-toggle')).toHaveTextContent('1');
+  });
+});
+
+describe('FilterMenu active filter visibility', () => {
+  it('lists the applied rows and clears them', async () => {
+    const onclear = vi.fn();
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu({ onclear });
+
+    expect(screen.getByTestId('filter-menu-active')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-menu-active-row-0')).toHaveTextContent('priority = High');
+
+    await fireEvent.click(screen.getByTestId('filter-menu-clear'));
+    expect(onclear).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the applied saved personal filter', async () => {
+    mocks.get.mockResolvedValue({
+      view_state: {},
+      saved_filters: {
+        'collection-5': [
+          {
+            id: 'server',
+            name: 'Server',
+            ql: '`priority` = "High"',
+            rows: [{ field: { id: 'priority', type: 'text' }, operator: '=', value: 'High' }],
+            pinned: false,
+          },
+        ],
+      },
+    });
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu();
+
+    expect(await screen.findByTestId('filter-menu-personal-applied-server')).toBeInTheDocument();
+  });
+
+  it('clears the live filter when the applied personal filter is deleted', async () => {
+    const onclear = vi.fn();
+    mocks.get.mockResolvedValue({
+      view_state: {},
+      saved_filters: {
+        'collection-5': [
+          {
+            id: 'server',
+            name: 'Server',
+            ql: '`priority` = "High"',
+            rows: [{ field: { id: 'priority', type: 'text' }, operator: '=', value: 'High' }],
+            pinned: false,
+          },
+        ],
+      },
+    });
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu({ onclear });
+
+    await fireEvent.click(await screen.findByTestId('filter-menu-personal-delete-server'));
+    expect(onclear).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the live filter when a different personal filter is deleted', async () => {
+    const onclear = vi.fn();
+    mocks.get.mockResolvedValue({
+      view_state: {},
+      saved_filters: {
+        'collection-5': [
+          {
+            id: 'other',
+            name: 'Other',
+            ql: '`priority` = "Low"',
+            rows: [{ field: { id: 'priority', type: 'text' }, operator: '=', value: 'Low' }],
+            pinned: false,
+          },
+        ],
+      },
+    });
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu({ onclear });
+
+    await fireEvent.click(await screen.findByTestId('filter-menu-personal-delete-other'));
+    expect(onclear).not.toHaveBeenCalled();
+  });
 });
 
 describe('FilterMenu shared filters', () => {
@@ -210,5 +303,105 @@ describe('FilterMenu shared filters', () => {
       5,
       expect.objectContaining({ name: 'Stub', ql_query: '`priority` = "High"' })
     );
+  });
+
+  it('clears the live filter when the applied shared view is deleted', async () => {
+    const onclear = vi.fn();
+    mocks.list.mockResolvedValue([
+      {
+        id: 9,
+        name: 'Team triage',
+        ql: '`priority` = "High"',
+        filter_state: JSON.stringify([
+          { field: { id: 'priority', type: 'text' }, operator: '=', value: 'High' },
+        ]),
+        builtin: false,
+      },
+    ]);
+
+    await openMenu({ onclear });
+    await fireEvent.click(await screen.findByTestId('filter-menu-shared-delete-9'));
+
+    await vi.waitFor(() => expect(onclear).toHaveBeenCalledTimes(1));
+  });
+
+  it('reorders shared views through the queues API', async () => {
+    mocks.list.mockResolvedValue([
+      { id: 9, name: 'First', ql: '`priority` = "High"', filter_state: null, builtin: false },
+      { id: 10, name: 'Second', ql: '`priority` = "Low"', filter_state: null, builtin: false },
+    ]);
+
+    await openMenu();
+    await fireEvent.click(await screen.findByTestId('filter-menu-shared-down-9'));
+
+    await vi.waitFor(() =>
+      expect(mocks.reorder).toHaveBeenCalledWith('WS', 5, [10, 9])
+    );
+  });
+
+  it('renames a shared view through the queues API', async () => {
+    mocks.list.mockResolvedValue([
+      { id: 9, name: 'Team triage', ql: '`status` = "Open"', filter_state: null, builtin: false },
+    ]);
+
+    await openMenu();
+    await fireEvent.click(await screen.findByTestId('filter-menu-shared-rename-9'));
+    const input = await screen.findByTestId('filter-menu-shared-rename-input-9');
+    await fireEvent.input(input, { target: { value: 'Renamed triage' } });
+    await fireEvent.click(screen.getByTestId('filter-menu-shared-rename-save-9'));
+
+    await vi.waitFor(() =>
+      expect(mocks.updateQueue).toHaveBeenCalledWith(9, {
+        name: 'Renamed triage',
+        ql_query: '`status` = "Open"',
+        filter_state: null,
+      })
+    );
+  });
+});
+
+describe('FilterMenu personal filter management', () => {
+  function personalFilter(overrides = {}) {
+    return {
+      id: 'server',
+      name: 'Server',
+      ql: '`priority` = "High"',
+      rows: [{ field: { id: 'priority', type: 'text' }, operator: '=', value: 'High' }],
+      pinned: false,
+      ...overrides,
+    };
+  }
+
+  it('renames a personal filter and persists it', async () => {
+    mocks.get.mockResolvedValue({
+      view_state: {},
+      saved_filters: { 'collection-5': [personalFilter()] },
+    });
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu();
+
+    await fireEvent.click(await screen.findByTestId('filter-menu-personal-rename-server'));
+    const input = await screen.findByTestId('filter-menu-personal-rename-input-server');
+    await fireEvent.input(input, { target: { value: 'Renamed server' } });
+    await fireEvent.click(screen.getByTestId('filter-menu-personal-rename-save-server'));
+
+    expect(collectionPreferences.getSavedFilters(1, 5)[0].name).toBe('Renamed server');
+  });
+
+  it('pins a personal filter and persists it', async () => {
+    mocks.get.mockResolvedValue({
+      view_state: {},
+      saved_filters: { 'collection-5': [personalFilter()] },
+    });
+    await collectionPreferences.ensureLoaded(1);
+    await openMenu();
+
+    await fireEvent.click(await screen.findByTestId('filter-menu-personal-pin-server'));
+
+    expect(screen.getByTestId('filter-menu-personal-pin-server')).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(collectionPreferences.getSavedFilters(1, 5)[0].pinned).toBe(true);
   });
 });

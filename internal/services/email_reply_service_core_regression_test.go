@@ -41,6 +41,10 @@ func (*blockingThreadedSender) RenderEmail(string, interface{}) (string, string,
 	return "subject", "html", "text", nil
 }
 
+func (*blockingThreadedSender) RenderEmailLocale(_, _ string, _ interface{}) (string, string, string, error) {
+	return "subject", "html", "text", nil
+}
+
 func (s *retryingThreadedSender) IsSMTPConfigured() bool { return true }
 
 func (s *retryingThreadedSender) SendThreadedEmail(p smtp.ThreadedEmailParams) error {
@@ -55,6 +59,10 @@ func (s *retryingThreadedSender) SendThreadedEmailContext(_ context.Context, _ s
 }
 
 func (*retryingThreadedSender) RenderEmail(string, interface{}) (string, string, string, error) {
+	return "subject", "html", "text", nil
+}
+
+func (*retryingThreadedSender) RenderEmailLocale(_, _ string, _ interface{}) (string, string, string, error) {
 	return "subject", "html", "text", nil
 }
 

@@ -340,6 +340,46 @@ func TestMigration_ExternalKey_UniquePerWorkspace(t *testing.T) {
 	}
 }
 
+func TestRunPendingMigrations_SkipsCheckQueriesForAppliedMigrations(t *testing.T) {
+	db := openTestDB(t)
+
+	checks := 0
+	check := func(Database) (bool, error) {
+		checks++
+		return false, nil
+	}
+	catalog := []Migration{
+		{
+			Version:       "test_001_first",
+			Name:          "first",
+			SQLite:        "CREATE TABLE first_widget (id INTEGER PRIMARY KEY)",
+			CheckSQLiteFn: check,
+		},
+		{
+			Version:       "test_002_second",
+			Name:          "second",
+			SQLite:        "CREATE TABLE second_widget (id INTEGER PRIMARY KEY)",
+			CheckSQLiteFn: check,
+		},
+	}
+
+	if err := runPendingMigrations(db, catalog); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if checks != 2 {
+		t.Fatalf("first run check predicates = %d, want 2", checks)
+	}
+
+	// Every version is stamped on the second run, so the runner must skip them
+	// from schema_migrations without re-evaluating any idempotency predicate.
+	if err := runPendingMigrations(db, catalog); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if checks != 2 {
+		t.Fatalf("second run re-evaluated check predicates: checks = %d, want 2", checks)
+	}
+}
+
 func TestRunPendingMigrations_AbortsOnFailingMigration(t *testing.T) {
 	db := openTestDB(t)
 

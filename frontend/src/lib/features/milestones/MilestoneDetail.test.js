@@ -2,17 +2,21 @@ import { cleanup, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 vi.mock('../../api/milestones.js', () => ({
+  milestoneCategories: { getAll: vi.fn().mockResolvedValue([]) },
   milestones: {
     getProgress: vi.fn(),
     get: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    getComments: vi.fn().mockResolvedValue({ comments: [], has_more: false }),
+    getPageLinks: vi.fn().mockResolvedValue([]),
   },
 }));
 
 vi.mock('../../router.js', () => ({ navigate: vi.fn() }));
 
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: vi.fn(),
   successToast: vi.fn(),
 }));

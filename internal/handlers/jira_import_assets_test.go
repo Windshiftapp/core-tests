@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"windshift/internal/blobstore"
@@ -26,6 +27,18 @@ func (f *fakeJiraAssetFieldClient) GetAllIssueKeys(_ context.Context, jql string
 		}
 	}
 	return nil, nil
+}
+
+func (f *fakeJiraAssetFieldClient) GetAllIssueRefs(ctx context.Context, jql string) ([]jira.JiraIssueRef, error) {
+	keys, err := f.GetAllIssueKeys(ctx, jql)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]jira.JiraIssueRef, 0, len(keys))
+	for index, key := range keys {
+		refs = append(refs, jira.JiraIssueRef{ID: strconv.Itoa(10000 + index), Key: key})
+	}
+	return refs, nil
 }
 
 func (f *fakeJiraAssetFieldClient) GetProject(_ context.Context, projectKey string) (*jira.JiraProject, error) {
@@ -177,7 +190,7 @@ func TestPreflightJiraAssetFieldsResolvesByFieldAcrossProjects(t *testing.T) {
 	}
 
 	h := NewJiraImportHandler(db, "jira-asset-field-preflight-secret", "", blobstore.Disabled())
-	keys, got, applicable, choiceLabels := h.preflightJiraCustomFields(
+	keys, _, got, applicable, choiceLabels := h.preflightJiraCustomFields(
 		t.Context(),
 		"job-preflight",
 		client,

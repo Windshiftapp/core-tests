@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const { ssoStore } = vi.hoisted(() => ({
   ssoStore: {
@@ -24,6 +24,7 @@ vi.mock('../stores/capabilities.svelte.js', () => ({
 
 vi.mock('../stores/i18n.svelte.js', () => ({
   t: (key) => key,
+  translateError: (error) => error?.message ?? String(error),
 }));
 
 import SSOSettings from './SSOSettings.svelte';
@@ -228,5 +229,61 @@ describe('SSOSettings attribute mapping', () => {
     await waitFor(() => expect(ssoStore.updateProvider).toHaveBeenCalledOnce());
     const [, payload] = ssoStore.updateProvider.mock.calls[0];
     expect(payload.attribute_mapping).toBe('{}');
+  });
+});
+
+describe('SSOSettings server base URL awareness', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ssoStore.loadProviders.mockResolvedValue(undefined);
+    ssoStore.subscribe.mockImplementation((subscriber) => {
+      subscriber({ adminProviders: [] });
+      return () => {};
+    });
+  });
+
+  afterEach(() => {
+    delete window.__WINDSHIFT_BASE_URL__;
+    delete window.__WINDSHIFT_BASE_URL_CONFIGURED__;
+  });
+
+  it('shows the server callback URL without a warning when BASE_URL is configured', async () => {
+    window.__WINDSHIFT_BASE_URL__ = 'https://windshift.example.test';
+    window.__WINDSHIFT_BASE_URL_CONFIGURED__ = true;
+
+    render(SSOSettings);
+
+    expect(screen.queryByTestId('sso-base-url-warning')).not.toBeInTheDocument();
+
+    const addButtons = await screen.findAllByRole('button', {
+      name: 'settings.sso.addProvider',
+    });
+    await fireEvent.click(addButtons[0]);
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByTestId('sso-callback-url')).toHaveTextContent(
+      'https://windshift.example.test/api/sso/callback/slug'
+    );
+    expect(within(dialog).queryByTestId('sso-callback-url-warning')).not.toBeInTheDocument();
+  });
+
+  it('warns and shows the fallback callback URL when BASE_URL is not configured', async () => {
+    window.__WINDSHIFT_BASE_URL__ = 'http://localhost:8080';
+    window.__WINDSHIFT_BASE_URL_CONFIGURED__ = false;
+
+    render(SSOSettings);
+
+    expect(screen.getByTestId('sso-base-url-warning')).toBeInTheDocument();
+
+    const addButtons = await screen.findAllByRole('button', {
+      name: 'settings.sso.addProvider',
+    });
+    await fireEvent.click(addButtons[0]);
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByTestId('sso-callback-url-warning')).toBeInTheDocument();
+    expect(within(dialog).getByTestId('sso-callback-url')).toHaveTextContent(
+      'http://localhost:8080/api/sso/callback/slug'
+    );
   });
 });

@@ -74,6 +74,14 @@ test('asset report row action links to the prefilled request form', async ({ pag
   expect(setResponse.ok(), `create asset set: ${await setResponse.text()}`).toBeTruthy();
   const assetSet = (await setResponse.json()).data;
 
+  // The set must carry a portal-access grant or its reports stay hidden from
+  // the portal catalog.
+  const portalAccessResponse = await request.put(`/api/v2/asset-sets/${assetSet.id}/portal-access`, {
+    headers: SEC_FETCH,
+    data: { enabled: true },
+  });
+  expect(portalAccessResponse.ok(), `grant portal access: ${await portalAccessResponse.text()}`).toBeTruthy();
+
   const typeResponse = await request.post(`/api/v2/asset-sets/${assetSet.id}/types`, {
     headers: SEC_FETCH,
     data: { name: `Row server ${stamp}` },

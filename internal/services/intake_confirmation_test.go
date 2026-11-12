@@ -13,6 +13,7 @@ import (
 
 	"windshift/internal/database"
 	"windshift/internal/emailutil"
+	"windshift/internal/i18n"
 	"windshift/internal/smtp"
 	"windshift/internal/testutils"
 )
@@ -40,16 +41,20 @@ func (s *renderingThreadedSender) SendThreadedEmailContext(_ context.Context, pa
 	return nil
 }
 func (s *renderingThreadedSender) RenderEmail(name string, data any) (string, string, string, error) {
+	return s.RenderEmailLocale(i18n.Default, name, data)
+}
+
+func (s *renderingThreadedSender) RenderEmailLocale(locale, name string, data any) (string, string, string, error) {
 	for _, tmpl := range emailutil.DefaultTemplates() {
 		if tmpl.Name != name {
 			continue
 		}
-		subject, _, err := emailutil.RenderTemplates(tmpl.Subject, tmpl.Subject, data)
+		_, subject, err := emailutil.RenderTemplatesLocale(locale, tmpl.Subject, tmpl.Subject, data)
 		if err != nil {
 			return "", "", "", err
 		}
-		enriched := emailutil.EnrichWithSubject(data, subject)
-		htmlBody, textBody, err := emailutil.RenderTemplates(tmpl.HTMLBody, tmpl.TextBody, enriched)
+		enriched := emailutil.EnrichWithSubjectLocale(data, subject, locale)
+		htmlBody, textBody, err := emailutil.RenderTemplatesLocale(locale, tmpl.HTMLBody, tmpl.TextBody, enriched)
 		return subject, htmlBody, textBody, err
 	}
 	return "", "", "", fmt.Errorf("unknown email template %q", name)

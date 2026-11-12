@@ -86,8 +86,8 @@ func TestDefaultProvidersExposeDirectAnthropic(t *testing.T) {
 	if provider.AuthScheme() != "anthropic" || provider.ResponseFormat() != "anthropic" {
 		t.Fatalf("catalog contract = auth %q response %q, want anthropic/anthropic", provider.AuthScheme(), provider.ResponseFormat())
 	}
-	if len(provider.Models) != 4 {
-		t.Fatalf("models = %d, want 4 current Anthropic models", len(provider.Models))
+	if len(provider.Models) != 3 {
+		t.Fatalf("models = %d, want 3 current Anthropic models", len(provider.Models))
 	}
 	for _, model := range provider.Models {
 		if model.MaxTokens <= 0 || model.ContextWindow <= 0 || !model.SupportsVision {

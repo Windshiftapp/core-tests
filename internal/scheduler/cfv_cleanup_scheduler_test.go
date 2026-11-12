@@ -117,7 +117,7 @@ func TestStripCFVOptionIDsRemovesNumericStrings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cleaned, changed, err := stripCFVOptionIDs(tt.input, "91", tt.fieldType, map[int]bool{5: true})
+			cleaned, changed, err := stripCFVOptionIDs(tt.input, []string{"91"}, tt.fieldType, map[int]bool{5: true})
 			if err != nil {
 				t.Fatalf("stripCFVOptionIDs: %v", err)
 			}

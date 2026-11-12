@@ -77,7 +77,7 @@ func TestJiraIssueSubresourcesCompletePaginationVisibilityAndWatchers(t *testing
 		},
 	}
 
-	if err := handler.completePagedIssueContainers(t.Context(), issue, client, nil); err != nil {
+	if _, _, err := handler.completeJiraIssueSubresources(t.Context(), issue, client); err != nil {
 		t.Fatalf("complete paged containers: %v", err)
 	}
 	handler.completeIssueWatchers(t.Context(), issue, client)

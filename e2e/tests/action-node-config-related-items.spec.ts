@@ -16,9 +16,7 @@ test.describe('Action editor — related_items linked config', () => {
   test('configuring a linked relation persists link type, direction and max items', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `related-linked-${stamp}`,

@@ -48,7 +48,6 @@ test.describe("Item detail request budget (WI-617)", () => {
 		allowConsoleError,
 	}, testInfo) => {
 		test.setTimeout(90_000);
-		allowConsoleError(/\/api\/logbook\//);
 		allowConsoleError(/\/api\/v2\/items\/\d+\/recurrence/);
 
 		const stamp = Date.now();

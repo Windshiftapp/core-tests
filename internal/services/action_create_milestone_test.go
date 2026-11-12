@@ -76,10 +76,20 @@ func newCreateMilestoneTestDB(t *testing.T) database.Database {
 			external_key TEXT,
 			position INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_activity_at DATETIME
 		)`,
 		`CREATE UNIQUE INDEX uq_milestones_workspace_external_key
 			ON milestones(workspace_id, external_key) WHERE external_key IS NOT NULL`,
+		`CREATE TABLE milestone_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			milestone_id INTEGER NOT NULL,
+			user_id INTEGER,
+			field_name TEXT NOT NULL,
+			old_value TEXT,
+			new_value TEXT,
+			changed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE milestone_releases (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			milestone_id INTEGER NOT NULL,

@@ -23,6 +23,7 @@ type portalAssetFixture struct {
 	db        database.Database
 	channelID int
 	setID     int
+	reportID  int
 	inCQLID   int
 	outCQLID  int
 }
@@ -55,17 +56,17 @@ func seedPortalAssetFixture(t *testing.T, cql string) portalAssetFixture {
 	assetTypeID := insert("asset type", "INSERT INTO asset_types (set_id, name) VALUES (?, 'Device') RETURNING id", setID)
 	inCQLID := insert("matching asset", "INSERT INTO assets (set_id, asset_type_id, title, asset_tag) VALUES (?, ?, 'Matching device', 'MATCH-1') RETURNING id", setID, assetTypeID)
 	outCQLID := insert("hidden asset", "INSERT INTO assets (set_id, asset_type_id, title, asset_tag) VALUES (?, ?, 'Hidden device', 'HIDDEN-1') RETURNING id", setID, assetTypeID)
-	insert("asset report", `
+	reportID := insert("asset report", `
 		INSERT INTO asset_reports (channel_id, asset_set_id, name, cql_query, is_active, column_config, run_mode)
 		VALUES (?, ?, 'Inventory', ?, true, '["title","asset_tag"]', 'direct') RETURNING id
 	`, channelID, setID, cql)
-
 	sessionManager := auth.NewSessionManagerWithValidationCacheTTL(db, false, false, nil, "portal-asset-test-secret", "strict", auth.DefaultSessionValidationCacheTTL)
 	return portalAssetFixture{
 		handler:   NewPortalHandler(db, sessionManager, nil, nil, blobstore.Disabled()),
 		db:        db,
 		channelID: channelID,
 		setID:     setID,
+		reportID:  reportID,
 		inCQLID:   inCQLID,
 		outCQLID:  outCQLID,
 	}
@@ -209,5 +210,68 @@ func TestSearchPortalAssetsEmptyQueryReturnsNothing(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"assets":[]`) {
 		t.Fatalf("body = %s, want empty asset list", recorder.Body.String())
+	}
+}
+
+// TestGetAssetReportsRequiresPortalEnabledSet pins the set-level exposure
+// switch on the report catalog: a report over an asset set without a portal
+// grant must not be listed.
+func TestGetAssetReportsRequiresPortalEnabledSet(t *testing.T) {
+	f := seedPortalAssetFixture(t, "")
+
+	recorder := httptest.NewRecorder()
+	f.handler.GetAssetReports(recorder, f.request(t, http.MethodGet, "/api/portal/asset-portal/asset-reports", "", 0))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var reports []map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&reports); err != nil {
+		t.Fatalf("decode reports: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("reports = %+v, want none without a portal grant", reports)
+	}
+}
+
+// TestExecuteAssetReportRequiresPortalEnabledSet pins the same switch on the
+// execute path: a direct report id must not bypass a revoked set grant.
+func TestExecuteAssetReportRequiresPortalEnabledSet(t *testing.T) {
+	f := seedPortalAssetFixture(t, "")
+
+	req := f.request(t, http.MethodGet, "/api/portal/asset-portal/asset-reports/1/execute", "", 0)
+	req.SetPathValue("id", fmt.Sprintf("%d", f.reportID))
+	recorder := httptest.NewRecorder()
+	f.handler.ExecuteAssetReport(recorder, req)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 without a portal grant; body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// TestExecuteAssetReportWithPortalGrantReturnsReportAssets is the positive
+// half: a granted set keeps its report executable.
+func TestExecuteAssetReportWithPortalGrantReturnsReportAssets(t *testing.T) {
+	f := seedPortalAssetFixture(t, `asset_tag = "MATCH-1"`)
+	f.grantPortalAccess(t)
+
+	req := f.request(t, http.MethodGet, "/api/portal/asset-portal/asset-reports/1/execute", "", 0)
+	req.SetPathValue("id", fmt.Sprintf("%d", f.reportID))
+	recorder := httptest.NewRecorder()
+	f.handler.ExecuteAssetReport(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Assets []struct {
+			ID int `json:"id"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode execute response: %v", err)
+	}
+	if len(response.Assets) != 1 || response.Assets[0].ID != f.inCQLID {
+		t.Fatalf("assets = %+v, want only asset %d", response.Assets, f.inCQLID)
 	}
 }

@@ -140,6 +140,43 @@ describe('fetchAPI — error mapping', () => {
     expect(global.fetch).toHaveBeenCalledWith('/api/v2/users?page=0', expect.any(Object));
   });
 
+  test.each([
+    ['v1 uppercase code', { error: 'Request was canceled', code: 'REQUEST_CANCELED' }],
+    [
+      'v2 lowercase code',
+      { error: { code: 'request_canceled', message: 'Report request was canceled' } },
+    ],
+  ])('maps a %s canceled request to an AbortError', async (_label, body) => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve(
+        makeResponse({
+          status: 408,
+          statusText: 'Request Timeout',
+          body: JSON.stringify(body),
+        })
+      )
+    );
+
+    // The backend answers a canceled request context with 408 REQUEST_CANCELED.
+    // Callers already treat an AbortError as expected control flow, so a closed
+    // modal or navigation must not surface a failure toast.
+    await expect(fetchAPI('/worklogs/report')).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test('keeps a 408 without the canceled code as a surfaced error', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve(
+        makeResponse({
+          status: 408,
+          statusText: 'Request Timeout',
+          body: JSON.stringify({ error: 'Server timed out', code: 'REQUEST_TIMEOUT' }),
+        })
+      )
+    );
+
+    await expect(fetchAPI('/x')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+  });
+
   test("falls back to 'message' field when 'error' is missing", async () => {
     global.fetch = vi.fn(() =>
       Promise.resolve(

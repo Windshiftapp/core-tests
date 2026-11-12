@@ -475,3 +475,98 @@ func TestDueDateReminderSchedulerStartStopAreIdempotent(t *testing.T) {
 	s.Stop()
 	s.Stop()
 }
+
+// TestDueDateReminderSchedulerSkipsMergedDuplicate proves a duplicate folded
+// into a canonical item does not generate a reminder: the work now lives on
+// the canonical item, and every other item surface hides merged rows.
+func TestDueDateReminderSchedulerSkipsMergedDuplicate(t *testing.T) {
+	f := newReminderFixture(t)
+	f.enableReminders(t, f.assigneeID, 7)
+	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+
+	canonical := f.createItem(t, f.workspaceID, "Canonical", &due, &f.assigneeID, &f.statusID)
+	duplicate := f.createItem(t, f.workspaceID, "Duplicate", &due, &f.assigneeID, &f.statusID)
+	if _, err := f.db.ExecWrite(`UPDATE items SET merged_into_item_id = ? WHERE id = ?`, canonical, duplicate); err != nil {
+		t.Fatalf("mark duplicate merged: %v", err)
+	}
+
+	f.scheduler.RunOnce(context.Background(), now)
+	if got := f.reminderCount(t, duplicate); got != 0 {
+		t.Fatalf("merged duplicate reminder count = %d, want 0", got)
+	}
+	if got := f.reminderCount(t, canonical); got != 1 {
+		t.Fatalf("canonical reminder count = %d, want 1", got)
+	}
+}
+
+// TestDueDateReminderSchedulerIncludesFinalLeadDayWithTimeComponent is the
+// regression test for the horizon truncating the last day: a due date on the
+// max-lead day carrying a time component must still be inside the window.
+func TestDueDateReminderSchedulerIncludesFinalLeadDayWithTimeComponent(t *testing.T) {
+	f := newReminderFixture(t)
+	f.enableReminders(t, f.assigneeID, 30)
+	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 10, 31, 15, 0, 0, 0, time.UTC) // 30 days out, mid-afternoon
+	itemID := f.createItem(t, f.workspaceID, "Final lead day", &due, &f.assigneeID, &f.statusID)
+
+	f.scheduler.RunOnce(context.Background(), now)
+	if got := f.reminderCount(t, itemID); got != 1 {
+		t.Fatalf("final-lead-day reminder count = %d, want 1", got)
+	}
+}
+
+// TestDueDateReminderSchedulerRetriesSkippedRecipientAfterBackoff proves a
+// recipient filtered out (here: inactive) is not lost: the skipped candidate
+// is held back for the retry interval and reminded once the recipient becomes
+// eligible again.
+func TestDueDateReminderSchedulerRetriesSkippedRecipientAfterBackoff(t *testing.T) {
+	f := newReminderFixture(t)
+	userID, err := factory.NewTestFactory(f.db).CreateUser(&factory.CreateUserOpts{Email: "reminder-retry@example.com", Username: "reminder-retry", IsActive: false})
+	if err != nil {
+		t.Fatalf("create inactive user: %v", err)
+	}
+	f.enableReminders(t, userID, 7)
+	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	itemID := f.createItem(t, f.workspaceID, "Retry me", &due, &userID, &f.statusID)
+
+	f.scheduler.RunOnce(context.Background(), now)
+	if got := f.reminderCount(t, itemID); got != 0 {
+		t.Fatalf("reminder count while inactive = %d, want 0", got)
+	}
+
+	if _, err := f.db.ExecWrite(`UPDATE users SET is_active = true WHERE id = ?`, userID); err != nil {
+		t.Fatalf("reactivate user: %v", err)
+	}
+	// Within the retry backoff the skipped candidate must not be re-selected.
+	f.scheduler.RunOnce(context.Background(), now.Add(time.Hour))
+	if got := f.reminderCount(t, itemID); got != 0 {
+		t.Fatalf("reminder count within backoff = %d, want 0", got)
+	}
+
+	// After the backoff the now-active recipient gets the reminder.
+	f.scheduler.RunOnce(context.Background(), now.Add(repository.DueReminderRetryInterval+time.Hour))
+	if got := f.reminderCount(t, itemID); got != 1 {
+		t.Fatalf("reminder count after backoff = %d, want 1", got)
+	}
+}
+
+// TestDueDateReminderSchedulerSkipsInactiveWorkspace proves a deactivated
+// workspace produces no reminder, matching the tray/digest authorization that
+// only exposes active workspaces.
+func TestDueDateReminderSchedulerSkipsInactiveWorkspace(t *testing.T) {
+	f := newReminderFixture(t)
+	f.enableReminders(t, f.assigneeID, 7)
+	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	itemID := f.createItem(t, f.workspaceID, "Inactive workspace", &due, &f.assigneeID, &f.statusID)
+	if _, err := f.db.ExecWrite(`UPDATE workspaces SET active = false WHERE id = ?`, f.workspaceID); err != nil {
+		t.Fatalf("deactivate workspace: %v", err)
+	}
+
+	f.scheduler.RunOnce(context.Background(), now)
+	if got := f.reminderCount(t, itemID); got != 0 {
+		t.Fatalf("inactive workspace reminder count = %d, want 0", got)
+	}
+}

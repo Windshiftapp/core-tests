@@ -126,7 +126,7 @@ test.describe("Asset custom field in list view", () => {
 			await expect(page.getByTestId("list-view")).not.toContainText("Select asset");
 		} finally {
 			await request
-				.delete(`/api/admin/custom-fields/${field.id}`, { headers: SEC_FETCH })
+				.delete(`/api/v2/custom-fields/${field.id}`, { headers: SEC_FETCH })
 				.catch(() => {});
 		}
 	});

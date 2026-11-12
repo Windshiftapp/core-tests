@@ -81,19 +81,37 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe.each([
-	["milestones", Milestones],
-	["iterations", Iterations],
-])("%s list scope", (_name, Component) => {
+describe("milestones list scope", () => {
+	it("shows global and accessible workspace entries on the global list", async () => {
+		render(Milestones);
+		await screen.findByText("Shared release");
+		expect(screen.getByText("Workspace release")).toBeInTheDocument();
+		expect(mocks.getAll).toHaveBeenCalledWith({});
+	});
+
+	it("includes local and global entries in a workspace", async () => {
+		render(Milestones, { workspaceId: 23 });
+		await screen.findByText("Workspace release");
+		expect(screen.getByText("Shared release")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(mocks.getAll).toHaveBeenCalledWith({
+				workspace_id: 23,
+				include_global: true,
+			}),
+		);
+	});
+});
+
+describe("iterations list scope", () => {
 	it("shows only global entries on the global list", async () => {
-		render(Component);
+		render(Iterations);
 		await screen.findByText("Shared release");
 		expect(screen.queryByText("Workspace release")).not.toBeInTheDocument();
 		expect(mocks.getAll).toHaveBeenCalledWith({ is_global: true });
 	});
 
 	it("includes local and global entries in a workspace", async () => {
-		render(Component, { workspaceId: 23 });
+		render(Iterations, { workspaceId: 23 });
 		await screen.findByText("Workspace release");
 		expect(screen.getByText("Shared release")).toBeInTheDocument();
 		await waitFor(() =>

@@ -626,6 +626,66 @@ describe('itemDetailStore.loadItem request graph', () => {
   });
 });
 
+describe('itemDetailStore same-item reconcile', () => {
+  beforeEach(() => {
+    itemDetailStore.reset();
+    workspaceDataStore.reset();
+    vi.clearAllMocks();
+    mockSuccessfulRelatedLoads();
+  });
+
+  it('keeps the child list rendered while a same-item reconcile is in flight', async () => {
+    const children = [
+      {
+        id: 7,
+        workspace_id: 1,
+        workspace_key: 'WS',
+        workspace_item_number: 101,
+        item_type_id: 5,
+        title: 'Child item',
+        status_id: 1,
+        status_name: 'Open',
+        status_color: '#94a3b8',
+        frac_index: 'a0',
+      },
+    ];
+    const item = {
+      id: 42,
+      workspace_id: 1,
+      title: 'Item',
+      parent_id: null,
+      item_type_id: null,
+      request_type_id: null,
+    };
+    items.getDetailSummary.mockResolvedValue(detailSummary(item, { children }));
+
+    await itemDetailStore.loadItem(1, 42);
+    const childRef = itemDetailStore.childItems;
+    expect(childRef).toEqual(children);
+
+    // Hold the reconcile's summary open to observe the in-flight state.
+    let release;
+    items.getDetailSummary.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+    const reconcile = itemDetailStore.loadItem(1, 42);
+    await vi.waitFor(() => expect(items.getDetailSummary).toHaveBeenCalledTimes(2));
+
+    // A background reconcile must not flash the child-items loading state or
+    // replace an unchanged list.
+    expect(itemDetailStore.loadingChildItems).toBe(false);
+    expect(itemDetailStore.childItems).toBe(childRef);
+
+    release(detailSummary(item, { children }));
+    await reconcile;
+
+    expect(itemDetailStore.loadingChildItems).toBe(false);
+    expect(itemDetailStore.childItems).toBe(childRef);
+  });
+});
+
 describe('itemDetailStore.loadChildItems', () => {
   beforeEach(() => {
     itemDetailStore.reset();
@@ -806,6 +866,36 @@ describe('itemDetailStore.saveField', () => {
     expect(items.getAvailableStatusTransitions).toHaveBeenCalledWith(42, {});
     expect(itemDetailStore.item.status_id).toBe(2);
     expect(itemDetailStore.availableStatusTransitions).toEqual(nextTransitions);
+  });
+
+  it('replays a queued status transition with its screen fields intact', async () => {
+    itemDetailStore.item = { id: 42, status_id: 1 };
+    let resolveFirst;
+    items.update.mockImplementationOnce(
+      (_id, data) =>
+        new Promise((resolve) => {
+          resolveFirst = () => resolve({ ...data });
+        })
+    );
+    items.transition.mockResolvedValue({ id: 42, status_id: 2 });
+    items.getAvailableStatusTransitions.mockResolvedValue({ available_transitions: [] });
+
+    // A field save holds the store busy.
+    const first = itemDetailStore.saveField('estimate_minutes', 240);
+    // The transition-screen confirm lands while that save is in flight; the
+    // queued replay must carry the submitted screen fields, not drop them.
+    const second = itemDetailStore.saveField('status_id', 2, null, null, null, {
+      comment: 'moving along',
+      label_ids: [5],
+    });
+
+    resolveFirst();
+    await Promise.all([first, second]);
+
+    expect(items.transition).toHaveBeenCalledWith(42, 2, {
+      comment: 'moving along',
+      label_ids: [5],
+    });
   });
 
   it('persists a team assignment and optimistically updates the team name', async () => {

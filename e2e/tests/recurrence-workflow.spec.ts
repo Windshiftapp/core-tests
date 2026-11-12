@@ -8,9 +8,7 @@ import { shot } from "../helpers/screenshot";
 test("creates, persists, administers, and deletes an item recurrence rule", async ({
 	page,
 	request,
-	allowConsoleError,
 }) => {
-	allowConsoleError(/\/api\/logbook\//);
 
 	const stamp = Date.now();
 	const workspace = await createWorkspaceViaAPI(request, {

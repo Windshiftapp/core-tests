@@ -44,7 +44,7 @@ func TestMeasuredItemReadsHonorCancellation(t *testing.T) {
 		{
 			name: "backlog statuses",
 			run: func() error {
-				_, err := repo.GetBacklogStatusIDsContext(ctx, 0)
+				_, err := repo.GetBacklogStatusIDsContext(ctx, 0, 0)
 				return err
 			},
 		},

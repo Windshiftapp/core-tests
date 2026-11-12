@@ -47,7 +47,7 @@ vi.mock('../stores/permissions.svelte.js', async () => {
 
 vi.mock('../router.js', () => ({ navigate: vi.fn() }));
 vi.mock('../composables/useConfirm.js', () => ({ confirm: vi.fn() }));
-vi.mock('../stores/toasts.svelte.js', () => ({ errorToast: vi.fn() }));
+vi.mock('../stores/toasts.svelte.js', () => ({ surfaceError: vi.fn(), errorToast: vi.fn() }));
 vi.mock('../utils/keyboardShortcuts.js', () => ({
   toHotkeyString: () => '',
   getShortcutDisplay: () => '',

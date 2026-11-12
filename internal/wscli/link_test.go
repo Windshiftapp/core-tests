@@ -89,3 +89,71 @@ func TestAutoLinkTypeName(t *testing.T) {
 		}
 	}
 }
+
+// TestOutput_LinkRendersWorkspaceKeyNumber is the regression for WI-1930:
+// item endpoints must render as workspace keys (WI-1928), never as the global
+// DB id, which the API also returns as source_id/target_id.
+func TestOutput_LinkRendersWorkspaceKeyNumber(t *testing.T) {
+	sourceNumber, targetNumber := 1927, 1928
+
+	t.Run("list table", func(t *testing.T) {
+		resp := &LinkListResponse{Outgoing: []ItemLink{{
+			ID: 525, LinkTypeName: "Relates To", LinkTypeForwardLabel: "relates to",
+			SourceType: "item", SourceID: 3000, SourceWorkspaceKey: "WI", SourceItemNumber: &sourceNumber,
+			TargetType: "item", TargetID: 3001, TargetWorkspaceKey: "WI", TargetItemNumber: &targetNumber,
+			TargetTitle: "Migrate homepage and dashboard data from v1 to v2 API",
+		}}}
+		out := captureStdout(t, func() { (&Output{format: "table"}).Print(resp) })
+		if !strings.Contains(out, "WI-1928") {
+			t.Errorf("expected workspace key WI-1928 in table output:\n%s", out)
+		}
+		if strings.Contains(out, "WI-3001") {
+			t.Errorf("table output leaked global DB id as a key:\n%s", out)
+		}
+	})
+
+	t.Run("list csv", func(t *testing.T) {
+		resp := &LinkListResponse{Incoming: []ItemLink{{
+			ID: 524, LinkTypeName: "Relates To", LinkTypeReverseLabel: "relates to",
+			SourceType: "item", SourceID: 3002, SourceWorkspaceKey: "WI", SourceItemNumber: ptrInt(1929),
+			TargetType: "item", TargetID: 3000, TargetWorkspaceKey: "WI", TargetItemNumber: &sourceNumber,
+			SourceTitle: "Rethink notification delivery for agent identities",
+		}}}
+		out := captureStdout(t, func() { (&Output{format: "csv"}).Print(resp) })
+		if !strings.Contains(out, "WI-1929") || strings.Contains(out, "WI-3002") {
+			t.Errorf("csv output did not render incoming source as WI-1929:\n%s", out)
+		}
+	})
+
+	t.Run("detail table", func(t *testing.T) {
+		link := &ItemLink{
+			ID: 525, LinkTypeName: "Relates To", LinkTypeForwardLabel: "relates to",
+			SourceType: "item", SourceID: 3000, SourceWorkspaceKey: "WI", SourceItemNumber: &sourceNumber,
+			TargetType: "item", TargetID: 3001, TargetWorkspaceKey: "WI", TargetItemNumber: &targetNumber,
+		}
+		out := captureStdout(t, func() { (&Output{format: "table"}).Print(link) })
+		if !strings.Contains(out, "WI-1927") || !strings.Contains(out, "WI-1928") {
+			t.Errorf("detail table missing workspace keys:\n%s", out)
+		}
+		if strings.Contains(out, "WI-3000") || strings.Contains(out, "WI-3001") {
+			t.Errorf("detail table leaked global DB ids as keys:\n%s", out)
+		}
+	})
+
+	t.Run("missing item number falls back to opaque id", func(t *testing.T) {
+		link := &ItemLink{
+			ID: 1, LinkTypeName: "Relates To", LinkTypeForwardLabel: "relates to",
+			SourceType: "item", SourceID: 3000, SourceWorkspaceKey: "WI",
+			TargetType: "item", TargetID: 3001, TargetWorkspaceKey: "WI",
+		}
+		out := captureStdout(t, func() { (&Output{format: "table"}).Print(link) })
+		if strings.Contains(out, "WI-3001") {
+			t.Errorf("missing item number must not fall back to a workspace key:\n%s", out)
+		}
+		if !strings.Contains(out, "item:3001") {
+			t.Errorf("expected opaque item:3001 fallback:\n%s", out)
+		}
+	})
+}
+
+func ptrInt(v int) *int { return &v }

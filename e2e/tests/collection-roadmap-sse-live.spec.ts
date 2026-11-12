@@ -15,9 +15,7 @@ test.describe("collection roadmap live updates via SSE (WI-1624)", () => {
 	test("a deletion pushed from elsewhere removes the roadmap row without reloading", async ({
 		page,
 		request,
-		allowConsoleError,
 	}, testInfo) => {
-		allowConsoleError(/\/api\/logbook\//);
 
 		const suffix = `roadmap-sse-${randomUUID().slice(0, 8)}${testInfo.workerIndex}`;
 		const workspace = await createWorkspaceViaAPI(

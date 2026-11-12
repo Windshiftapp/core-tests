@@ -8,13 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"windshift/internal/middleware"
 	"windshift/internal/models"
+	"windshift/internal/ratelimit"
 )
 
 func TestItemSearchRateLimitUsesV2Error(t *testing.T) {
 	t.Setenv("WINDSHIFT_E2E_DISABLE_RATE_LIMITS", "0")
-	limiter := middleware.NewRateLimiter(0, 1, false, nil)
+	limiter := ratelimit.New(0, 1, ratelimit.ByIP(nil))
 	t.Cleanup(limiter.Stop)
 	calls := 0
 	routes := []route{{Route: Route{Method: http.MethodGet, Path: "/items/search", Auth: AuthAuthenticated, Scopes: []string{"items:read"}}, handler: func(w http.ResponseWriter, r *http.Request) error {

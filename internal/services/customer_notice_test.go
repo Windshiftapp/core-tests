@@ -35,6 +35,10 @@ func (s *fakeThreadedSender) RenderEmail(templateName string, data any) (string,
 	return "subject", "<p>html</p>", "text", nil
 }
 
+func (s *fakeThreadedSender) RenderEmailLocale(_, templateName string, data any) (string, string, string, error) {
+	return s.RenderEmail(templateName, data)
+}
+
 type customerNoticeFixture struct {
 	db          database.Database
 	sender      *fakeThreadedSender

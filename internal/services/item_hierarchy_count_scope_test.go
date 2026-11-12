@@ -83,9 +83,9 @@ func (f *hierarchyCountFixture) insertWorklog(t *testing.T, itemID, durationMinu
 	customerID := testutils.InsertID(t, f.db, `INSERT INTO customer_organisations (name) VALUES (?)`, fmt.Sprintf("Customer %d", itemID))
 	projectID := testutils.InsertID(t, f.db, `INSERT INTO time_projects (customer_id, name) VALUES (?, ?)`, customerID, fmt.Sprintf("Project %d", itemID))
 	if _, err := f.db.Exec(`
-		INSERT INTO time_worklogs (project_id, customer_id, item_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
-		VALUES (?, ?, ?, 'Work', 100, 100, 200, ?, 100, 100)
-	`, projectID, customerID, itemID, durationMinutes); err != nil {
+		INSERT INTO time_worklogs (project_id, item_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
+		VALUES (?, ?, 'Work', 100, 100, 200, ?, 100, 100)
+	`, projectID, itemID, durationMinutes); err != nil {
 		t.Fatalf("insert worklog for item %d: %v", itemID, err)
 	}
 }

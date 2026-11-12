@@ -153,19 +153,19 @@ func TestKnowledgeRetrieval_RespectsSourceWhitelist(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	// Restricting to "logbook" should return zero hits even though a page
-	// exists — Phase 1 has no logbook adapter wired.
+	// Restricting to an unknown source returns zero hits even though a page
+	// exists.
 	results, err := retrieval.Search(SearchInput{
 		UserID:      1,
 		WorkspaceID: 1,
 		Query:       "hello",
-		Sources:     []string{"logbook"},
+		Sources:     []string{"unknown"},
 	})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
 	if len(results) != 0 {
-		t.Errorf("logbook-only search should return 0, got %d", len(results))
+		t.Errorf("unknown-only search should return 0, got %d", len(results))
 	}
 
 	// Restricting to "page" still returns hits.

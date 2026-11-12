@@ -39,10 +39,6 @@ func TestLoadTLSSkipVerify(t *testing.T) {
 			if cfg.OutboundTLS.SkipVerify != tt.want {
 				t.Fatalf("OutboundTLS.SkipVerify = %v, want %v", cfg.OutboundTLS.SkipVerify, tt.want)
 			}
-			logbookCfg := LoadLogbookSidecar()
-			if logbookCfg.OutboundTLS.SkipVerify != tt.want {
-				t.Fatalf("logbook OutboundTLS.SkipVerify = %v, want %v", logbookCfg.OutboundTLS.SkipVerify, tt.want)
-			}
 		})
 	}
 }

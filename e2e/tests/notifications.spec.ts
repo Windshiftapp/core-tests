@@ -42,6 +42,19 @@ test.describe('Notifications: toast + live item comments', () => {
     return { context, page: await context.newPage() };
   }
 
+  // The SSE endpoint shares the /api/notifications prefix, so the initial
+  // inbox wait must exclude it. Matching it would resolve on the stream
+  // connection and let the test create notifications while the first list
+  // snapshot is still in flight, so the snapshot can swallow the toast.
+  const waitForInboxSnapshot = (page) =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        response.url().includes('/api/notifications') &&
+        !response.url().includes('/api/notifications/events') &&
+        response.status() === 200
+    );
+
   test('opening an item marks an older notification beyond the default page as read', async ({
     page,
     request,
@@ -81,12 +94,7 @@ test.describe('Notifications: toast + live item comments', () => {
       expect(response.ok(), await response.text()).toBeTruthy();
     }
 
-    const initialInbox = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'GET' &&
-        response.url().includes('/api/notifications') &&
-        response.status() === 200
-    );
+    const initialInbox = waitForInboxSnapshot(page);
     await page.goto('/');
     await expect(page.locator('#global-create-button')).toBeVisible({ timeout: 15_000 });
     await initialInbox;
@@ -124,9 +132,7 @@ test.describe('Notifications: toast + live item comments', () => {
     test.setTimeout(90_000);
     const { context, page } = await openToastPage(browser, request);
     try {
-      const initialInbox = page.waitForResponse(
-        (response) => response.url().includes('/api/notifications') && response.status() === 200
-      );
+      const initialInbox = waitForInboxSnapshot(page);
       // The toast is driven by the SSE invalidation stream. Create the
       // notification only after the stream is connected so the change event is
       // delivered instead of falling into the snapshot/subscription gap.
@@ -175,9 +181,7 @@ test.describe('Notifications: toast + live item comments', () => {
     test.setTimeout(90_000);
     const { context, page } = await openToastPage(browser, request);
     try {
-      const initialInbox = page.waitForResponse(
-        (response) => response.url().includes('/api/notifications') && response.status() === 200
-      );
+      const initialInbox = waitForInboxSnapshot(page);
       // Wait for the SSE stream before creating notifications so the toast
       // invalidation is not lost in the snapshot/subscription gap.
       const streamConnected = page.waitForResponse((response) =>

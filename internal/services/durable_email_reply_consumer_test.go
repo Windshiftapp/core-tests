@@ -55,6 +55,10 @@ func (s *durableReplySender) RenderEmail(string, any) (string, string, string, e
 	return "rendered subject", "rendered html", "rendered text", nil
 }
 
+func (s *durableReplySender) RenderEmailLocale(_, templateName string, data any) (string, string, string, error) {
+	return s.RenderEmail(templateName, data)
+}
+
 type durableReplyEnv struct {
 	workspaceID, itemID, actorID, customerID, channelID int
 }
@@ -279,6 +283,59 @@ func TestDurableEmailReplySuppressesIneligibleCommittedComments(t *testing.T) {
 	}
 	if outboxCount != 0 {
 		t.Fatalf("ineligible comments created %d reply intents", outboxCount)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if sender.renderCalls != 0 || sender.sendCalls != 0 {
+		t.Fatalf("render/send calls = %d/%d, want 0/0", sender.renderCalls, sender.sendCalls)
+	}
+}
+
+func TestDurableEmailReplySuppressesImportedComments(t *testing.T) {
+	db := createTestDB(t)
+	defer func() { _ = db.Close() }()
+	env := setupDurableReplyEnv(t, db)
+	sender := &durableReplySender{rendered: make(chan error, 1)}
+	replies := NewEmailReplyService(db, sender)
+	engine := replyEngine(db, 5*time.Millisecond)
+	if err := PrepareDurableEmailReplyEngine(context.Background(), engine, replies); err != nil {
+		t.Fatalf("prepare reply consumer: %v", err)
+	}
+	comments := NewCommentService(db)
+	comments.SetEmailReplyService(replies)
+	if _, err := comments.CreateImported(CreateCommentParams{
+		ItemID: env.itemID, AuthorID: env.actorID, ActorUserID: env.actorID,
+		Content:       "A historical imported reply",
+		EventMetadata: itemevents.Import("jira-job-1"),
+	}); err != nil {
+		t.Fatalf("create imported comment: %v", err)
+	}
+	created, err := engine.Store().Reconcile(context.Background(), 20)
+	if err != nil {
+		t.Fatalf("reconcile imported comment: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("durable deliveries = %d, want 1 committed fact", created)
+	}
+	delivery, err := engine.Store().Claim(context.Background(), DurableEmailReplyConsumerKey, "test", time.Now(), time.Minute)
+	if err != nil || delivery == nil {
+		t.Fatalf("claim imported delivery: delivery=%v err=%v", delivery, err)
+	}
+	if delivery.Event.SourceKind != "import" {
+		t.Fatalf("delivery source kind = %q, want import", delivery.Event.SourceKind)
+	}
+	if err := (&DurableEmailReplyConsumer{replies: replies}).Handle(context.Background(), delivery.Event); err != nil {
+		t.Fatalf("handle imported delivery: %v", err)
+	}
+	if err := engine.Store().Complete(context.Background(), *delivery, time.Now()); err != nil {
+		t.Fatalf("complete imported delivery: %v", err)
+	}
+	var outboxCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM email_reply_outbox`).Scan(&outboxCount); err != nil {
+		t.Fatalf("count imported outbox: %v", err)
+	}
+	if outboxCount != 0 {
+		t.Fatalf("imported comment created %d reply intents", outboxCount)
 	}
 	sender.mu.Lock()
 	defer sender.mu.Unlock()

@@ -36,7 +36,7 @@ test("CSV import UI rejects a row whose mapped required field is blank", async (
 	).toBeTruthy();
 	const assetType = (await typeResponse.json()).data;
 
-	const fieldResponse = await request.post("/api/admin/custom-fields", {
+	const fieldResponse = await request.post("/api/v2/custom-fields", {
 		headers: SEC_FETCH,
 		data: { name: fieldName, field_type: "text" },
 	});
@@ -44,7 +44,7 @@ test("CSV import UI rejects a row whose mapped required field is blank", async (
 		fieldResponse.ok(),
 		`create custom field: ${await fieldResponse.text()}`,
 	).toBeTruthy();
-	const customField = await fieldResponse.json();
+	const customField = (await fieldResponse.json()).data.custom_field;
 
 	const attachResponse = await request.put(
 		`/api/v2/asset-types/${assetType.id}/fields`,

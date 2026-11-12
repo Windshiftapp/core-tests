@@ -33,6 +33,7 @@ func TestGetAssetServesFrontendInline(t *testing.T) {
 	}()
 
 	handler := NewPluginHandler(manager, nil, nil, false)
+	handler.SetAssetAuth(allowAllAssets, allowAllAssets, nil)
 
 	tests := []struct {
 		name        string

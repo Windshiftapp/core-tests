@@ -98,16 +98,16 @@ func TestSLASideEffectEmitterEmitsConfiguredNotification(t *testing.T) {
 
 	fixture.emitBreach(t, fixture.cycle(deadline))
 
-	if got := countDomainEvents(t, fixture.db, DurableNotificationCompatibilityEvent); got != 1 {
+	if got := countDomainEvents(t, fixture.db, DurableNotificationRequestedEvent); got != 1 {
 		t.Fatalf("notification compatibility events = %d, want 1", got)
 	}
-	if got := countDomainEvents(t, fixture.db, DurableActionCompatibilityEvent); got != 0 {
+	if got := countDomainEvents(t, fixture.db, DurableActionRequestedEvent); got != 0 {
 		t.Fatalf("action compatibility events = %d, want 0 without a rule", got)
 	}
 
 	var payload []byte
 	var occurredAt time.Time
-	if err := fixture.db.QueryRow(`SELECT payload, occurred_at FROM domain_events WHERE event_type = ?`, DurableNotificationCompatibilityEvent).Scan(&payload, &occurredAt); err != nil {
+	if err := fixture.db.QueryRow(`SELECT payload, occurred_at FROM domain_events WHERE event_type = ?`, DurableNotificationRequestedEvent).Scan(&payload, &occurredAt); err != nil {
 		t.Fatalf("load notification event: %v", err)
 	}
 	var event NotificationEvent
@@ -129,10 +129,10 @@ func TestSLASideEffectEmitterGatedWithoutConfiguration(t *testing.T) {
 	fixture := newSLASideEffectFixture(t)
 	fixture.emitBreach(t, fixture.cycle(time.Now().UTC()))
 
-	if got := countDomainEvents(t, fixture.db, DurableNotificationCompatibilityEvent); got != 0 {
+	if got := countDomainEvents(t, fixture.db, DurableNotificationRequestedEvent); got != 0 {
 		t.Fatalf("notification events = %d, want 0", got)
 	}
-	if got := countDomainEvents(t, fixture.db, DurableActionCompatibilityEvent); got != 0 {
+	if got := countDomainEvents(t, fixture.db, DurableActionRequestedEvent); got != 0 {
 		t.Fatalf("action events = %d, want 0", got)
 	}
 }
@@ -143,11 +143,11 @@ func TestSLASideEffectEmitterEmitsConfiguredAction(t *testing.T) {
 
 	fixture.emitBreach(t, fixture.cycle(time.Now().UTC()))
 
-	if got := countDomainEvents(t, fixture.db, DurableActionCompatibilityEvent); got != 1 {
+	if got := countDomainEvents(t, fixture.db, DurableActionRequestedEvent); got != 1 {
 		t.Fatalf("action compatibility events = %d, want 1", got)
 	}
 	var payload []byte
-	if err := fixture.db.QueryRow(`SELECT payload FROM domain_events WHERE event_type = ?`, DurableActionCompatibilityEvent).Scan(&payload); err != nil {
+	if err := fixture.db.QueryRow(`SELECT payload FROM domain_events WHERE event_type = ?`, DurableActionRequestedEvent).Scan(&payload); err != nil {
 		t.Fatalf("load action event: %v", err)
 	}
 	var event models.ActionEvent
@@ -172,11 +172,11 @@ func TestSLASideEffectEmitterWarningUsesWarningTriggers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("EmitWarning: %v", err)
 	}
-	if got := countDomainEvents(t, fixture.db, DurableNotificationCompatibilityEvent); got != 1 {
+	if got := countDomainEvents(t, fixture.db, DurableNotificationRequestedEvent); got != 1 {
 		t.Fatalf("warning notification events = %d, want 1", got)
 	}
 	var payload []byte
-	if err := fixture.db.QueryRow(`SELECT payload FROM domain_events WHERE event_type = ?`, DurableActionCompatibilityEvent).Scan(&payload); err != nil {
+	if err := fixture.db.QueryRow(`SELECT payload FROM domain_events WHERE event_type = ?`, DurableActionRequestedEvent).Scan(&payload); err != nil {
 		t.Fatalf("load warning action event: %v", err)
 	}
 	var event models.ActionEvent
@@ -188,5 +188,29 @@ func TestSLASideEffectEmitterWarningUsesWarningTriggers(t *testing.T) {
 	}
 	if event.NewValues["threshold_key"] != "75pct" {
 		t.Fatalf("threshold_key = %v, want 75pct", event.NewValues["threshold_key"])
+	}
+}
+
+// TestSLASideEffectEmitterPreservesImportOrigin asserts an imported SLA cycle
+// stamps import provenance on its side-effect events so the durable consumers
+// can refuse to turn the import into live output.
+func TestSLASideEffectEmitterPreservesImportOrigin(t *testing.T) {
+	fixture := newSLASideEffectFixture(t)
+	fixture.enableNotification(t, models.EventSLABreached)
+	fixture.enableAction(t, string(models.ActionTriggerSLABreached))
+	deadline := time.Date(2025, 1, 8, 13, 0, 0, 0, time.UTC)
+	cycle := fixture.cycle(deadline)
+	cycle.Origin = models.SLAOriginImport
+
+	fixture.emitBreach(t, cycle)
+
+	for _, eventType := range []string{DurableNotificationRequestedEvent, DurableActionRequestedEvent} {
+		var actorKind, sourceKind string
+		if err := fixture.db.QueryRow(`SELECT actor_kind, source_kind FROM domain_events WHERE event_type = ?`, eventType).Scan(&actorKind, &sourceKind); err != nil {
+			t.Fatalf("load %s provenance: %v", eventType, err)
+		}
+		if actorKind != "import" || sourceKind != "import" {
+			t.Fatalf("%s provenance = %q/%q, want import/import", eventType, actorKind, sourceKind)
+		}
 	}
 }

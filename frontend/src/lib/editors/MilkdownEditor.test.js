@@ -86,6 +86,7 @@ vi.mock("../stores/attachmentStatus.svelte.js", () => ({
 vi.mock("../router.js", () => ({ navigate: vi.fn() }));
 vi.mock("./milkdown-mention-mark.js", () => ({ mentionDecorationPlugin: {} }));
 vi.mock("./milkdown-link-sanitizer.js", () => ({ linkSanitizerPlugin: {} }));
+vi.mock("./milkdown-image-blocker.js", () => ({ imageBlockerPlugin: {} }));
 vi.mock("./milkdown-hardbreak.js", () => ({ rewriteBreakHTML: {} }));
 vi.mock("./milkdown-excalidraw-block.svelte.js", () => ({ excalidrawBlock: {} }));
 vi.mock("./code-highlight.js", () => ({ highlightCodeBlocks: () => {} }));

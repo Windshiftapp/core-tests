@@ -1,3 +1,4 @@
+import type { Request } from '@playwright/test';
 import {
   expect,
   test,
@@ -168,9 +169,26 @@ test.describe('Email mailbox intake routing (WI-1644)', () => {
     await expect(page.getByTestId(`channel-intake-${intakeId}`)).toBeVisible();
     await expect(page.getByTestId(`channel-intake-${intakeId}`)).toContainText('INBOX');
 
+    // The portal's settings page resolves connected mailboxes from the channel
+    // listing: one request, and no per-mailbox intake request.
+    const intakeRequests: string[] = [];
+    const channelListRequests: string[] = [];
+    const onRequest = (browserRequest: Request) => {
+      if (browserRequest.method() !== 'GET') return;
+      const url = new URL(browserRequest.url());
+      if (url.pathname.endsWith('/channels')) channelListRequests.push(url.search);
+      if (/\/channels\/\d+\/intakes$/.test(url.pathname)) intakeRequests.push(url.pathname);
+    };
+    page.on('request', onRequest);
+
     // The portal's settings page lists the connected mailbox read-only.
     await page.goto(`/admin/channels/${portal.channelId}/portal`);
     await expect(page.getByTestId(`portal-connected-mailbox-${email.channelId}`)).toBeVisible();
+    page.off('request', onRequest);
+    expect(
+      channelListRequests.filter((search) => search.includes('include_intakes=true'))
+    ).toHaveLength(1);
+    expect(intakeRequests).toHaveLength(0);
     await expect(
       page.getByTestId(`portal-connected-mailbox-${email.channelId}`)
     ).toContainText(email.name);

@@ -11,7 +11,6 @@ test.describe('ticket merge lifecycle', () => {
 		request,
 		allowConsoleError,
 	}, testInfo) => {
-		allowConsoleError(/\/api\/logbook\//);
 		allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 
 		const stamp = `${Date.now()}${testInfo.workerIndex}${testInfo.repeatEachIndex}`;
@@ -76,7 +75,6 @@ test.describe('ticket split lifecycle', () => {
 		request,
 		allowConsoleError,
 	}, testInfo) => {
-		allowConsoleError(/\/api\/logbook\//);
 		allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 
 		const stamp = `${Date.now()}${testInfo.workerIndex}${testInfo.repeatEachIndex}`;

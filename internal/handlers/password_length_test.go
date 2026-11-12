@@ -39,8 +39,7 @@ func newPasswordAuthHandler(t *testing.T, db database.Database) *AuthHandler {
 	}
 	t.Cleanup(func() { _ = permissionService.Close() })
 
-	rateLimiter := middleware.NewRateLimiter(100, 100, false, nil)
-	t.Cleanup(rateLimiter.Stop)
+	loginLockout := middleware.NewLoginLockout()
 
 	sessionManager := auth.NewSessionManagerWithValidationCacheTTL(
 		db, false, false, nil, "password-length-test-secret", "strict", auth.DefaultSessionValidationCacheTTL,
@@ -50,7 +49,7 @@ func newPasswordAuthHandler(t *testing.T, db database.Database) *AuthHandler {
 		repository.NewCredentialRepository(db),
 		logger.NewAuditor(db),
 		sessionManager,
-		rateLimiter,
+		loginLockout,
 		permissionService,
 		nil,
 		utils.NewIPExtractor(false, nil),

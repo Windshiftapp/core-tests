@@ -4,16 +4,18 @@ package services
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"windshift/internal/assetevents"
 	"windshift/internal/events"
-	"windshift/internal/models"
+	"windshift/internal/itemevents"
 	"windshift/internal/testutils"
 )
 
-func TestImportedAssetRowCreatesAutomationExecutionLog(t *testing.T) {
+// TestImportedAssetRowDoesNotCreateAutomationExecutionLog asserts asset imports
+// are historical: the canonical created fact carries import provenance and the
+// durable consumer refuses to run automation for it.
+func TestImportedAssetRowDoesNotCreateAutomationExecutionLog(t *testing.T) {
 	tdb := testutils.CreateTestDB(t, true)
 	t.Cleanup(func() { tdb.Close() })
 	db := tdb.GetDatabase()
@@ -40,6 +42,7 @@ func TestImportedAssetRowCreatesAutomationExecutionLog(t *testing.T) {
 		t.Fatalf("importAssetCSVRow: %v", err)
 	}
 	actions.InvalidateSetCache(setID)
+
 	var eventID int64
 	if err := db.QueryRow("SELECT id FROM domain_events WHERE event_type = ? ORDER BY id DESC LIMIT 1", assetevents.Created).Scan(&eventID); err != nil {
 		t.Fatalf("load event: %v", err)
@@ -48,19 +51,18 @@ func TestImportedAssetRowCreatesAutomationExecutionLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load event: %v", err)
 	}
+	if !itemevents.IsImportOrigin(event.ActorKind, event.SourceKind) {
+		t.Fatalf("imported asset event origin = (%q, %q), want import", event.ActorKind, event.SourceKind)
+	}
 	if err := NewDurableAssetActionConsumer(db, actions).Handle(context.Background(), *event); err != nil {
 		t.Fatalf("consume event: %v", err)
 	}
-	var status models.ActionExecutionStatus
-	var triggerEvent, trace string
-	var actorID int
-	if err := db.QueryRow(`SELECT l.status, l.trigger_event, l.execution_trace, a.created_by FROM asset_action_execution_logs l JOIN assets a ON a.id = l.asset_id WHERE l.action_id = ?`, actionID).Scan(&status, &triggerEvent, &trace, &actorID); err != nil {
-		t.Fatalf("load execution: %v", err)
+
+	var executions int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM asset_action_execution_logs WHERE action_id = ?`, actionID).Scan(&executions); err != nil {
+		t.Fatalf("count executions: %v", err)
 	}
-	if status != models.ActionStatusCompleted || triggerEvent != string(models.AssetTriggerAssetCreated) || actorID != userID {
-		t.Fatalf("execution = status %q, event %q, actor %d", status, triggerEvent, actorID)
-	}
-	if !strings.Contains(trace, `"condition_result":true`) || !strings.Contains(trace, `"field_value":"Imported async"`) {
-		t.Fatalf("execution trace = %s", trace)
+	if executions != 0 {
+		t.Fatalf("imported asset created %d automation executions, want 0", executions)
 	}
 }

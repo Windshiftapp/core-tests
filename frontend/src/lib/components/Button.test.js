@@ -45,3 +45,14 @@ describe('Button toggle state', () => {
     expect(screen.getByTestId('plain-button')).not.toHaveAttribute('aria-pressed');
   });
 });
+
+describe('Button variant hover tokens', () => {
+  it('hovers the context variant with the context hover surface, not the neutral ink', () => {
+    render(Button, { props: { variant: 'context', dataTestid: 'context-button' } });
+
+    const className = screen.getByTestId('context-button').className;
+    expect(className).toContain('hover:bg-[var(--ctx-hover-bg,var(--ds-surface-hovered))]');
+    expect(className).not.toContain('--ds-background-neutral-hovered');
+    expect(className).not.toContain('--ctx-active-bg');
+  });
+});

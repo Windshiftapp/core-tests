@@ -83,6 +83,27 @@ func TestRender(t *testing.T) {
 			source:   "one<br />two",
 			contains: []string{"one<br>two"},
 		},
+		{
+			name:       "mention id token renders as display name",
+			source:     "hi @{John Doe#42}!",
+			contains:   []string{"@John Doe"},
+			notContain: []string{"#42", "{"},
+		},
+		{
+			name:     "mention id token inside inline code is literal",
+			source:   "`@{John Doe#42}`",
+			contains: []string{"<code>@{John Doe#42}</code>"},
+		},
+		{
+			name:     "mention id token inside fenced code is literal",
+			source:   "```\n@{John Doe#42}\n```",
+			contains: []string{"@{John Doe#42}"},
+		},
+		{
+			name:     "mention id token glued to a word is not rewritten",
+			source:   "foo@{John Doe#42}",
+			contains: []string{"foo@{John Doe#42}"},
+		},
 	}
 
 	for _, test := range tests {
@@ -100,6 +121,26 @@ func TestRender(t *testing.T) {
 				if strings.Contains(html, forbidden) {
 					t.Errorf("Render() = %q, must not contain %q", html, forbidden)
 				}
+			}
+		})
+	}
+}
+
+func TestStripMentionIDs(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{"embedded id", "hi @{John Doe#42}!", "hi @John Doe!"},
+		{"legacy forms untouched", `hi @jdoe and @"Jane Doe"`, `hi @jdoe and @"Jane Doe"`},
+		{"multiple tokens", "@{A B#1} and @{C D#2}", "@A B and @C D"},
+		{"missing id untouched", "@{John Doe}", "@{John Doe}"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := StripMentionIDs(test.source); got != test.want {
+				t.Fatalf("StripMentionIDs(%q) = %q, want %q", test.source, got, test.want)
 			}
 		})
 	}

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 
 	"windshift/internal/database"
@@ -89,115 +90,168 @@ func setupMentionTestEnv(t *testing.T, db database.Database) mentionTestEnv {
 	}
 }
 
-func TestMentionService_ExtractMentionIdentifiers(t *testing.T) {
+func TestMentionService_ExtractMentionRefs(t *testing.T) {
 	db := createMentionTestDB(t)
 
 	service := NewMentionService(db, nil, nil)
 
 	t.Run("ExtractUsername", func(t *testing.T) {
 		content := "Hello @johndoe, how are you?"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs(content)
 
-		if len(identifiers) != 1 {
-			t.Fatalf("Expected 1 identifier, got %d", len(identifiers))
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
 		}
-		if identifiers[0] != "johndoe" {
-			t.Errorf("Expected 'johndoe', got '%s'", identifiers[0])
+		if refs[0].UserID != 0 || refs[0].Identifier != "johndoe" {
+			t.Errorf("Expected legacy ref 'johndoe', got %+v", refs[0])
 		}
 	})
 
 	t.Run("ExtractQuotedDisplayName", func(t *testing.T) {
 		content := "Hello @\"John Doe\", how are you?"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs(content)
 
-		if len(identifiers) != 1 {
-			t.Fatalf("Expected 1 identifier, got %d", len(identifiers))
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
 		}
-		if identifiers[0] != "John Doe" {
-			t.Errorf("Expected 'John Doe', got '%s'", identifiers[0])
+		if refs[0].UserID != 0 || refs[0].Identifier != "John Doe" {
+			t.Errorf("Expected legacy ref 'John Doe', got %+v", refs[0])
+		}
+	})
+
+	t.Run("ExtractIdToken", func(t *testing.T) {
+		content := "Hello @{John Doe#42}, how are you?"
+		refs := service.ExtractMentionRefs(content)
+
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
+		}
+		if refs[0].UserID != 42 {
+			t.Errorf("Expected user id 42, got %d", refs[0].UserID)
+		}
+		if refs[0].Identifier != "John Doe" {
+			t.Errorf("Expected display name 'John Doe', got %q", refs[0].Identifier)
+		}
+	})
+
+	t.Run("ExtractIdTokenWithHashInName", func(t *testing.T) {
+		content := "Hi @{Ticket #1 Owner#7}!"
+		refs := service.ExtractMentionRefs(content)
+
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
+		}
+		if refs[0].UserID != 7 || refs[0].Identifier != "Ticket #1 Owner" {
+			t.Errorf("Expected id 7 and name 'Ticket #1 Owner', got %+v", refs[0])
+		}
+	})
+
+	t.Run("DeduplicatesById", func(t *testing.T) {
+		content := "@{John Doe#42} and @{J. Doe#42}"
+		refs := service.ExtractMentionRefs(content)
+
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref (deduplicated by id), got %d", len(refs))
 		}
 	})
 
 	t.Run("ExtractMultipleMentions", func(t *testing.T) {
 		content := "Hello @johndoe and @janedoe!"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs(content)
 
-		if len(identifiers) != 2 {
-			t.Fatalf("Expected 2 identifiers, got %d", len(identifiers))
+		if len(refs) != 2 {
+			t.Fatalf("Expected 2 refs, got %d", len(refs))
 		}
 	})
 
 	t.Run("DeduplicateMentions", func(t *testing.T) {
 		content := "Hello @johndoe, @johndoe again!"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs(content)
 
-		if len(identifiers) != 1 {
-			t.Fatalf("Expected 1 identifier (deduplicated), got %d", len(identifiers))
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref (deduplicated), got %d", len(refs))
 		}
 	})
 
 	t.Run("MixedFormats", func(t *testing.T) {
 		content := "Hello @johndoe and @\"Jane Doe\"!"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs(content)
 
-		if len(identifiers) != 2 {
-			t.Fatalf("Expected 2 identifiers, got %d", len(identifiers))
+		if len(refs) != 2 {
+			t.Fatalf("Expected 2 refs, got %d", len(refs))
 		}
 	})
 
 	t.Run("NoMentions", func(t *testing.T) {
 		content := "Hello, how are you?"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs(content)
 
-		if len(identifiers) != 0 {
-			t.Errorf("Expected 0 identifiers, got %d", len(identifiers))
+		if len(refs) != 0 {
+			t.Errorf("Expected 0 refs, got %d", len(refs))
 		}
 	})
 
 	t.Run("EmptyContent", func(t *testing.T) {
-		content := ""
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs("")
 
-		if len(identifiers) != 0 {
-			t.Errorf("Expected 0 identifiers, got %d", len(identifiers))
+		if len(refs) != 0 {
+			t.Errorf("Expected 0 refs, got %d", len(refs))
 		}
 	})
 
 	t.Run("UsernameWithDots", func(t *testing.T) {
-		content := "Hello @john.doe.jr!"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs("Hello @john.doe.jr!")
 
-		if len(identifiers) != 1 {
-			t.Fatalf("Expected 1 identifier, got %d", len(identifiers))
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
 		}
-		if identifiers[0] != "john.doe.jr" {
-			t.Errorf("Expected 'john.doe.jr', got '%s'", identifiers[0])
+		if refs[0].Identifier != "john.doe.jr" {
+			t.Errorf("Expected 'john.doe.jr', got '%s'", refs[0].Identifier)
 		}
 	})
 
 	t.Run("UsernameWithUnderscores", func(t *testing.T) {
-		content := "Hello @john_doe!"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs("Hello @john_doe!")
 
-		if len(identifiers) != 1 {
-			t.Fatalf("Expected 1 identifier, got %d", len(identifiers))
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
 		}
-		if identifiers[0] != "john_doe" {
-			t.Errorf("Expected 'john_doe', got '%s'", identifiers[0])
+		if refs[0].Identifier != "john_doe" {
+			t.Errorf("Expected 'john_doe', got '%s'", refs[0].Identifier)
 		}
 	})
 
 	t.Run("UsernameWithDashes", func(t *testing.T) {
-		content := "Hello @john-doe!"
-		identifiers := service.ExtractMentionIdentifiers(content)
+		refs := service.ExtractMentionRefs("Hello @john-doe!")
 
-		if len(identifiers) != 1 {
-			t.Fatalf("Expected 1 identifier, got %d", len(identifiers))
+		if len(refs) != 1 {
+			t.Fatalf("Expected 1 ref, got %d", len(refs))
 		}
-		if identifiers[0] != "john-doe" {
-			t.Errorf("Expected 'john-doe', got '%s'", identifiers[0])
+		if refs[0].Identifier != "john-doe" {
+			t.Errorf("Expected 'john-doe', got '%s'", refs[0].Identifier)
 		}
 	})
+}
+
+// ensureDuplicateDisplayNameUsers creates (or reuses) two active users that
+// share the display name "Dup Person" and returns their ids. Idempotent so the
+// id and ambiguity subtests stay order-independent.
+func ensureDuplicateDisplayNameUsers(t *testing.T, db database.Database) (int, int) {
+	t.Helper()
+
+	ensure := func(username, email string) int {
+		var id int
+		err := db.QueryRow(`SELECT id FROM users WHERE username = ?`, username).Scan(&id)
+		if err == nil {
+			return id
+		}
+		return testutils.InsertID(t, db, `
+			INSERT INTO users (username, first_name, last_name, email, is_active, created_at, updated_at)
+			VALUES (?, 'Dup', 'Person', ?, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`, username, email)
+	}
+
+	return ensure("dup.person.a", "dup.person.a@example.com"), ensure("dup.person.b", "dup.person.b@example.com")
 }
 
 func TestMentionService_ProcessMentions(t *testing.T) {
@@ -410,6 +464,119 @@ func TestMentionService_ProcessMentions(t *testing.T) {
 			t.Errorf("Expected 1 mention from display name, got %d", count)
 		}
 	})
+
+	t.Run("ResolvesEmbeddedIdWhenDisplayNameIsDuplicated", func(t *testing.T) {
+		db.Exec("DELETE FROM mentions")
+
+		dupA, _ := ensureDuplicateDisplayNameUsers(t, db)
+		sourceID := env.CommentID + 800
+
+		params := ProcessMentionsParams{
+			SourceType:  "comment",
+			SourceID:    sourceID,
+			Content:     fmt.Sprintf("Hello @{Dup Person#%d}!", dupA),
+			ItemID:      env.ItemID,
+			WorkspaceID: env.WorkspaceID,
+			ActorUserID: env.UserID2,
+		}
+
+		if err := service.ProcessMentions(params); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		var count int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM mentions
+			WHERE source_type = ? AND source_id = ? AND mentioned_user_id = ?
+		`, "comment", sourceID, dupA).Scan(&count); err != nil {
+			t.Fatalf("Failed to query mentions: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("Expected the id-embedded user to be mentioned exactly once, got %d", count)
+		}
+	})
+
+	t.Run("SkipsAmbiguousDisplayNameMention", func(t *testing.T) {
+		db.Exec("DELETE FROM mentions")
+
+		ensureDuplicateDisplayNameUsers(t, db)
+		sourceID := env.CommentID + 900
+
+		params := ProcessMentionsParams{
+			SourceType:  "comment",
+			SourceID:    sourceID,
+			Content:     "Hello @\"Dup Person\"!",
+			ItemID:      env.ItemID,
+			WorkspaceID: env.WorkspaceID,
+			ActorUserID: env.UserID2,
+		}
+
+		if err := service.ProcessMentions(params); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		var count int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM mentions WHERE source_type = ? AND source_id = ?
+		`, "comment", sourceID).Scan(&count); err != nil {
+			t.Fatalf("Failed to query mentions: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("Expected no mention for an ambiguous display name, got %d", count)
+		}
+	})
+
+	t.Run("SkipsIdTokenForInactiveUser", func(t *testing.T) {
+		db.Exec("DELETE FROM mentions")
+
+		sourceID := env.CommentID + 1000
+		params := ProcessMentionsParams{
+			SourceType:  "comment",
+			SourceID:    sourceID,
+			Content:     fmt.Sprintf("Hello @{Inactive User#%d}!", env.UserID3),
+			ItemID:      env.ItemID,
+			WorkspaceID: env.WorkspaceID,
+			ActorUserID: env.UserID2,
+		}
+
+		if err := service.ProcessMentions(params); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM mentions WHERE source_id = ?`, sourceID).Scan(&count); err != nil {
+			t.Fatalf("Failed to query mentions: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("Expected no mention for an inactive user, got %d", count)
+		}
+	})
+
+	t.Run("SkipsIdTokenForUnknownUser", func(t *testing.T) {
+		db.Exec("DELETE FROM mentions")
+
+		sourceID := env.CommentID + 1100
+		params := ProcessMentionsParams{
+			SourceType:  "comment",
+			SourceID:    sourceID,
+			Content:     "Hello @{Nobody Here#99999}!",
+			ItemID:      env.ItemID,
+			WorkspaceID: env.WorkspaceID,
+			ActorUserID: env.UserID2,
+		}
+
+		if err := service.ProcessMentions(params); err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM mentions WHERE source_id = ?`, sourceID).Scan(&count); err != nil {
+			t.Fatalf("Failed to query mentions: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("Expected no mention for an unknown id, got %d", count)
+		}
+	})
 }
 
 func TestMentionService_DeleteMentionsForSource(t *testing.T) {
@@ -533,8 +700,8 @@ func TestMentionPattern(t *testing.T) {
 		if len(matches) != 1 {
 			t.Fatalf("Expected 1 match, got %d", len(matches))
 		}
-		if matches[0][1] != "johndoe" {
-			t.Errorf("Expected 'johndoe', got '%s'", matches[0][1])
+		if matches[0][3] != "johndoe" {
+			t.Errorf("Expected 'johndoe', got '%s'", matches[0][3])
 		}
 	})
 
@@ -543,8 +710,8 @@ func TestMentionPattern(t *testing.T) {
 		if len(matches) != 1 {
 			t.Fatalf("Expected 1 match, got %d", len(matches))
 		}
-		if matches[0][2] != "John Doe" {
-			t.Errorf("Expected 'John Doe', got '%s'", matches[0][2])
+		if matches[0][4] != "John Doe" {
+			t.Errorf("Expected 'John Doe', got '%s'", matches[0][4])
 		}
 	})
 
@@ -604,8 +771,35 @@ func TestMentionPattern(t *testing.T) {
 		if len(matches) != 1 {
 			t.Fatalf("Expected 1 match, got %d", len(matches))
 		}
-		if matches[0][1] != "johndoe" {
-			t.Errorf("Expected 'johndoe', got '%s'", matches[0][1])
+		if matches[0][3] != "johndoe" {
+			t.Errorf("Expected 'johndoe', got '%s'", matches[0][3])
+		}
+	})
+
+	t.Run("MatchesIdToken", func(t *testing.T) {
+		matches := MentionPattern.FindAllStringSubmatch("hello @{John Doe#42} world", -1)
+		if len(matches) != 1 {
+			t.Fatalf("Expected 1 match, got %d", len(matches))
+		}
+		if matches[0][1] != "John Doe" {
+			t.Errorf("Expected 'John Doe', got '%s'", matches[0][1])
+		}
+		if matches[0][2] != "42" {
+			t.Errorf("Expected id '42', got '%s'", matches[0][2])
+		}
+	})
+
+	t.Run("MatchesIdTokenAtStart", func(t *testing.T) {
+		matches := MentionPattern.FindAllStringSubmatch("@{John Doe#7} hello", -1)
+		if len(matches) != 1 {
+			t.Fatalf("Expected 1 match, got %d", len(matches))
+		}
+	})
+
+	t.Run("DoesNotMatchEmptyIdToken", func(t *testing.T) {
+		matches := MentionPattern.FindAllStringSubmatch("hello @{John Doe} world", -1)
+		if len(matches) != 0 {
+			t.Fatalf("Expected 0 matches without an id, got %d", len(matches))
 		}
 	})
 
@@ -615,8 +809,8 @@ func TestMentionPattern(t *testing.T) {
 		if len(matches) != 1 {
 			t.Fatalf("Expected 1 match, got %d", len(matches))
 		}
-		if matches[0][1] != "johndoe" {
-			t.Errorf("Expected 'johndoe', got '%s'", matches[0][1])
+		if matches[0][3] != "johndoe" {
+			t.Errorf("Expected 'johndoe', got '%s'", matches[0][3])
 		}
 	})
 }

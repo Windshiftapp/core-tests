@@ -44,7 +44,7 @@ vi.mock('./portalAuth.svelte.js', () => ({
   portalAuthStore: { isAuthenticated: false },
 }));
 
-vi.mock('./toasts.svelte.js', () => ({ errorToast: vi.fn() }));
+vi.mock('./toasts.svelte.js', () => ({ surfaceError: vi.fn(), errorToast: vi.fn() }));
 
 import { configurePortalActivityStore, portalActivityStore, portalApprovalsStore, portalDraftsStore, portalRequestsStore } from './portalActivity.svelte.js';
 

@@ -38,9 +38,7 @@ test.describe('Action editor — http_request headers', () => {
   test('adding header rows persists and hydrates the headers map', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `http-headers-${stamp}`,

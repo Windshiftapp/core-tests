@@ -126,6 +126,7 @@ vi.mock('../../stores/attachmentStatus.svelte.js', async () => {
 
 vi.mock('../../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   addToast: vi.fn(),
   successToast: vi.fn(),
   errorToast: vi.fn(),
@@ -149,8 +150,14 @@ vi.mock('../../composables/useItemAttachments.svelte.js', () => ({
     load: vi.fn().mockResolvedValue(undefined),
   }),
 }));
+const itemEventStream = vi.hoisted(() => ({ onReconcile: null, onDeleted: null }));
+
 vi.mock('../../composables/useItemEventStream.svelte.js', () => ({
-  useItemEventStream: () => ({ connected: false }),
+  useItemEventStream: (_getItemId, handlers = {}) => {
+    itemEventStream.onReconcile = handlers.onReconcile ?? null;
+    itemEventStream.onDeleted = handlers.onDeleted ?? null;
+    return { connected: false };
+  },
 }));
 vi.mock('../../utils/contextCommands.js', () => ({
   registerContextCommands: vi.fn(),
@@ -451,6 +458,54 @@ describe('ItemDetail time log modal rendering', () => {
     itemDetailStore.showTimeLogModal = true;
     await waitFor(() =>
       expect(screen.getByTestId('time-log-modal-stub')).toBeInTheDocument()
+    );
+  });
+});
+
+describe('ItemDetail background reconcile', () => {
+  beforeEach(() => {
+    itemDetailStore.reset();
+    workspaceDataStore.reset();
+    navigate.mockClear();
+    itemEventStream.onReconcile = null;
+    mockSuccessfulRelatedLoads();
+    items.getDetailSummaryByKey.mockResolvedValue(detailSummary(summaryItem(1)));
+  });
+
+  it('does not dim the item view while a background SSE reconcile is in flight', async () => {
+    render(ItemDetail, {
+      props: {
+        workspaceKey: 'WI',
+        itemNumber: 1,
+        itemId: 1,
+        workspaceId: 1,
+        canonicalizeKeyRoute: false,
+        tab: 'comments',
+      },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('item-detail-ready')).toBeInTheDocument());
+    const view = screen.getByTestId('item-detail-ready').closest('.transition-opacity');
+    expect(view).not.toHaveClass('opacity-90');
+
+    // Hold the reconcile's summary open so the in-flight render is observable.
+    let release;
+    items.getDetailSummaryByKey.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+    const reconcile = itemEventStream.onReconcile();
+    await waitFor(() => expect(items.getDetailSummaryByKey).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByTestId('item-detail-ready').closest('.transition-opacity')).not.toHaveClass(
+      'opacity-90'
+    );
+
+    release(detailSummary(summaryItem(1)));
+    await reconcile;
+    expect(screen.getByTestId('item-detail-ready').closest('.transition-opacity')).not.toHaveClass(
+      'opacity-90'
     );
   });
 });

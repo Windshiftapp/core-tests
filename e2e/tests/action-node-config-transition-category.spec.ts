@@ -27,9 +27,7 @@ test.describe('Action editor — transition_item category picker', () => {
   test('choosing a status category by name persists target.category_name', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `transition-cat-${stamp}`,

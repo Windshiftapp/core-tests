@@ -36,7 +36,7 @@ func newLLMBrokerFixture(t *testing.T, upstreamURL string, providerConfig ...str
 		config = providerConfig[0]
 	}
 	return newLLMBrokerFixtureFor(t, llm.CreateConnectionRequest{
-		Name: "Anthropic broker", ProviderType: "anthropic", Model: "claude-haiku-4-5-20251001",
+		Name: "Anthropic broker", ProviderType: "anthropic", Model: "claude-sonnet-5",
 		APIKey: "provider-secret", BaseURL: upstreamURL, ProviderConfig: config, IsEnabled: true,
 	})
 }
@@ -124,7 +124,7 @@ func TestNeutralInferenceEndpointResolvesBindingAndMetersTypedUsage(t *testing.T
 			t.Fatalf("decode upstream: %v", err)
 		}
 		writeAnthropicSSE(w,
-			anthropicEvent("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5-20251001","content":[],"stop_reason":null,"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":4,"output_tokens":0}}}`),
+			anthropicEvent("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":4,"output_tokens":0}}}`),
 			anthropicEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
 			anthropicEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ready"}}`),
 			anthropicEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
@@ -139,10 +139,10 @@ func TestNeutralInferenceEndpointResolvesBindingAndMetersTypedUsage(t *testing.T
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if got := string(upstream["model"]); got != `"claude-haiku-4-5-20251001"` {
+	if got := string(upstream["model"]); got != `"claude-sonnet-5"` {
 		t.Fatalf("server-authoritative model = %s", got)
 	}
-	if got := string(upstream["max_tokens"]); got != "64000" {
+	if got := string(upstream["max_tokens"]); got != "128000" {
 		t.Fatalf("server-capped max_tokens = %s", got)
 	}
 	totals, err := fixture.usage.TotalsForRun(context.Background(), fixture.runID)
@@ -251,7 +251,7 @@ func TestNeutralInferenceEndpointPreservesContinuationWithBindingFingerprint(t *
 		upstreamBodies = append(upstreamBodies, upstream)
 		if len(upstreamBodies) == 2 {
 			writeAnthropicSSE(w,
-				anthropicEvent("message_start", `{"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","model":"claude-haiku-4-5-20251001","content":[],"stop_reason":null,"usage":{"input_tokens":2,"cache_read_input_tokens":20,"output_tokens":0}}}`),
+				anthropicEvent("message_start", `{"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-5","content":[],"stop_reason":null,"usage":{"input_tokens":2,"cache_read_input_tokens":20,"output_tokens":0}}}`),
 				anthropicEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
 				anthropicEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"done"}}`),
 				anthropicEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
@@ -261,7 +261,7 @@ func TestNeutralInferenceEndpointPreservesContinuationWithBindingFingerprint(t *
 			return
 		}
 		writeAnthropicSSE(w,
-			anthropicEvent("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5-20251001","content":[],"stop_reason":null,"usage":{"input_tokens":10,"cache_creation_input_tokens":20,"output_tokens":0}}}`),
+			anthropicEvent("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"cache_creation_input_tokens":20,"output_tokens":0}}}`),
 			anthropicEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`),
 			anthropicEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"inspect"}}`),
 			anthropicEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"opaque-signature"}}`),
@@ -284,7 +284,7 @@ func TestNeutralInferenceEndpointPreservesContinuationWithBindingFingerprint(t *
 		t.Fatal(err)
 	}
 	message := response.Choices[0].Message
-	if len(message.ProviderState) == 0 || message.ProviderBinding != llmBindingFingerprint(fixture.connection, "anthropic", "claude-haiku-4-5-20251001") {
+	if len(message.ProviderState) == 0 || message.ProviderBinding != llmBindingFingerprint(fixture.connection, "anthropic", "claude-sonnet-5") {
 		t.Fatalf("continuation state/binding = %s / %q", message.ProviderState, message.ProviderBinding)
 	}
 	if countJSONKey(upstreamBodies[0], "cache_control") != 3 {
@@ -293,6 +293,18 @@ func TestNeutralInferenceEndpointPreservesContinuationWithBindingFingerprint(t *
 	thinking, _ := upstreamBodies[0]["thinking"].(map[string]any)
 	if thinking["type"] != "enabled" || thinking["budget_tokens"] != float64(2048) {
 		t.Fatalf("explicit thinking config = %#v", thinking)
+	}
+	// The harness supplies its own tool schemas, which never touch the aitools
+	// registry. The broker must still hand the provider the portable shape a
+	// strict validator expects, exactly as in-product chat does.
+	tools, _ := upstreamBodies[0]["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("upstream tools = %#v", upstreamBodies[0]["tools"])
+	}
+	tool, _ := tools[0].(map[string]any)
+	inputSchema, _ := tool["input_schema"].(map[string]any)
+	if _, ok := inputSchema["properties"]; !ok {
+		t.Fatalf("runner tool schema reached provider without properties: %#v", inputSchema)
 	}
 
 	secondRequest := llm.CompletionRequest{Messages: []llm.Message{

@@ -11,7 +11,7 @@ const apiMocks = vi.hoisted(() => ({
 const storeMocks = vi.hoisted(() => ({
   load: vi.fn(),
   searchWorkspaces: vi.fn(),
-  get: vi.fn(),
+  getByIds: vi.fn(),
 }));
 
 vi.mock('../api/channels.js', () => ({ requestTypes: apiMocks }));
@@ -19,7 +19,7 @@ vi.mock('../api/workspaces.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    workspaces: { ...actual.workspaces, get: storeMocks.get },
+    workspaces: { ...actual.workspaces, getByIds: storeMocks.getByIds },
   };
 });
 
@@ -32,7 +32,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
 }));
 
 import RequestTypeModal from './RequestTypeModal.svelte';
-import { workspacesStore } from '../api/channels.js';
+import { FOREGROUND_READ } from '../api/readScheduler.js';
 
 function workspace(id, name) {
   return { id, name, key: `WS${id}` };
@@ -58,9 +58,9 @@ describe('RequestTypeModal workspace choices', () => {
     storeMocks.searchWorkspaces.mockResolvedValue({ workspaces: [], total: 0 });
   });
 
-  it('resolves configured channel workspaces beyond the cached directory page', async () => {
+  it('resolves configured channel workspaces beyond the cached page in one read', async () => {
     // The channel allows one workspace on page one and one beyond it.
-    storeMocks.get.mockImplementation(async (id) => workspace(id, `Configured ${id}`));
+    storeMocks.getByIds.mockResolvedValue([workspace(305, 'Configured 305')]);
 
     render(RequestTypeModal, {
       isOpen: true,
@@ -69,11 +69,11 @@ describe('RequestTypeModal workspace choices', () => {
     });
 
     // Workspace 2 is already cached; 305 lives past the directory page and
-    // must be resolved explicitly.
+    // must be resolved — with one batch read, not one read per missing id.
     await waitFor(() => {
-      expect(storeMocks.get).toHaveBeenCalledWith(305);
+      expect(storeMocks.getByIds).toHaveBeenCalledTimes(1);
     });
-    expect(storeMocks.get).not.toHaveBeenCalledWith(2);
+    expect(storeMocks.getByIds).toHaveBeenCalledWith([305], FOREGROUND_READ);
 
     await openWorkspacePicker();
     await waitFor(() => {
@@ -85,8 +85,25 @@ describe('RequestTypeModal workspace choices', () => {
     expect(document.querySelector('[data-option-value="1"]')).not.toBeInTheDocument();
   });
 
+  it('resolves a large configured set with one bounded request', async () => {
+    const configured = Array.from({ length: 180 }, (_, i) => 1000 + i);
+    storeMocks.getByIds.mockResolvedValue(configured.map((id) => workspace(id, `Configured ${id}`)));
+
+    render(RequestTypeModal, {
+      isOpen: true,
+      mode: 'create',
+      channelWorkspaceIds: configured,
+    });
+
+    await waitFor(() => {
+      expect(storeMocks.getByIds).toHaveBeenCalledTimes(1);
+    });
+    // All 180 configured ids were resolved by the single batch read.
+    expect(storeMocks.getByIds).toHaveBeenCalledWith(configured, FOREGROUND_READ);
+  });
+
   it('keeps an existing selection visible when it lives beyond the cached page', async () => {
-    storeMocks.get.mockImplementation(async (id) => workspace(id, `Selected ${id}`));
+    storeMocks.getByIds.mockResolvedValue([workspace(333, 'Selected 333')]);
     const requestType = {
       id: 7,
       name: 'Existing type',
@@ -103,7 +120,7 @@ describe('RequestTypeModal workspace choices', () => {
     });
 
     await waitFor(() => {
-      expect(storeMocks.get).toHaveBeenCalledWith(333);
+      expect(storeMocks.getByIds).toHaveBeenCalledWith([333], FOREGROUND_READ);
     });
 
     await openWorkspacePicker();
@@ -113,15 +130,37 @@ describe('RequestTypeModal workspace choices', () => {
     expect(document.querySelector('[data-option-value="333"]')?.textContent).toContain('Selected 333');
   });
 
+  it('reports an unresolvable id without dropping the resolvable ones', async () => {
+    // The server omits ids the caller cannot view.
+    storeMocks.getByIds.mockResolvedValue([]);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(RequestTypeModal, {
+      isOpen: true,
+      mode: 'create',
+      channelWorkspaceIds: [2, 999],
+    });
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('Failed to resolve configured workspaces:', '999');
+    });
+
+    await openWorkspacePicker();
+    await waitFor(() => {
+      expect(document.querySelector('[data-option-value="2"]')).toBeInTheDocument();
+    });
+    expect(document.querySelector('[data-option-value="999"]')).not.toBeInTheDocument();
+  });
+
   it('falls back to the cached page and server search for unrestricted channels', async () => {
     render(RequestTypeModal, { isOpen: true, mode: 'create' });
 
     await openWorkspacePicker();
-    // The cached page renders without any per-id fetch.
+    // The cached page renders without any batch resolve.
     await waitFor(() => {
       expect(document.querySelector('[data-option-value="1"]')).toBeInTheDocument();
     });
-    expect(storeMocks.get).not.toHaveBeenCalled();
+    expect(storeMocks.getByIds).not.toHaveBeenCalled();
   });
 
   it('omits is_active on edit so a disabled request type stays disabled', async () => {

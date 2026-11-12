@@ -39,6 +39,7 @@ vi.mock("../stores/i18n.svelte.js", () => ({
 }));
 
 vi.mock("../stores/toasts.svelte.js", () => ({
+	surfaceError: vi.fn(),
 	errorToast: vi.fn(),
 }));
 

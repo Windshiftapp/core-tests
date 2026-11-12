@@ -269,4 +269,39 @@ describe('DynamicFieldFilter value help', () => {
 
     expect(onchange).toHaveBeenLastCalledWith(expect.objectContaining({ value: 2, values: [] }));
   });
+
+  test('lists custom fields that share a name without duplicate option keys', async () => {
+    getCatalog.mockResolvedValueOnce({
+      fields: [
+        {
+          name: 'cfid_50',
+          label: 'Duplicate',
+          field_type: 'text',
+          value_type: 'string',
+          aliases: ['cf_Duplicate', 'custom.Duplicate'],
+          operators: ['=', '!=', '~', 'IS NULL', 'IS NOT NULL'],
+        },
+        {
+          name: 'cfid_51',
+          label: 'Duplicate',
+          field_type: 'text',
+          value_type: 'string',
+          aliases: ['cf_Duplicate', 'custom.Duplicate'],
+          operators: ['=', '!=', '~', 'IS NULL', 'IS NOT NULL'],
+        },
+      ],
+    });
+
+    render(DynamicFieldFilter, {
+      props: {
+        filter: { field: null, operator: '=', value: '', values: [] },
+        testIdPrefix: 'duplicate-name-filter',
+      },
+    });
+
+    await fireEvent.click(await screen.findByTestId('field-selector-trigger'));
+
+    expect(await screen.findByTestId('field-option-cfid_50')).toBeInTheDocument();
+    expect(await screen.findByTestId('field-option-cfid_51')).toBeInTheDocument();
+  });
 });

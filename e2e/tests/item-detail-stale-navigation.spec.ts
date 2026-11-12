@@ -19,7 +19,6 @@ test("a superseded key-route load cannot redirect back to the previous item", as
 	request,
 	allowConsoleError,
 }, testInfo) => {
-	allowConsoleError(/\/api\/logbook\//);
 	// The detail view probes for a recurrence rule; a 404 is the normal case.
 	allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 	// Aborting a superseded detail-summary fetch can surface as a Chromium

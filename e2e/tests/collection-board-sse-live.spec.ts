@@ -17,7 +17,6 @@ test.describe("collection board live updates via SSE (WI-1624)", () => {
 		request,
 		allowConsoleError,
 	}, testInfo) => {
-		allowConsoleError(/\/api\/logbook\//);
 		allowConsoleError(/\/api\/items\/\d+\/recurrence/);
 
 		const suffix = `board-sse-${randomUUID().slice(0, 8)}${testInfo.workerIndex}`;

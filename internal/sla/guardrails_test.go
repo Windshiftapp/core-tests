@@ -121,3 +121,29 @@ func TestIrrelevantChangeIssuesAtMostOneQuery(t *testing.T) {
 		t.Fatalf("irrelevant-change path issued %d read queries, want exactly the workspace gate (1)", got)
 	}
 }
+
+// TestObserveItemFactsSkipsImportSourceKind asserts the import guard honors
+// SourceKind alone. Some import paths (CommentService.CreateImported) stamp
+// only that field, and evaluating those facts would double-count imported
+// cycles.
+func TestObserveItemFactsSkipsImportSourceKind(t *testing.T) {
+	fixture := newEngineFixture(t)
+	fixture.createMetric(t,
+		[]models.SLACondition{
+			statusCondition(models.SLAPhaseStart, fixture.statusOpen),
+			statusCondition(models.SLAPhaseStop, fixture.statusDone),
+		},
+		fixture.defaultGoal(),
+	)
+
+	fact := fixture.createdFact()
+	fact.Metadata = itemevents.Metadata{ActorKind: "user", SourceKind: "import"}
+	fixture.observe(t, fact)
+
+	if got := fixture.cycleCount(t); got != 0 {
+		t.Fatalf("import-origin fact created %d SLA cycles, want 0", got)
+	}
+	if got := fixture.breachJobCount(t); got != 0 {
+		t.Fatalf("import-origin fact armed %d breach jobs, want 0", got)
+	}
+}

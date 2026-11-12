@@ -121,9 +121,12 @@ func TestItemWorkspaceMovePreviewsAndCommitsExactPolicy(t *testing.T) {
 			t.Fatalf("attach source label: %v", err)
 		}
 	}
-	milestoneID := moveInsertID(t, tdb, `INSERT INTO milestones (name, is_global) VALUES ('Source milestone', true) RETURNING id`)
-	if _, err := tdb.Exec(`INSERT INTO item_milestones (item_id, milestone_id) VALUES (?, ?)`, itemID, milestoneID); err != nil {
-		t.Fatalf("attach milestone: %v", err)
+	globalMilestoneID := moveInsertID(t, tdb, `INSERT INTO milestones (name, is_global) VALUES ('Global milestone', true) RETURNING id`)
+	workspaceMilestoneID := moveInsertID(t, tdb, `INSERT INTO milestones (name, is_global, workspace_id) VALUES ('Source milestone', false, ?) RETURNING id`, seed.WorkspaceID)
+	for _, milestoneID := range []int{globalMilestoneID, workspaceMilestoneID} {
+		if _, err := tdb.Exec(`INSERT INTO item_milestones (item_id, milestone_id) VALUES (?, ?)`, itemID, milestoneID); err != nil {
+			t.Fatalf("attach milestone: %v", err)
+		}
 	}
 	if _, err := tdb.Exec(`INSERT INTO comments (item_id, author_id, content) VALUES (?, ?, 'travels with item')`, itemID, seed.UserID); err != nil {
 		t.Fatalf("insert comment: %v", err)
@@ -214,18 +217,24 @@ func TestItemWorkspaceMovePreviewsAndCommitsExactPolicy(t *testing.T) {
 		t.Fatalf("workspace-scoped fields were not cleared")
 	}
 
-	var labelCount, milestoneCount, commentCount, historyCount int
+	var labelCount, globalMilestoneCount, workspaceMilestoneCount, commentCount, historyCount, milestoneHistoryCount int
 	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_labels WHERE item_id = ? AND label_id IN (?, ?)`, itemID, sourceKeepLabelID, sourceDropLabelID).Scan(&labelCount); err != nil || labelCount != 2 {
 		t.Fatalf("preserved global labels = %d, %v; want 2", labelCount, err)
 	}
-	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_milestones WHERE item_id = ?`, itemID).Scan(&milestoneCount); err != nil || milestoneCount != 0 {
-		t.Fatalf("milestone count = %d, %v", milestoneCount, err)
+	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_milestones im JOIN milestones m ON m.id = im.milestone_id WHERE im.item_id = ? AND m.is_global = true`, itemID).Scan(&globalMilestoneCount); err != nil || globalMilestoneCount != 1 {
+		t.Fatalf("global milestone count = %d, %v; want 1", globalMilestoneCount, err)
+	}
+	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_milestones im JOIN milestones m ON m.id = im.milestone_id WHERE im.item_id = ? AND m.is_global = false`, itemID).Scan(&workspaceMilestoneCount); err != nil || workspaceMilestoneCount != 0 {
+		t.Fatalf("workspace milestone count = %d, %v; want 0", workspaceMilestoneCount, err)
 	}
 	if err := tdb.QueryRow(`SELECT COUNT(*) FROM comments WHERE item_id = ?`, itemID).Scan(&commentCount); err != nil || commentCount != 1 {
 		t.Fatalf("comment count = %d, %v", commentCount, err)
 	}
 	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_history WHERE item_id = ? AND field_name = 'workspace_move' AND new_value LIKE '%DST-9%'`, itemID).Scan(&historyCount); err != nil || historyCount != 1 {
 		t.Fatalf("move history count = %d, %v", historyCount, err)
+	}
+	if err := tdb.QueryRow(`SELECT COUNT(*) FROM item_history WHERE item_id = ? AND field_name = 'milestones' AND new_value = ?`, itemID, fmt.Sprintf("%d", globalMilestoneID)).Scan(&milestoneHistoryCount); err != nil || milestoneHistoryCount != 1 {
+		t.Fatalf("milestone history count = %d, %v; want 1", milestoneHistoryCount, err)
 	}
 
 	tx, err := db.Begin()

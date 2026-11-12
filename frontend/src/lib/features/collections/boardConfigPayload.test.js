@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
 	buildBoardConfigurationPayload,
 	legacyFieldsForCompletedVisibility,
+	normalizeCompletedLimit,
+	DEFAULT_COMPLETED_LIMIT,
+	MIN_COMPLETED_LIMIT,
+	MAX_COMPLETED_LIMIT,
 } from './boardConfigPayload.js';
 
 describe('board configuration payload', () => {
@@ -78,10 +82,22 @@ describe('board configuration payload', () => {
 			showRightmostColumnLast50: false,
 			completedItemRetentionDays: null,
 		});
+		expect(legacyFieldsForCompletedVisibility('limit')).toEqual({
+			showRightmostColumnLast50: false,
+			completedItemRetentionDays: null,
+		});
 		expect(legacyFieldsForCompletedVisibility('none')).toEqual({
 			showRightmostColumnLast50: false,
 			completedItemRetentionDays: null,
 		});
+	});
+
+	it('coerces a stored completed-item cap into the accepted range', () => {
+		expect(normalizeCompletedLimit(undefined)).toBe(DEFAULT_COMPLETED_LIMIT);
+		expect(normalizeCompletedLimit('250')).toBe(250);
+		expect(normalizeCompletedLimit(0)).toBe(MIN_COMPLETED_LIMIT);
+		expect(normalizeCompletedLimit(MAX_COMPLETED_LIMIT + 1)).toBe(MAX_COMPLETED_LIMIT);
+		expect(normalizeCompletedLimit('not-a-number')).toBe(DEFAULT_COMPLETED_LIMIT);
 	});
 
 	it('persists an explicit completed-visibility preset and clears the cap', () => {
@@ -93,16 +109,34 @@ describe('board configuration payload', () => {
 		expect(payload.show_rightmost_column_last_50).toBe(false);
 		expect(payload.completed_item_retention_days).toBe(7);
 		expect(payload.view_settings.completed_visibility).toBe('last_week');
+		expect(payload.view_settings).not.toHaveProperty('completed_limit');
 	});
 
-	it('round-trips a stored preset and keeps its legacy fields aligned', () => {
+	it('persists the limit preset with its cap and drops it for other presets', () => {
+		const limited = buildBoardConfigurationPayload(
+			{},
+			{ completedVisibility: 'limit', completedLimit: 250 }
+		);
+		expect(limited.view_settings.completed_visibility).toBe('limit');
+		expect(limited.view_settings.completed_limit).toBe(250);
+
+		const unlimited = buildBoardConfigurationPayload(
+			{},
+			{ completedVisibility: 'all', completedLimit: 250 }
+		);
+		expect(unlimited.view_settings.completed_visibility).toBe('all');
+		expect(unlimited.view_settings).not.toHaveProperty('completed_limit');
+	});
+
+	it('round-trips a stored limit preset and its cap', () => {
 		const payload = buildBoardConfigurationPayload({
 			show_rightmost_column_last_50: false,
 			completed_item_retention_days: null,
-			view_settings: { completed_visibility: 'current_iteration' },
+			view_settings: { completed_visibility: 'limit', completed_limit: 120 },
 		});
 
-		expect(payload.view_settings.completed_visibility).toBe('current_iteration');
+		expect(payload.view_settings.completed_visibility).toBe('limit');
+		expect(payload.view_settings.completed_limit).toBe(120);
 		expect(payload.show_rightmost_column_last_50).toBe(false);
 		expect(payload.completed_item_retention_days).toBeNull();
 	});

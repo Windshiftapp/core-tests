@@ -10,12 +10,12 @@ beforeAll(() => {
 // MentionPicker fetches users when opened. Provide a fixed roster.
 vi.mock('../api/users.js', () => ({
   getUsers: vi.fn(async () => [
-  			{ username: "alice", first_name: "Alice", last_name: "Johnson" },
-  			{ username: "bob", first_name: "Bob", last_name: "Smith" },
+  			{ id: 1, username: "alice", first_name: "Alice", last_name: "Johnson" },
+  			{ id: 2, username: "bob", first_name: "Bob", last_name: "Smith" },
   		]),
   getAssignableUsers: vi.fn(async () => [
-  			{ username: "alice", first_name: "Alice", last_name: "Johnson" },
-  			{ username: "bob", first_name: "Bob", last_name: "Smith" },
+  			{ id: 1, username: "alice", first_name: "Alice", last_name: "Johnson" },
+  			{ id: 2, username: "bob", first_name: "Bob", last_name: "Smith" },
   		]),
 }));
 
@@ -104,10 +104,10 @@ describe("MentionPicker — shared workspace roster", () => {
 });
 
 describe("MentionPicker — mention identity", () => {
-	test("inserts a username when another user shares the display name", async () => {
+	test("embeds the user id even when another user shares the display name", async () => {
 		getUsers.mockResolvedValueOnce([
-			{ username: "jdoe", first_name: "John", last_name: "Doe" },
-			{ username: "john.doe", first_name: "John", last_name: "Doe" },
+			{ id: 1, username: "jdoe", first_name: "John", last_name: "Doe" },
+			{ id: 2, username: "john.doe", first_name: "John", last_name: "Doe" },
 		]);
 		const onSelect = vi.fn();
 		render(MentionPicker, { props: { open: true, onSelect } });
@@ -119,13 +119,13 @@ describe("MentionPicker — mention identity", () => {
 		pressKey("Enter");
 
 		expect(onSelect).toHaveBeenCalledWith(
-			expect.objectContaining({ username: "jdoe", mentionText: "@jdoe" }),
+			expect.objectContaining({ username: "jdoe", mentionText: "@{John Doe#1}" }),
 		);
 	});
 
-	test("keeps a unique display name as a quoted mention", async () => {
+	test("embeds the user id for a unique display name", async () => {
 		getUsers.mockResolvedValueOnce([
-			{ username: "jsmith", first_name: "Jane", last_name: "Smith" },
+			{ id: 7, username: "jsmith", first_name: "Jane", last_name: "Smith" },
 		]);
 		const onSelect = vi.fn();
 		render(MentionPicker, { props: { open: true, onSelect } });
@@ -137,7 +137,7 @@ describe("MentionPicker — mention identity", () => {
 		pressKey("Enter");
 
 		expect(onSelect).toHaveBeenCalledWith(
-			expect.objectContaining({ username: "jsmith", mentionText: '@"Jane Smith"' }),
+			expect.objectContaining({ username: "jsmith", mentionText: "@{Jane Smith#7}" }),
 		);
 	});
 });

@@ -49,8 +49,8 @@ describe('app footer views', () => {
     // These render an `h-full` navigation pane next to an internally-scrolled
     // list, so they must not sit in the auto-height footer wrapper.
     expect(isMainAppFooterView('organizations')).toBe(false);
-    expect(isMainAppFooterView('logbook')).toBe(false);
     expect(isMainAppFooterView('configuration-set-detail')).toBe(false);
+    expect(isMainAppFooterView('api-docs')).toBe(false);
   });
 });
 

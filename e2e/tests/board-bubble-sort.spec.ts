@@ -65,7 +65,8 @@ async function addComment(
 async function dragCardToCard(
   page: Page,
   card: Locator,
-  target: Locator
+  target: Locator,
+  edge: 'top' | 'bottom' = 'top'
 ): Promise<void> {
   const cardBox = await card.boundingBox();
   const targetBox = await target.boundingBox();
@@ -75,10 +76,11 @@ async function dragCardToCard(
 
   const startX = cardBox.x + cardBox.width / 2;
   const startY = cardBox.y + cardBox.height / 2;
+  const targetY = edge === 'top' ? targetBox.y + 12 : targetBox.y + targetBox.height - 4;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + 12, startY + 12);
-  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 12, { steps: 12 });
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetY, { steps: 12 });
   await page.mouse.up();
 }
 
@@ -150,5 +152,54 @@ test.describe('Board Bubble Mode sort', () => {
     await expect(sortTrigger).toContainText('Sort: Bubble');
     await expect(openColumn.locator('.board-card')).toHaveCount(4);
     await expect.poll(firstCardId).toBe(String(oldest));
+  });
+});
+
+test.describe('Board rank reorder', () => {
+  test('reorders a card within its column and persists the rank', async ({
+    page,
+    request,
+  }) => {
+    const workspace = await createWorkspaceViaAPI(request, generateWorkspace());
+    const workspaceId: number = workspace.id;
+    const statuses = await listWorkspaceStatuses(request, workspaceId);
+    const openStatus = statuses.find((s) => s.name === 'Open') ?? statuses[0];
+
+    // Created sequentially so each seeds a distinct frac_index.
+    const ids: number[] = [];
+    for (let i = 1; i <= 3; i++) {
+      ids.push(await createItem(request, workspaceId, `Rank ${i}`, openStatus.id));
+    }
+    const [first, second, third] = ids;
+
+    const boardPage = new BoardPage(page);
+    await boardPage.goto(String(workspaceId));
+
+    const openColumn = page.locator(
+      `[data-status-column][data-status-id="${openStatus.id}"]`
+    );
+    await expect(openColumn.locator('.board-card')).toHaveCount(3);
+
+    const cardOrder = (): Promise<Array<string | null>> =>
+      openColumn
+        .locator('.board-card')
+        .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-item-id')));
+
+    // Rank mode is the default; the backend frac_index order is creation order.
+    await expect.poll(cardOrder).toEqual([String(first), String(second), String(third)]);
+
+    // Drop the first card on the last card's bottom edge: it becomes last.
+    await dragCardToCard(
+      page,
+      page.getByTestId(`board-item-${first}`),
+      page.getByTestId(`board-item-${third}`),
+      'bottom'
+    );
+
+    await expect.poll(cardOrder).toEqual([String(second), String(third), String(first)]);
+
+    await page.reload();
+    await expect(openColumn.locator('.board-card')).toHaveCount(3);
+    await expect.poll(cardOrder).toEqual([String(second), String(third), String(first)]);
   });
 });

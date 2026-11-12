@@ -11,7 +11,7 @@ import (
 
 type noopSMTPSender struct{}
 
-func (noopSMTPSender) SendBatchedNotificationsContext(context.Context, string, string, []models.Notification) error {
+func (noopSMTPSender) SendBatchedNotificationsContext(context.Context, string, string, string, string, []models.Notification) error {
 	return nil
 }
 

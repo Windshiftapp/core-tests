@@ -171,15 +171,16 @@ func TestCompletePagedIssueContainersCountsFetchFailures(t *testing.T) {
 		getComments: func(int) (*jira.JiraCommentContainer, error) { return nil, errors.New("down") },
 		getWorklogs: func(int) (*jira.JiraWorklogContainer, error) { return nil, errors.New("down") },
 	}
-	progress := &ImportProgress{}
+	im := &jiraImportContext{progress: &ImportProgress{}, client: client}
 	handler := &JiraImportHandler{}
-	_ = handler.completePagedIssueContainers(t.Context(), issue, client, progress)
 
-	if progress.FailedComments != 1 {
-		t.Errorf("FailedComments = %d, want 1", progress.FailedComments)
+	handler.completeJiraBatchSubresources(t.Context(), im, "APP", []jira.JiraIssue{*issue}, nil)
+
+	if im.progress.FailedComments != 1 {
+		t.Errorf("FailedComments = %d, want 1", im.progress.FailedComments)
 	}
-	if progress.FailedWorklogs != 1 {
-		t.Errorf("FailedWorklogs = %d, want 1", progress.FailedWorklogs)
+	if im.progress.FailedWorklogs != 1 {
+		t.Errorf("FailedWorklogs = %d, want 1", im.progress.FailedWorklogs)
 	}
 }
 

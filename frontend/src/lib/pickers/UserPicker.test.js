@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../api/users.js', () => ({
@@ -81,5 +81,39 @@ describe('UserPicker disambiguates duplicate display names', () => {
     const trigger = screen.getByTestId('user-picker-trigger');
     expect(trigger).toHaveTextContent('Alice Smith');
     expect(trigger).not.toHaveTextContent('@asmith');
+  });
+});
+
+// The create form applies its workspace asynchronously and the user may switch
+// it while the picker is mounted. The roster must always match the current
+// workspace instead of the unscoped fallback (GH #420).
+describe('UserPicker workspace scope', () => {
+  it('reloads the roster when the workspace changes', async () => {
+    getAssignableUsers.mockImplementation(async (workspaceId) =>
+      workspaceId === 5
+        ? [{ id: 1, username: 'five', first_name: 'Five', last_name: 'User' }]
+        : [{ id: 2, username: 'six', first_name: 'Six', last_name: 'User' }]
+    );
+
+    const { rerender } = render(UserPicker, { props: { value: null, workspaceId: 5 } });
+    await waitFor(() => expect(getAssignableUsers).toHaveBeenCalledWith(5));
+
+    await rerender({ value: null, workspaceId: 6 });
+    await waitFor(() => expect(getAssignableUsers).toHaveBeenCalledWith(6));
+
+    await fireEvent.click(screen.getByTestId('user-picker-trigger'));
+    expect(await screen.findByTestId('user-picker-option-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('user-picker-option-1')).not.toBeInTheDocument();
+  });
+
+  it('does not refetch parent-supplied options when the workspace changes', async () => {
+    const { rerender } = render(UserPicker, {
+      props: { users: [], value: null, workspaceId: 5 },
+    });
+
+    await rerender({ users: [], value: null, workspaceId: 6 });
+    await Promise.resolve();
+
+    expect(getAssignableUsers).not.toHaveBeenCalled();
   });
 });

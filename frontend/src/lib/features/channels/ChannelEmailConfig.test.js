@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../stores/i18n.svelte.js', () => ({ t: (key) => key }));
 vi.mock('../../stores/permissions.svelte.js', () => ({ isSystemAdmin: readable(true) }));
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: mocks.errorToast,
   successToast: vi.fn(),
 }));
@@ -45,6 +46,29 @@ function basicFormData(overrides = {}) {
   };
 }
 
+function oauthFormData(overrides = {}) {
+  return {
+    auth_method: 'oauth',
+    oauth_provider_type: 'microsoft',
+    oauth_client_id: 'client-id',
+    oauth_client_secret: '',
+    oauth_client_secret_stored: false,
+    stored_oauth_provider_type: '',
+    stored_oauth_client_id: '',
+    oauth_tenant_id: 'common',
+    oauth_connected: false,
+    oauth_email: '',
+    oauth_mailbox: 'support@example.com',
+    connected_oauth_provider_type: '',
+    connected_oauth_client_id: '',
+    connected_oauth_tenant_id: '',
+    connected_oauth_mailbox: '',
+    processing_disposition: 'mark_read',
+    enabled: false,
+    ...overrides,
+  };
+}
+
 describe('ChannelEmailConfig mailbox disposition', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,5 +93,67 @@ describe('ChannelEmailConfig mailbox disposition', () => {
     await fireEvent.click(document.querySelector('[data-option-id="leave"]'));
 
     expect(component.getConfig().email_processing_disposition).toBe('leave');
+  });
+});
+
+describe('ChannelEmailConfig OAuth client secret retention', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.intakesList.mockResolvedValue([]);
+    mocks.getItemTypes.mockResolvedValue([]);
+  });
+
+  it('accepts a stored secret without requiring re-entry', () => {
+    const { component } = render(ChannelEmailConfig, {
+      props: {
+        channelId: 7,
+        formData: oauthFormData({
+          oauth_client_secret_stored: true,
+          stored_oauth_provider_type: 'microsoft',
+          stored_oauth_client_id: 'client-id',
+        }),
+      },
+    });
+
+    expect(component.validate()).toEqual({ valid: true });
+  });
+
+  it('requires a client secret when none is stored', () => {
+    const { component } = render(ChannelEmailConfig, {
+      props: { channelId: 7, formData: oauthFormData() },
+    });
+
+    expect(component.validate()).toEqual({ valid: false, message: 'channel.clientSecretRequired' });
+  });
+
+  it('requires a client secret again when the client identity changed', () => {
+    const { component } = render(ChannelEmailConfig, {
+      props: {
+        channelId: 7,
+        formData: oauthFormData({
+          oauth_client_secret_stored: true,
+          stored_oauth_provider_type: 'microsoft',
+          stored_oauth_client_id: 'previous-client-id',
+        }),
+      },
+    });
+
+    expect(component.validate()).toEqual({ valid: false, message: 'channel.clientSecretRequired' });
+  });
+
+  it('records a just-saved secret and clears the field', () => {
+    const formData = oauthFormData({
+      oauth_client_secret: 'typed-secret',
+      stored_oauth_provider_type: 'microsoft',
+      stored_oauth_client_id: 'client-id',
+    });
+    const { component } = render(ChannelEmailConfig, {
+      props: { channelId: 7, formData },
+    });
+
+    component.clearSecrets();
+
+    expect(formData.oauth_client_secret).toBe('');
+    expect(formData.oauth_client_secret_stored).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ func TestClassifyAttachment(t *testing.T) {
 		wantScoped      bool
 		wantDomain      bool
 		wantImageOnly   bool
+		wantAllowSVG    bool
 		wantRequiresID  bool
 		wantPublicAsset bool
 		wantURLKey      string
@@ -36,7 +37,7 @@ func TestClassifyAttachment(t *testing.T) {
 		{name: "workspace background", entityType: "workspace_background", wantEntity: "workspace_background", wantCollection: "workspace_backgrounds", wantImageOnly: true, wantRequiresID: true, wantURLKey: "background_url"},
 		{name: "portal background", entityType: "portal_background", wantEntity: "portal_background", wantCollection: "portal_backgrounds", wantImageOnly: true, wantRequiresID: true, wantPublicAsset: true, wantURLKey: "background_url"},
 		{name: "hub logo", entityType: "hub_logo", wantEntity: "hub_logo", wantCollection: "hub_logos", wantImageOnly: true, wantPublicAsset: true, wantURLKey: "logo_url"},
-		{name: "theme logo", entityType: "theme_logo", wantEntity: "theme_logo", wantCollection: "theme_logos", wantImageOnly: true, wantPublicAsset: true, wantURLKey: "logo_url"},
+		{name: "theme logo", entityType: "theme_logo", wantEntity: "theme_logo", wantCollection: "theme_logos", wantImageOnly: true, wantAllowSVG: true, wantPublicAsset: true, wantURLKey: "logo_url"},
 		{name: "unknown entity type", entityType: "not-a-type", wantErr: true},
 	}
 
@@ -56,10 +57,11 @@ func TestClassifyAttachment(t *testing.T) {
 				t.Fatalf("kind = %+v, want entity=%q collection=%q", kind, tc.wantEntity, tc.wantCollection)
 			}
 			if kind.scopedByEntity != tc.wantScoped || kind.domain != tc.wantDomain ||
-				kind.imageOnly != tc.wantImageOnly || kind.requiresEntityID != tc.wantRequiresID ||
+				kind.imageOnly != tc.wantImageOnly || kind.allowSVG != tc.wantAllowSVG ||
+				kind.requiresEntityID != tc.wantRequiresID ||
 				kind.publicAsset != tc.wantPublicAsset || kind.urlKey != tc.wantURLKey {
-				t.Fatalf("kind = %+v, want scoped=%v domain=%v image=%v requiresID=%v public=%v urlKey=%q",
-					kind, tc.wantScoped, tc.wantDomain, tc.wantImageOnly, tc.wantRequiresID, tc.wantPublicAsset, tc.wantURLKey)
+				t.Fatalf("kind = %+v, want scoped=%v domain=%v image=%v allowSVG=%v requiresID=%v public=%v urlKey=%q",
+					kind, tc.wantScoped, tc.wantDomain, tc.wantImageOnly, tc.wantAllowSVG, tc.wantRequiresID, tc.wantPublicAsset, tc.wantURLKey)
 			}
 		})
 	}

@@ -79,15 +79,20 @@ func TestGBPDCustomerDataExport(t *testing.T) {
 	var export struct {
 		SchemaVersion int `json:"schema_version"`
 		Customer      struct {
-			ID        int    `json:"id"`
-			Name      string `json:"name"`
-			Email     string `json:"email"`
-			Roles     []string `json:"roles"`
+			ID           int      `json:"id"`
+			Name         string   `json:"name"`
+			Email        string   `json:"email"`
+			Roles        []string `json:"roles"`
+			CustomFields []struct {
+				FieldID int    `json:"field_id"`
+				Name    string `json:"name"`
+				Value   any    `json:"value"`
+			} `json:"custom_fields"`
 		} `json:"customer"`
 		RequestedItems []struct {
-			ID        int    `json:"id"`
-			ItemKey   string `json:"item_key"`
-			Title     string `json:"title"`
+			ID           int    `json:"id"`
+			ItemKey      string `json:"item_key"`
+			Title        string `json:"title"`
 			WorkspaceKey string `json:"workspace_key"`
 			ItemNumber   int    `json:"item_number"`
 		} `json:"requested_items"`
@@ -97,13 +102,13 @@ func TestGBPDCustomerDataExport(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"comments"`
 		ApprovalDecisions []map[string]any `json:"approval_decisions"`
-		Attachments []struct {
+		Attachments       []struct {
 			ID               int    `json:"id"`
 			OriginalFilename string `json:"original_filename"`
 			FileSize         int64  `json:"file_size"`
 		} `json:"attachments"`
 		EmailTracking []map[string]any `json:"email_tracking"`
-		Sessions []struct {
+		Sessions      []struct {
 			ID        int     `json:"id"`
 			IPAddress *string `json:"ip_address"`
 			UserAgent *string `json:"user_agent"`
@@ -118,8 +123,13 @@ func TestGBPDCustomerDataExport(t *testing.T) {
 		t.Fatalf("decode export payload: %v", err)
 	}
 
-	if export.SchemaVersion != 2 {
-		t.Errorf("schema_version = %d, want 2", export.SchemaVersion)
+	if export.SchemaVersion != 3 {
+		t.Errorf("schema_version = %d, want 3", export.SchemaVersion)
+	}
+	// The resolved custom-field list is always present (empty when the customer
+	// has no values), so a DSAR consumer never has to guess the shape.
+	if export.Customer.CustomFields == nil {
+		t.Error("customer.custom_fields is nil, want an array")
 	}
 
 	// Profile.

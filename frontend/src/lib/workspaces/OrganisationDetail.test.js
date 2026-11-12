@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   getTickets: vi.fn(),
   setRequestSharing: vi.fn(),
   contactRolesGetAll: vi.fn(),
-  listDocuments: vi.fn(),
   errorToast: vi.fn(),
   successToast: vi.fn(),
 }));
@@ -18,19 +17,12 @@ vi.mock('../api/portal.js', () => ({
   contactRoles: { getAll: mocks.contactRolesGetAll },
 }));
 
-vi.mock('../api/logbook.js', () => ({
-  logbook: { listDocumentsByOrganisation: mocks.listDocuments },
-}));
-
-vi.mock('../stores/capabilities.svelte.js', () => ({
-  capabilitiesStore: { logbookAvailable: false },
-}));
-
 vi.mock('../stores/i18n.svelte.js', () => ({
   t: (key) => key,
 }));
 
 vi.mock('../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: mocks.errorToast,
   successToast: mocks.successToast,
 }));
@@ -45,7 +37,6 @@ vi.mock('../utils/dateFormatter.js', () => ({
 
 import OrganisationDetail from './OrganisationDetail.svelte';
 import { contactRoles, customerOrganisations } from '../api/portal.js';
-import { logbook } from '../api/logbook.js';
 
 
 const orgA = { id: 1, name: 'Org A', settings: { request_sharing: 'disabled' } };

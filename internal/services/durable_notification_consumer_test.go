@@ -175,11 +175,152 @@ func TestDurableNotificationAdmissionDoesNotDropAtLegacyQueueCapacity(t *testing
 		}
 	}
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM domain_events WHERE event_type = ?`, DurableNotificationCompatibilityEvent).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM domain_events WHERE event_type = ?`, DurableNotificationRequestedEvent).Scan(&count); err != nil {
 		t.Fatalf("count durable notification events: %v", err)
 	}
 	if count != 20 {
 		t.Fatalf("durable notification events = %d, want 20", count)
+	}
+}
+
+func TestDurableNotificationSkipsImportedFacts(t *testing.T) {
+	db := createTestDB(t)
+	defer func() { _ = db.Close() }()
+	creatorID := insertUser(t, db, "import-notify-creator@example.com", "import-notify-creator")
+	workspaceID := insertWorkspace(t, db, "Imported notifications", "IMN")
+	attachDurableNotificationRule(t, db, workspaceID, creatorID, models.EventItemCreated)
+	manager := &retryingNotificationManager{delivered: make(chan struct{}, 1)}
+	service := newDurableNotificationService(t, db, manager)
+	engine := durableNotificationEngine(db)
+	if err := PrepareDurableNotificationEngine(context.Background(), engine, service); err != nil {
+		t.Fatalf("prepare engine: %v", err)
+	}
+
+	item := &models.Item{ID: 7101, WorkspaceID: workspaceID, WorkspaceItemNumber: 1, Title: "Imported item", CreatorID: &creatorID}
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin import transaction: %v", err)
+	}
+	if _, err := itemevents.NewRecorder(db).Created(context.Background(), tx, item, nil, itemevents.Import("jira-job-1")); err != nil {
+		t.Fatalf("record imported item event: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit imported item event: %v", err)
+	}
+	created, err := engine.Store().Reconcile(context.Background(), 20)
+	if err != nil {
+		t.Fatalf("reconcile imported event: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("imported event created %d deliveries, want 1", created)
+	}
+	delivery, err := engine.Store().Claim(context.Background(), DurableItemNotificationConsumerKey, "test", time.Now(), time.Minute)
+	if err != nil || delivery == nil {
+		t.Fatalf("claim imported delivery: delivery=%v err=%v", delivery, err)
+	}
+	if !itemevents.IsImportOrigin(delivery.Event.ActorKind, delivery.Event.SourceKind) {
+		t.Fatalf("delivery origin = (%q, %q), want import", delivery.Event.ActorKind, delivery.Event.SourceKind)
+	}
+	consumer := &DurableNotificationConsumer{db: db, notifications: service}
+	if err := consumer.Handle(context.Background(), delivery.Event); err != nil {
+		t.Fatalf("handle imported delivery: %v", err)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if len(manager.notifications) != 0 {
+		t.Fatalf("imported fact produced %d notifications, want 0", len(manager.notifications))
+	}
+}
+
+// TestDurableNotificationSkipsSuppressedFacts asserts the explicit
+// suppress_side_effects marker (external reconciliation) keeps a canonical fact
+// out of the notification pipeline even though it is not import origin.
+func TestDurableNotificationSkipsSuppressedFacts(t *testing.T) {
+	db := createTestDB(t)
+	defer func() { _ = db.Close() }()
+	creatorID := insertUser(t, db, "suppressed-notify-creator@example.com", "suppressed-notify-creator")
+	workspaceID := insertWorkspace(t, db, "Suppressed notifications", "SPN")
+	attachDurableNotificationRule(t, db, workspaceID, creatorID, models.EventItemCreated)
+	manager := &retryingNotificationManager{delivered: make(chan struct{}, 1)}
+	service := newDurableNotificationService(t, db, manager)
+	engine := durableNotificationEngine(db)
+	if err := PrepareDurableNotificationEngine(context.Background(), engine, service); err != nil {
+		t.Fatalf("prepare engine: %v", err)
+	}
+
+	item := &models.Item{ID: 7201, WorkspaceID: workspaceID, WorkspaceItemNumber: 1, Title: "Reconciled item", CreatorID: &creatorID}
+	metadata := itemevents.System("github_issue_sync")
+	metadata.SuppressSideEffects = true
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin reconciliation transaction: %v", err)
+	}
+	if _, err := itemevents.NewRecorder(db).Created(context.Background(), tx, item, nil, metadata); err != nil {
+		t.Fatalf("record suppressed item event: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit suppressed item event: %v", err)
+	}
+	if _, err := engine.Store().Reconcile(context.Background(), 20); err != nil {
+		t.Fatalf("reconcile suppressed event: %v", err)
+	}
+	delivery, err := engine.Store().Claim(context.Background(), DurableItemNotificationConsumerKey, "test", time.Now(), time.Minute)
+	if err != nil || delivery == nil {
+		t.Fatalf("claim suppressed delivery: delivery=%v err=%v", delivery, err)
+	}
+	if !itemevents.SuppressesSideEffects(delivery.Event.Type, delivery.Event.Payload) {
+		t.Fatalf("delivery payload = %s, want suppress_side_effects", delivery.Event.Payload)
+	}
+	consumer := &DurableNotificationConsumer{db: db, notifications: service}
+	if err := consumer.Handle(context.Background(), delivery.Event); err != nil {
+		t.Fatalf("handle suppressed delivery: %v", err)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if len(manager.notifications) != 0 {
+		t.Fatalf("suppressed fact produced %d notifications, want 0", len(manager.notifications))
+	}
+}
+
+// TestDurableNotificationSkipsImportedSideEffectEvents asserts provenance
+// carried on a side-effect event (approvals, SLA, reminders) is honored the
+// same way as on a canonical domain fact.
+func TestDurableNotificationSkipsImportedSideEffectEvents(t *testing.T) {
+	db := createTestDB(t)
+	defer func() { _ = db.Close() }()
+	creatorID := insertUser(t, db, "import-sideeffect-creator@example.com", "import-sideeffect-creator")
+	workspaceID := insertWorkspace(t, db, "Imported SLA notifications", "ISN")
+	attachDurableNotificationRule(t, db, workspaceID, creatorID, models.EventSLABreached)
+	manager := &retryingNotificationManager{delivered: make(chan struct{}, 1)}
+	service := newDurableNotificationService(t, db, manager)
+	engine := durableNotificationEngine(db)
+	if err := PrepareDurableNotificationEngine(context.Background(), engine, service); err != nil {
+		t.Fatalf("prepare engine: %v", err)
+	}
+
+	service.EmitEvent(&NotificationEvent{
+		EventType: models.EventSLABreached, WorkspaceID: workspaceID, ItemID: 7301,
+		CreatorID: &creatorID, Title: "SLA breached",
+		ActorKind: "import", SourceKind: "import",
+	})
+	if _, err := engine.Store().Reconcile(context.Background(), 20); err != nil {
+		t.Fatalf("reconcile side-effect event: %v", err)
+	}
+	delivery, err := engine.Store().Claim(context.Background(), DurableNotificationRequestedConsumerKey, "test", time.Now(), time.Minute)
+	if err != nil || delivery == nil {
+		t.Fatalf("claim side-effect delivery: delivery=%v err=%v", delivery, err)
+	}
+	if !itemevents.IsImportOrigin(delivery.Event.ActorKind, delivery.Event.SourceKind) {
+		t.Fatalf("side-effect origin = (%q, %q), want import", delivery.Event.ActorKind, delivery.Event.SourceKind)
+	}
+	consumer := &DurableNotificationConsumer{db: db, notifications: service}
+	if err := consumer.Handle(context.Background(), delivery.Event); err != nil {
+		t.Fatalf("handle side-effect delivery: %v", err)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if len(manager.notifications) != 0 {
+		t.Fatalf("imported side effect produced %d notifications, want 0", len(manager.notifications))
 	}
 }
 

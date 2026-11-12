@@ -7,7 +7,7 @@ vi.mock('../stores/i18n.svelte.js', () => ({
   t: (key, params = {}) =>
     (key === 'widgets.resizeColumnsValue' ? '{count} of {total} columns' : key).replace(
       /\{(\w+)\}/g,
-      (_, name) => (params[name] ?? `{${name}}`)
+      (_, name) => params[name] ?? `{${name}}`
     ),
 }));
 
@@ -68,7 +68,7 @@ describe('WidgetWrapper workspace resizing', () => {
     expect(screen.getByTestId('widget-resize-grip')).toBeInTheDocument();
   });
 
-  it('keeps the resize handle available outside edit mode but out of the tab order', () => {
+  it('does not render the resize handle outside edit mode', () => {
     render(WidgetWrapper, {
       props: {
         gridColumns: 3,
@@ -80,9 +80,7 @@ describe('WidgetWrapper workspace resizing', () => {
       },
     });
 
-    const handle = screen.getByTestId('widget-resize-handle');
-    expect(handle).toHaveAttribute('tabindex', '-1');
-    expect(handle).toHaveAttribute('aria-valuetext', '1 of 3 columns');
+    expect(screen.queryByTestId('widget-resize-handle')).not.toBeInTheDocument();
   });
 
   it('makes the resize handle keyboard-focusable in edit mode', () => {
@@ -121,11 +119,17 @@ describe('WidgetWrapper workspace resizing', () => {
 });
 
 describe('WidgetWrapper width menu trigger', () => {
-  it('renders a single kebab icon without a built-in chevron', () => {
-    render(WidgetWrapper, { props: {} });
+  it('renders a single kebab icon without a built-in chevron in edit mode', () => {
+    render(WidgetWrapper, { props: { isEditing: true } });
 
     const trigger = screen.getByTestId('widget-width-menu');
     expect(trigger.querySelectorAll('svg')).toHaveLength(1);
     expect(trigger.querySelector('svg')).toHaveClass('lucide-ellipsis');
+  });
+
+  it('does not render the widget menu outside edit mode', () => {
+    render(WidgetWrapper, { props: { isEditing: false } });
+
+    expect(screen.queryByTestId('widget-width-menu')).not.toBeInTheDocument();
   });
 });

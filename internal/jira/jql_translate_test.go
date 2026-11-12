@@ -73,3 +73,44 @@ func TestTranslateJQLRequestTypeAndOrganization(t *testing.T) {
 		}
 	}
 }
+
+func TestTranslateJQLReportsMembershipCompleteness(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		jql             string
+		wantComplete    bool
+		wantUnsupported bool
+	}{
+		{name: "unsupported predicate is incomplete", jql: `project = APP AND assignee = currentUser()`, wantComplete: false, wantUnsupported: true},
+		{name: "ordering only keeps membership complete", jql: `project = APP AND status = Open ORDER BY created DESC`, wantComplete: true, wantUnsupported: true},
+		{name: "fully supported stays complete", jql: `project = APP AND status = Open`, wantComplete: true, wantUnsupported: false},
+		{name: "empty jql stays complete", jql: ``, wantComplete: true, wantUnsupported: false},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			translation := TranslateJQL(test.jql, 11)
+			if translation.MembershipComplete != test.wantComplete {
+				t.Fatalf("MembershipComplete = %t, want %t (unsupported=%#v)", translation.MembershipComplete, test.wantComplete, translation.Unsupported)
+			}
+			if (len(translation.Unsupported) > 0) != test.wantUnsupported {
+				t.Fatalf("unsupported = %#v, want any=%t", translation.Unsupported, test.wantUnsupported)
+			}
+		})
+	}
+}
+
+func TestUnsupportedJQLSelectorMatchesNothing(t *testing.T) {
+	t.Parallel()
+
+	selector := UnsupportedJQLSelector(7)
+	if !strings.Contains(selector, `workspace_id = 7`) {
+		t.Fatalf("selector = %q, want the workspace guard", selector)
+	}
+	if !strings.Contains(selector, `1 = 0`) {
+		t.Fatalf("selector = %q, want a non-matching predicate", selector)
+	}
+}

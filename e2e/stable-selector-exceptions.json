@@ -69,7 +69,7 @@
 		"pages/milestone.page.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
 			"violations": 15,
-			"fingerprint": "d53e50acdd278430b9f35d7be808157ba72567ea320a72e11b549227244c8b21"
+			"fingerprint": "548144a8d0ae65996aeafd31ed6475def250a79dd44b1110b86721e8204514cc"
 		},
 		"pages/priority-manager.page.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
@@ -143,8 +143,8 @@
 		},
 		"tests/board-bubble-sort.spec.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
-			"violations": 4,
-			"fingerprint": "1c9a95b83611908271e5874d48de22c8be5df1ce11a1988deb67b6a1b073d189"
+			"violations": 8,
+			"fingerprint": "21ce2f1d5bcabd69198fe5b47c9e37add48d8fc483fbdfec2488b04c01fafd90"
 		},
 		"tests/board-swimlane-quick-add-types.spec.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
@@ -248,8 +248,8 @@
 		},
 		"tests/iterations.spec.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
-			"violations": 6,
-			"fingerprint": "f9a468c3f60836eeac70891469818ea92e0dd9a4e0303a0dfaa5c0d408a4c3cc"
+			"violations": 8,
+			"fingerprint": "74e18143577f4f3fae7239849f9526b82bb87c96359541ac8297d675f2dba2c9"
 		},
 		"tests/knowledge-pages.spec.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
@@ -324,7 +324,7 @@
 		"tests/admin-llm-connections.spec.ts": {
 			"reason": "Model picker options carry only data-option-id attributes inside the shared picker list; no per-option test id exists yet.",
 			"violations": 3,
-			"fingerprint": "42909a0d714adbbab0e58d85c68ff8aa00dbafccb7018d716d4b3cf53f777cac"
+			"fingerprint": "7eee23afdd78bee753b1983aa0e8281c96996429502f22610c278c03132a6047"
 		},
 		"tests/admin-oauth-clients.spec.ts": {
 			"reason": "Scope inputs and modals lack stable test ids; role=dialog and nested input scoping is the current contract.",
@@ -458,8 +458,8 @@
 		},
 		"tests/navigation-config.spec.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",
-			"violations": 1,
-			"fingerprint": "14636e8b5e0fd3e1a3251160e119fe4788c5d33896073b7e344880d8b0fe33cd"
+			"violations": 2,
+			"fingerprint": "18ece338571c402fc1abed636bcb8c44d39a750d1b29396b7f3f0f72451ed035"
 		},
 		"tests/platform-docs-screenshots.spec.ts": {
 			"reason": "Legacy selector debt; replace with production test IDs when this surface changes.",

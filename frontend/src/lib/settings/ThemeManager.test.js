@@ -61,6 +61,9 @@ const editableTheme = {
   nav_text_color_dark: '#f3f4f6',
   logo_url: '',
   logo_url_dark: '',
+  logo_full_url: '',
+  logo_full_url_dark: '',
+  brand_layout: 'mark_text',
 };
 
 function uploadPayload() {
@@ -176,6 +179,38 @@ describe('ThemeManager logo upload', () => {
     });
   });
 
+  it('persists the selected brand layout with the theme', async () => {
+    render(ThemeManager);
+    await screen.findByText('Acme');
+    await fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+
+    await fireEvent.click(screen.getByTestId('theme-edit-7-brand-layout-full_logo'));
+    await fireEvent.submit(
+      screen.getByTestId('theme-edit-7-brand-layout-full_logo').closest('form')
+    );
+
+    await waitFor(() => {
+      expect(themes.update).toHaveBeenCalledWith(
+        7,
+        expect.objectContaining({ brand_layout: 'full_logo' })
+      );
+    });
+  });
+
+  it('offers SVG on every theme logo slot because the backend accepts it here', async () => {
+    render(ThemeManager);
+    await screen.findByText('Acme');
+    await fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+    // The full logo slots only render for the full_logo layout.
+    await fireEvent.click(screen.getByTestId('theme-edit-7-brand-layout-full_logo'));
+
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    expect(fileInputs).toHaveLength(4);
+    for (const fileInput of fileInputs) {
+      expect(fileInput.getAttribute('accept')).toContain('image/svg+xml');
+    }
+  });
+
   it('disables uploading when attachments are turned off', async () => {
     attachmentStatus.hydrate({ enabled: false, writable: true });
 
@@ -192,5 +227,55 @@ describe('ThemeManager logo upload', () => {
     for (const fileInput of document.querySelectorAll('input[type="file"]')) {
       expect(fileInput).toBeDisabled();
     }
+  });
+
+  it('shows the full logo uploaders only for the full_logo layout', async () => {
+    render(ThemeManager);
+    await screen.findByText('Acme');
+    await fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+
+    // mark_text uses the mark, so the full logo slots are not offered.
+    expect(screen.queryByText('lookAndFeel.fullLogoLight')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(2);
+
+    await fireEvent.click(screen.getByTestId('theme-edit-7-brand-layout-full_logo'));
+
+    expect(await screen.findByText('lookAndFeel.fullLogoLight')).toBeInTheDocument();
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(4);
+  });
+
+  it('saves the theme from the edit form Save button', async () => {
+    render(ThemeManager);
+    await screen.findByText('Acme');
+    await fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+
+    await fireEvent.click(screen.getByTestId('theme-save-7'));
+
+    await waitFor(() => {
+      expect(themes.update).toHaveBeenCalledWith(7, expect.objectContaining({ name: 'Acme' }));
+    });
+  });
+
+  it('previews the uploaded full logo only when the full_logo layout is selected', async () => {
+    themes.getAll.mockResolvedValue([
+      { ...editableTheme, logo_full_url: '/api/portal-assets/906' },
+    ]);
+
+    render(ThemeManager);
+    await screen.findByText('Acme');
+    await fireEvent.click(screen.getByRole('button', { name: 'common.edit' }));
+
+    // mark_text ignores the full logo while no mark is uploaded.
+    expect(
+      screen.getByTestId('theme-brand-preview-light-expanded').querySelector('img')
+    ).toHaveAttribute('src', 'windshift-3.svg');
+
+    await fireEvent.click(screen.getByTestId('theme-edit-7-brand-layout-full_logo'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('theme-brand-preview-light-expanded').querySelector('img')
+      ).toHaveAttribute('src', '/api/portal-assets/906');
+    });
   });
 });

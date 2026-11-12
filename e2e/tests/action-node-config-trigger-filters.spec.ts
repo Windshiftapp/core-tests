@@ -51,9 +51,7 @@ test.describe('Action editor — trigger filters', () => {
   test('item_created exposes an item-type control that serializes item_type_id', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `trig-itemtype-${stamp}`,
@@ -83,9 +81,7 @@ test.describe('Action editor — trigger filters', () => {
   test('item_linked exposes a link-type control that serializes link_type_id', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `trig-linktype-${stamp}`,
@@ -109,9 +105,7 @@ test.describe('Action editor — trigger filters', () => {
   test('status_transition completed toggle serializes to_status_category_completed and clears to_status_id', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {
       name: `trig-completed-${stamp}`,
@@ -139,5 +133,35 @@ test.describe('Action editor — trigger filters', () => {
     const cfg = JSON.parse(fresh.trigger_config);
     expect(cfg.to_status_category_completed).toBe(true);
     expect(cfg.to_status_id ?? null).toBeNull();
+  });
+
+  test('status_loop exposes a looped-status control that serializes to_status_id', async ({
+    page,
+    request,
+  }) => {
+    const stamp = Date.now();
+    const ws = await createWorkspaceViaAPI(request, {
+      name: `trig-loop-${stamp}`,
+      key: `TLP${stamp.toString().slice(-7)}`.toUpperCase(),
+      description: 'trigger status loop e2e',
+    });
+    const statuses = await workspaceStatuses(request, ws.id);
+    const chosen = statuses[0];
+
+    const action = await createActionViaAPI(request, ws.id, triggerOnlyAction(stamp, 'status_loop'));
+
+    await openActionEditor(page, ws.id, action.id);
+    await selectNodeByType(page, 'trigger');
+    await expect(page.locator('#config-trigger-type')).toContainText('Status Loop');
+    await chooseSelectOption(page, 'config-loop-status', chosen.id);
+    await saveAction(page, ws.id, action.id);
+
+    const fresh = await getActionViaAPI(request, ws.id, action.id);
+    expect(JSON.parse(fresh.trigger_config).to_status_id).toBe(chosen.id);
+
+    // Hydration: reopening shows the looped status name, not the raw id.
+    await openActionEditor(page, ws.id, fresh.id);
+    await selectNodeByType(page, 'trigger');
+    await expect(page.locator('#config-loop-status')).toContainText(chosen.name);
   });
 });

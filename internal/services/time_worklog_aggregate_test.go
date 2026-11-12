@@ -38,12 +38,12 @@ func TestSplitWorklogMinutesByDay(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		start     int64
-		end       int64
-		location  *time.Location
-		wantDays  []string
-		wantSum   int64
+		name     string
+		start    int64
+		end      int64
+		location *time.Location
+		wantDays []string
+		wantSum  int64
 	}{
 		{
 			name:     "intraDaySingleSlice",
@@ -79,7 +79,7 @@ func TestSplitWorklogMinutesByDay(t *testing.T) {
 		},
 		{
 			name:     "dstSpringForwardKeepsElapsedMinutes",
-			start:    time.Date(2026, 3, 8, 6, 0, 0, 0, time.UTC).Unix(), // 01:00 EST
+			start:    time.Date(2026, 3, 8, 6, 0, 0, 0, time.UTC).Unix(),  // 01:00 EST
 			end:      time.Date(2026, 3, 8, 7, 30, 0, 0, time.UTC).Unix(), // 03:30 EDT
 			location: newYork,
 			wantDays: []string{"2026-03-08"},
@@ -141,8 +141,8 @@ func TestTimeWorklogService_Aggregate(t *testing.T) {
 	insertWorklog := func(start, end int64, minutes, userID, projectID int) {
 		t.Helper()
 		if _, err := tdb.Exec(`
-			INSERT INTO time_worklogs (project_id, customer_id, user_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
-			VALUES (?, 700, ?, 'desc', ?, ?, ?, ?, 0, 0)
+			INSERT INTO time_worklogs (project_id, user_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
+			VALUES (?, ?, 'desc', ?, ?, ?, ?, 0, 0)
 		`, projectID, userID, start, start, end, minutes); err != nil {
 			t.Fatalf("seed worklog: %v", err)
 		}
@@ -240,8 +240,8 @@ func TestTimeWorklogService_AggregateCancellationStopsTheScan(t *testing.T) {
 	start := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
 		if _, err := tdb.Exec(`
-			INSERT INTO time_worklogs (project_id, customer_id, user_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
-			VALUES (800, 700, ?, 'desc', ?, ?, ?, 60, 0, 0)
+			INSERT INTO time_worklogs (project_id, user_id, description, date, start_time, end_time, duration_minutes, created_at, updated_at)
+			VALUES (800, ?, 'desc', ?, ?, ?, 60, 0, 0)
 		`, data.UserID, start.Unix(), start.Unix(), start.Add(time.Hour).Unix()); err != nil {
 			t.Fatalf("seed worklog: %v", err)
 		}

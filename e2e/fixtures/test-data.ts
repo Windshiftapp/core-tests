@@ -421,13 +421,6 @@ export function generatePriority(suffix?: string): TestPriority {
 }
 
 /**
- * Wait helper for animations or async operations
- */
-export async function waitFor(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
  * Generate random string of specified length
  */
 export function randomString(length: number = 10): string {

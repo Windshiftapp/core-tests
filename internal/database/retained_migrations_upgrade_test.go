@@ -363,6 +363,52 @@ func TestMigration_JiraImportJobHiddenAt_AddsColumn(t *testing.T) {
 	}
 }
 
+func TestMigration_WorkflowTransitionScreen_AddsColumn(t *testing.T) {
+	tdb := testutils.CreateFreshDB(t, false)
+	seedCanonicalSchemaCheckpoint(t, tdb)
+	seedMinimalWorkspaces(t, tdb)
+
+	// The migration binds workflow_transitions.screen_id to screens, so both
+	// the screens table and the pre-migration transitions shape must exist.
+	idColumn := "INTEGER PRIMARY KEY AUTOINCREMENT"
+	if testutils.IsPostgres() {
+		idColumn = "SERIAL PRIMARY KEY"
+	}
+	if _, err := tdb.Exec(`CREATE TABLE screens (id ` + idColumn + `, name TEXT NOT NULL)`); err != nil {
+		t.Fatalf("seed legacy screens: %v", err)
+	}
+	if _, err := tdb.Exec(`CREATE TABLE workflow_transitions (
+		id ` + idColumn + `,
+		workflow_id INTEGER NOT NULL,
+		from_status_id INTEGER,
+		to_status_id INTEGER NOT NULL,
+		from_all_statuses BOOLEAN NOT NULL DEFAULT false,
+		display_order INTEGER DEFAULT 0,
+		source_handle TEXT,
+		target_handle TEXT
+	)`); err != nil {
+		t.Fatalf("seed legacy workflow_transitions: %v", err)
+	}
+
+	createSchemaMigrationsTable(t, tdb)
+	stampAllExcept(t, tdb, "20261119_workflow_transition_screen", "")
+
+	if err := tdb.Initialize(); err != nil {
+		t.Fatalf("run workflow transition screen migration: %v", err)
+	}
+	if count := countFixtureRows(t, tdb, columnPresentQuery("workflow_transitions", "screen_id")); count != 1 {
+		t.Fatal("screen_id column absent after migration")
+	}
+
+	// Idempotent: re-running the catalog must not attempt the ALTER again.
+	if err := tdb.Initialize(); err != nil {
+		t.Fatalf("repeat initialize: %v", err)
+	}
+	if count := countFixtureRows(t, tdb, columnPresentQuery("workflow_transitions", "screen_id")); count != 1 {
+		t.Fatal("screen_id column absent after repeat initialize")
+	}
+}
+
 // TestCompactCatalogContainsExactlyRetainedMigrations pins the squashed
 // catalog: the fresh-install baseline marker plus the retained post-0.8.5
 // upgrades, in catalog order.
@@ -451,6 +497,9 @@ func TestCompactCatalogContainsExactlyRetainedMigrations(t *testing.T) {
 		"20261012_transactional_email_copy",
 		"20261013_portal_reply_markdown",
 		"20261014_notification_digest_links",
+		"20261121_notification_template_customized",
+		"20261122_portal_customer_language",
+		"20261123_notification_template_translations",
 		"20261015_request_types_kind",
 		"20261016_email_outbox_reply_to",
 		"20261018_intake_split",
@@ -476,12 +525,24 @@ func TestCompactCatalogContainsExactlyRetainedMigrations(t *testing.T) {
 		"20261107_custom_widgets",
 		"20261108_jira_connection_soft_delete",
 		"20261109_jira_import_job_hidden_at",
+		"20261109_milestone_comments",
+		"20261109_milestone_activity",
+		"20261109_milestone_last_activity",
 		"20261110_intake_import_existing_mail",
 		"20261111_queues_collection_scope",
 		"20261112_audit_logs_source",
 		"20261113_item_due_reminders",
 		"20261114_user_due_date_reminder_prefs",
 		"20261115_remove_personal_labels",
+		"20261116_item_search_prefix",
+		"20261117_time_project_customer_backfill",
+		"20261118_drop_time_worklog_customer",
+		"20261119_workflow_transition_screen",
+		"20261120_customer_cfv_numeric_keys",
+		"20261120_integration_oauth_pkce_refresh",
+		"20261121_item_due_reminders_delivered",
+		"20261121_theme_branding",
+		"20261122_plane_import_mappings",
 	}
 	if len(database.Catalog) != len(want) {
 		t.Fatalf("catalog length = %d, want %d", len(database.Catalog), len(want))

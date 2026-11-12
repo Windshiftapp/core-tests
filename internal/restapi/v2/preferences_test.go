@@ -25,6 +25,7 @@ func (f *preferencesFixture) GetSnapshot(int) (services.UserPreferencesSnapshot,
 		SavedFilters: map[string]any{"collection-5": []any{map[string]any{"id": "a"}}},
 		DueDateRemindersEnabled: true,
 		DueDateReminderDays:     7,
+		CommentSortOrder:        services.CommentSortNewest,
 	}, nil
 }
 func (f *preferencesFixture) UpdateSnapshot(_ int, patch services.UserPreferencesPatch) (services.UserPreferencesSnapshot, error) {
@@ -93,6 +94,43 @@ func TestPreferencePatchCarriesViewStateAndSavedFilters(t *testing.T) {
 	filter, _ := filters[0].(map[string]any)
 	if filter["name"] != "Mine" || filter["ql"] != "id > 0" {
 		t.Fatalf("saved filter = %#v", filter)
+	}
+}
+
+func TestPreferencesCarryCommentSortOrder(t *testing.T) {
+	fixture := &preferencesFixture{}
+	mux, _ := newTestMuxWithCatalog(t, true, fixture)
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/v2/users/me/preferences", nil)
+	getRequest.Header.Set("X-Test-Session", "valid")
+	getResponse := httptest.NewRecorder()
+	mux.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("get status = %d; body=%s", getResponse.Code, getResponse.Body)
+	}
+	var body struct {
+		Data struct {
+			CommentSortOrder string `json:"comment_sort_order"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Data.CommentSortOrder != "newest" {
+		t.Fatalf("comment sort order = %q, want newest", body.Data.CommentSortOrder)
+	}
+
+	patchRequest := httptest.NewRequest(http.MethodPatch, "/api/v2/users/me/preferences",
+		bytes.NewBufferString(`{"comment_sort_order":"newest"}`))
+	patchRequest.Header.Set("Content-Type", "application/merge-patch+json")
+	patchRequest.Header.Set("X-Test-Session", "valid")
+	patchResponse := httptest.NewRecorder()
+	mux.ServeHTTP(patchResponse, patchRequest)
+	if patchResponse.Code != http.StatusOK {
+		t.Fatalf("patch status = %d; body=%s", patchResponse.Code, patchResponse.Body)
+	}
+	if !fixture.last.CommentSortOrderSet || fixture.last.CommentSortOrder != "newest" {
+		t.Fatalf("comment sort order patch = %#v", fixture.last)
 	}
 }
 

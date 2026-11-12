@@ -3,13 +3,38 @@ import {
 	createItemViaAPI,
 	createWorkspaceViaAPI,
 } from "../fixtures/api-helpers";
+import type { Locator } from "@playwright/test";
 import { expect, test } from "../fixtures/errors";
+
+// Collections are cross-workspace saved searches, so a stamp collision between
+// parallel workers would leak items into another test's collection. Include the
+// worker index so each test's query stays unique.
+function uniqueStamp(): number {
+	return Date.now() * 10 + test.info().workerIndex;
+}
+
+async function expectTodayMarkerVisible(
+	timeline: Locator,
+	todayLine: Locator,
+): Promise<void> {
+	await expect
+		.poll(async () => {
+			const viewport = await timeline.boundingBox();
+			const marker = await todayLine.boundingBox();
+			if (!viewport || !marker) return false;
+			return (
+				marker.x >= viewport.x - 1 &&
+				marker.x + marker.width <= viewport.x + viewport.width + 1
+			);
+		})
+		.toBe(true);
+}
 
 test("keeps roadmap settings visible when an item has an old due date", async ({
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = uniqueStamp();
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Roadmap overdue ${stamp}`,
 		key: `RO${stamp.toString().slice(-6)}`.toUpperCase(),
@@ -70,7 +95,7 @@ test("keeps a five-year quarter horizon and offers a return-to-today control", a
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = uniqueStamp();
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Roadmap horizon ${stamp}`,
 		key: `RH${stamp.toString().slice(-6)}`.toUpperCase(),
@@ -129,16 +154,82 @@ test("keeps a five-year quarter horizon and offers a return-to-today control", a
 	await expect(returnToToday).toBeVisible();
 	await returnToToday.click();
 	await expect(returnToToday).toHaveCount(0);
+	await expectTodayMarkerVisible(
+		timeline,
+		page.getByTestId("roadmap-today-line").first(),
+	);
+});
+
+test("week view returns to today instead of the earliest scheduled column", async ({
+	page,
+	request,
+}) => {
+	const stamp = uniqueStamp();
+	const workspace = await createWorkspaceViaAPI(request, {
+		name: `Roadmap today ${stamp}`,
+		key: `RT${stamp.toString().slice(-6)}`.toUpperCase(),
+		description: "Playwright roadmap today coverage",
+	});
+	// Scheduling an item months in the past prepends columns, so scrollLeft 0
+	// sits well before today.
+	const past = new Date();
+	past.setMonth(past.getMonth() - 4);
+	await createItemViaAPI(request, workspace.id, {
+		title: `Old scheduled item ${stamp}`,
+		start_date: past.toISOString(),
+	});
+	const collection = await createCollectionViaAPI(request, {
+		name: `Roadmap today collection ${stamp}`,
+		workspace_id: workspace.id,
+		ql_query: `title ~ "${stamp}"`,
+	});
+	const configuration = await request.put(
+		`/api/v2/collections/${collection.id}/board-configuration`,
+		{
+			headers: { "Sec-Fetch-Site": "same-origin" },
+			data: {
+				columns: [],
+				backlog_status_ids: [],
+				list_columns: [],
+				card_fields: [],
+				roadmap_config: {
+					start_field_id: "start_date",
+					end_field_id: "",
+					dependency_link_type_id: null,
+				},
+				show_rightmost_column_last_50: false,
+			},
+		},
+	);
+	expect(configuration.ok()).toBeTruthy();
+
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto(
+		`/workspaces/${workspace.id}/collections/${collection.id}/roadmap`,
+	);
+	await expect(page.getByTestId("roadmap-view")).toBeVisible();
+	await page.getByTestId("roadmap-zoom-week").click();
+
+	const timeline = page.getByTestId("roadmap-timeline-scroll");
+	await expect(timeline).toBeVisible();
+	const todayLine = page.getByTestId("roadmap-today-line").first();
+	await expect(todayLine).toHaveCount(1);
+
+	await page.getByTestId("roadmap-today").click();
+
+	// The today marker lands inside the scroll viewport rather than in the
+	// prepended past columns.
+	await expectTodayMarkerVisible(timeline, todayLine);
 	await expect
 		.poll(() => timeline.evaluate((element) => element.scrollLeft))
-		.toBe(0);
+		.toBeGreaterThan(0);
 });
 
 test("previews and schedules an undated roadmap item with one click", async ({
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = uniqueStamp();
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Roadmap scheduling ${stamp}`,
 		key: `RS${stamp.toString().slice(-6)}`.toUpperCase(),
@@ -235,7 +326,7 @@ test("roll-down keeps inner child dates and persists only overflow after a paren
 	page,
 	request,
 }) => {
-	const stamp = Date.now();
+	const stamp = uniqueStamp();
 	const workspace = await createWorkspaceViaAPI(request, {
 		name: `Roadmap roll-down ${stamp}`,
 		key: `RD${stamp.toString().slice(-6)}`.toUpperCase(),

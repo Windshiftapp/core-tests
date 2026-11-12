@@ -39,7 +39,7 @@ func TestIntegrationOAuthCallbackRejectsOtherAccounts(t *testing.T) {
 		}
 	}
 
-	handler := NewIntegrationOAuthHandler(db, nil, "http://test.local")
+	handler := NewIntegrationOAuthHandler(db, nil, "http://test.local", nil)
 	callback := func(t *testing.T, state string, user *models.User) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/api/integrations/oauth/todoist/callback?code=xyz&state="+state, nil)

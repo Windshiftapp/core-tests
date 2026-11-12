@@ -8,7 +8,7 @@ import { expect, type Page } from '../fixtures/context-path';
  * Form field selectors:
  *   - name:        #milestone-name  (native input)
  *   - target_date: #milestone-target-date  (native date input)
- *   - description: #milestone-description  (textarea component)
+ *   - description: [data-testid="milestone-description-editor"]  (Milkdown editor)
  *   - status:      #milestone-status-picker  (BasePicker trigger)
  * Category is optional and skipped for test simplicity.
  */
@@ -22,7 +22,7 @@ export class MilestonePage {
   readonly modal = 'div[role="dialog"]';
   readonly nameInput = '#milestone-name';
   readonly targetDateInput = '#milestone-target-date';
-  readonly descriptionInput = '#milestone-description';
+  readonly descriptionInput = '[data-testid="milestone-description-editor"]';
   readonly statusPicker = '#milestone-status-picker';
 
   async gotoGlobal() {
@@ -51,7 +51,13 @@ export class MilestonePage {
       await this.page.locator(this.targetDateInput).fill(data.target_date);
     }
     if (data.description) {
-      await this.page.locator(this.descriptionInput).fill(data.description);
+      // Milestones edit their description in a Milkdown (ProseMirror) editor.
+      // Wait for the lazily loaded editor, then type into it so ProseMirror
+      // sees real input events.
+      const editor = this.page.locator(`${this.descriptionInput} .ProseMirror`);
+      await editor.waitFor({ state: 'visible', timeout: 10000 });
+      await editor.click();
+      await editor.pressSequentially(data.description);
     }
     if (data.status) {
       await this.selectStatus(data.status);

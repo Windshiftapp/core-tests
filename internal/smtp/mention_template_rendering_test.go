@@ -68,3 +68,40 @@ func TestMentionEmailRendersMessageAndActionLink(t *testing.T) {
 		t.Fatalf("plain-text body missing action link: %q", textBody)
 	}
 }
+
+// TestMentionEmailRendersEmbeddedIdTokenAsDisplayName covers the canonical
+// @{Display Name#id} token: neither body part may expose the embedded id, and
+// the recipient sees the readable display name.
+func TestMentionEmailRendersEmbeddedIdTokenAsDisplayName(t *testing.T) {
+	sender := &NotificationSMTPSender{}
+	data := struct {
+		RecipientName string
+		ActorName     string
+		ItemKey       string
+		ItemTitle     string
+		SourceLabel   string
+		Content       string
+		ActionURL     string
+	}{
+		RecipientName: "Alex",
+		ActorName:     "Sam Patel",
+		ItemKey:       "ACME-42",
+		ItemTitle:     "Cannot reset password",
+		SourceLabel:   "a comment",
+		Content:       "cc @{John Doe#42} please",
+		ActionURL:     "https://app.example.com/workspaces/1/items/42",
+	}
+
+	_, htmlBody, textBody, err := sender.RenderEmail(emailutil.TemplateMention, data)
+	if err != nil {
+		t.Fatalf("RenderEmail: %v", err)
+	}
+	for name, body := range map[string]string{"html": htmlBody, "text": textBody} {
+		if !strings.Contains(body, "@John Doe") {
+			t.Errorf("%s body missing display name:\n%s", name, body)
+		}
+		if strings.Contains(body, "#42") || strings.Contains(body, "@{") {
+			t.Errorf("%s body leaked the embedded id:\n%s", name, body)
+		}
+	}
+}

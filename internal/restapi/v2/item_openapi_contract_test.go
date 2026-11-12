@@ -57,7 +57,7 @@ func TestItemOpenAPIQueryParametersMatchHandlerContract(t *testing.T) {
 		path   string
 		want   []string
 	}{
-		{method: "get", path: "/items", want: []string{"page", "page_size", "workspace_id", "collection_id", "ql", "sub_ql", "search", "status_id", "status_id_not", "priority_id", "assignee_id", "item_type_id", "iteration_id", "milestone_id", "id", "parent_id", "level", "max_level", "created_since", "completed_since", "sort", "cursor", "fields", "include_watermark", "completed_activity_days", "exclude_personal"}},
+		{method: "get", path: "/items", want: []string{"page", "page_size", "workspace_id", "collection_id", "ql", "sub_ql", "search", "status_id", "status_id_not", "priority_id", "assignee_id", "item_type_id", "iteration_id", "milestone_id", "id", "parent_id", "level", "max_level", "created_since", "completed_since", "sort", "cursor", "fields", "include_watermark", "completed_activity_days", "exclude_personal", "include_has_children"}},
 		{method: "post", path: "/items/batch", want: nil},
 		{path: "/items/{item_id}/detail-summary", want: []string{"surface", "exclude_personal"}},
 		{path: "/workspaces/{workspace_key}/items/{item_number}/detail-summary", want: []string{"surface", "exclude_personal"}},
@@ -114,6 +114,7 @@ func TestItemOpenAPIRequestBodiesAreStrictAndTyped(t *testing.T) {
 		{method: "put", path: "/items/{item_id}/watch", media: "application/json"},
 		{method: "post", path: "/items/bulk-update", media: "application/json"},
 		{method: "post", path: "/items/bulk-patch", media: "application/json"},
+		{method: "post", path: "/items/bulk-labels", media: "application/json"},
 		{method: "post", path: "/items/bulk-transition", media: "application/json"},
 		{method: "post", path: "/items/bulk-delete", media: "application/json"},
 		{method: "post", path: "/items/roadmap-hierarchy-dates", media: "application/json"},
@@ -174,6 +175,7 @@ func TestItemOpenAPISuccessResponsesAreTyped(t *testing.T) {
 		{method: "get", path: "/items/{item_id}/status-durations", status: "200"},
 		{method: "post", path: "/items/bulk-update", status: "200"},
 		{method: "post", path: "/items/bulk-patch", status: "200"},
+		{method: "post", path: "/items/bulk-labels", status: "200"},
 		{method: "post", path: "/items/bulk-transition", status: "200"},
 		{method: "post", path: "/items/bulk-delete", status: "200"},
 		{method: "post", path: "/items/{item_id}/move-workspace/preview", status: "200"},

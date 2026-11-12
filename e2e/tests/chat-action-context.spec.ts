@@ -22,9 +22,7 @@ test.describe('Chat picks up the action editor context from the URL', () => {
   test('sends action_id when chatting from /workspaces/:id/actions/:actionId', async ({
     page,
     request,
-    allowConsoleError,
   }) => {
-    allowConsoleError(/\/api\/logbook\//);
 
     const stamp = Date.now();
     const ws = await createWorkspaceViaAPI(request, {

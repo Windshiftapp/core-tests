@@ -153,4 +153,74 @@ describe('collectionPreferences store', () => {
     expect(mocks.get).toHaveBeenCalledTimes(2);
     expect(collectionPreferences.getViewState(1, 5, 'board')).toBeNull();
   });
+
+  it('hydrates the comment sort order from the same preferences load', async () => {
+    mocks.get.mockResolvedValue({
+      view_state: {},
+      saved_filters: {},
+      comment_sort_order: 'newest',
+    });
+
+    await collectionPreferences.ensureLoaded(1);
+
+    expect(collectionPreferences.commentSortOrder).toBe('newest');
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('defaults the comment sort order to oldest for missing or unknown values', async () => {
+    await collectionPreferences.ensureLoaded(1);
+    expect(collectionPreferences.commentSortOrder).toBe('oldest');
+
+    collectionPreferences.reset();
+    mocks.get.mockResolvedValue({ comment_sort_order: 'sideways' });
+    await collectionPreferences.ensureLoaded(1);
+
+    expect(collectionPreferences.commentSortOrder).toBe('oldest');
+  });
+
+  it('persists a changed comment sort order without touching view state', async () => {
+    await collectionPreferences.ensureLoaded(1);
+
+    collectionPreferences.setCommentSortOrder('newest');
+    await collectionPreferences.flush();
+
+    expect(collectionPreferences.commentSortOrder).toBe('newest');
+    expect(mocks.update).toHaveBeenCalledWith({ comment_sort_order: 'newest' });
+  });
+
+  it('does not write when the comment sort order is unchanged', async () => {
+    await collectionPreferences.ensureLoaded(1);
+
+    collectionPreferences.setCommentSortOrder('oldest');
+    await collectionPreferences.flush();
+
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed comment sort order save', async () => {
+    await collectionPreferences.ensureLoaded(1);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.update.mockRejectedValueOnce(new Error('offline'));
+
+    collectionPreferences.setCommentSortOrder('newest');
+    await collectionPreferences.flush();
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+
+    mocks.update.mockResolvedValue({});
+    await collectionPreferences.flush();
+    warn.mockRestore();
+
+    expect(mocks.update).toHaveBeenCalledTimes(2);
+    expect(mocks.update).toHaveBeenLastCalledWith({ comment_sort_order: 'newest' });
+  });
+
+  it('clears the comment sort order on reset', async () => {
+    mocks.get.mockResolvedValue({ comment_sort_order: 'newest' });
+    await collectionPreferences.ensureLoaded(1);
+    expect(collectionPreferences.commentSortOrder).toBe('newest');
+
+    collectionPreferences.reset();
+
+    expect(collectionPreferences.commentSortOrder).toBe('oldest');
+  });
 });

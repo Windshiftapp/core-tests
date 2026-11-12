@@ -57,6 +57,50 @@ func TestBoardViewSettingsHTTPContract(t *testing.T) {
 		AssertStatusCode(t, unknown, http.StatusBadRequest)
 	})
 
+	t.Run("completed visibility and limit round-trip", func(t *testing.T) {
+		put := MakeAuthRequest(t, server, http.MethodPut, base, map[string]any{
+			"view_settings": map[string]any{
+				"completed_visibility": "limit",
+				"completed_limit":      250,
+			},
+		})
+		defer put.Body.Close()
+		AssertStatusCode(t, put, http.StatusOK)
+
+		get := MakeAuthRequest(t, server, http.MethodGet, base, nil)
+		defer get.Body.Close()
+		AssertStatusCode(t, get, http.StatusOK)
+		var config struct {
+			Data struct {
+				ViewSettings struct {
+					CompletedVisibility *string `json:"completed_visibility"`
+					CompletedLimit      *int    `json:"completed_limit"`
+				} `json:"view_settings"`
+			} `json:"data"`
+		}
+		DecodeJSON(t, get, &config)
+		if config.Data.ViewSettings.CompletedVisibility == nil || *config.Data.ViewSettings.CompletedVisibility != "limit" {
+			t.Fatalf("completed_visibility = %v, want limit", config.Data.ViewSettings.CompletedVisibility)
+		}
+		if config.Data.ViewSettings.CompletedLimit == nil || *config.Data.ViewSettings.CompletedLimit != 250 {
+			t.Fatalf("completed_limit = %v, want 250", config.Data.ViewSettings.CompletedLimit)
+		}
+
+		// An out-of-range cap is rejected instead of silently clamped.
+		outOfRange := MakeAuthRequest(t, server, http.MethodPut, base, map[string]any{
+			"view_settings": map[string]any{"completed_visibility": "limit", "completed_limit": 0},
+		})
+		defer outOfRange.Body.Close()
+		AssertStatusCode(t, outOfRange, http.StatusBadRequest)
+
+		// Restore the views-only override later subtests rely on.
+		restore := MakeAuthRequest(t, server, http.MethodPut, base, map[string]any{
+			"view_settings": map[string]any{"enabled_views": []string{"board", "list"}},
+		})
+		defer restore.Body.Close()
+		AssertStatusCode(t, restore, http.StatusOK)
+	})
+
 	t.Run("collection inherits until it overrides and resets", func(t *testing.T) {
 		get := MakeAuthRequest(t, server, http.MethodGet, collectionBase, nil)
 		defer get.Body.Close()
@@ -230,5 +274,59 @@ func TestBoardViewSettingsHTTPContract(t *testing.T) {
 			map[string]any{"view_settings": map[string]any{"enabled_views": []string{"board", "map"}}})
 		defer other.Body.Close()
 		AssertStatusCode(t, other, http.StatusOK)
+	})
+
+	t.Run("patch merges only the fields present", func(t *testing.T) {
+		put := MakeAuthRequest(t, server, http.MethodPut, base, map[string]any{
+			"columns": []any{
+				map[string]any{"name": "In progress", "display_order": 0, "color": "#123456", "status_ids": []any{}},
+			},
+			"card_fields": []any{
+				map[string]any{"field_identifier": "title", "field_type": "system", "display_order": 0, "width": 4},
+			},
+			"view_settings": map[string]any{"enabled_views": []string{"board", "list"}},
+		})
+		defer put.Body.Close()
+		AssertStatusCode(t, put, http.StatusOK)
+
+		// The navigation config page sends only view_settings; the columns,
+		// card fields, and other settings must survive the merge patch.
+		patch := MakeAuthRequest(t, server, http.MethodPatch, base, map[string]any{
+			"view_settings": map[string]any{"enabled_views": []string{"board"}},
+		})
+		defer patch.Body.Close()
+		AssertStatusCode(t, patch, http.StatusOK)
+
+		get := MakeAuthRequest(t, server, http.MethodGet, base, nil)
+		defer get.Body.Close()
+		AssertStatusCode(t, get, http.StatusOK)
+		var config struct {
+			Data struct {
+				Columns []struct {
+					Name string `json:"name"`
+				} `json:"columns"`
+				CardFields []struct {
+					FieldIdentifier string `json:"field_identifier"`
+				} `json:"card_fields"`
+				ViewSettings struct {
+					EnabledViews *[]string `json:"enabled_views"`
+				} `json:"view_settings"`
+			} `json:"data"`
+		}
+		DecodeJSON(t, get, &config)
+		if len(config.Data.Columns) != 1 || config.Data.Columns[0].Name != "In progress" {
+			t.Fatalf("columns after patch = %+v, want the saved column preserved", config.Data.Columns)
+		}
+		if len(config.Data.CardFields) != 1 || config.Data.CardFields[0].FieldIdentifier != "title" {
+			t.Fatalf("card_fields after patch = %+v, want them preserved", config.Data.CardFields)
+		}
+		if config.Data.ViewSettings.EnabledViews == nil || len(*config.Data.ViewSettings.EnabledViews) != 1 || (*config.Data.ViewSettings.EnabledViews)[0] != "board" {
+			t.Fatalf("view settings after patch = %+v, want [board]", config.Data.ViewSettings)
+		}
+
+		// Unknown top-level fields still fail closed under the strict decoder.
+		unknown := MakeAuthRequest(t, server, http.MethodPatch, base, map[string]any{"bogus": true})
+		defer unknown.Body.Close()
+		AssertStatusCode(t, unknown, http.StatusBadRequest)
 	})
 }

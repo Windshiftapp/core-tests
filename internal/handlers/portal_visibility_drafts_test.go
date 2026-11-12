@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"windshift/internal/auth"
@@ -16,6 +17,7 @@ import (
 	"windshift/internal/middleware"
 	"windshift/internal/models"
 	"windshift/internal/repository"
+	"windshift/internal/services"
 	"windshift/internal/testutils"
 )
 
@@ -27,6 +29,7 @@ type portalVisibilityDraftFixture struct {
 	visibleRequestTypeID  int
 	hiddenRequestTypeID   int
 	inactiveRequestTypeID int
+	requestItemID         int
 }
 
 func newPortalVisibilityDraftFixture(t *testing.T) *portalVisibilityDraftFixture {
@@ -79,6 +82,23 @@ func newPortalVisibilityDraftFixture(t *testing.T) *portalVisibilityDraftFixture
 	hiddenID := insertRequestType("Hidden", true, `[999999]`)
 	inactiveID := insertRequestType("Inactive", false, nil)
 
+	// A portal request whose description carries a page link; the portal must
+	// degrade it when the page is not published through this portal.
+	var requestItemID int
+	if err := db.QueryRow(`
+		INSERT INTO items (workspace_id, workspace_item_number, title, description, channel_id, creator_id, frac_index)
+		VALUES (?, 1, 'Request with page link', 'See [secret](page:424242) and @{Agent Smith#777} for details', ?, ?, 'a0')
+		RETURNING id
+	`, workspaceID, channelID, userID).Scan(&requestItemID); err != nil {
+		t.Fatalf("insert portal request: %v", err)
+	}
+	if _, err := db.ExecWrite(`
+		INSERT INTO comments (item_id, author_id, content, is_private)
+		VALUES (?, ?, 'Replying about @{Agent Smith#777} and [doc](page:424242)', false)
+	`, requestItemID, userID); err != nil {
+		t.Fatalf("insert portal comment: %v", err)
+	}
+
 	repo := repository.NewPortalDraftRepository(db)
 	identity := repository.DraftIdentity{UserID: &userID}
 	for _, requestTypeID := range []int{visibleID, hiddenID, inactiveID} {
@@ -93,6 +113,7 @@ func newPortalVisibilityDraftFixture(t *testing.T) *portalVisibilityDraftFixture
 		db: db, handler: NewPortalHandler(db, nil, nil, nil, blobstore.Disabled()),
 		userID: userID, channelID: channelID,
 		visibleRequestTypeID: visibleID, hiddenRequestTypeID: hiddenID, inactiveRequestTypeID: inactiveID,
+		requestItemID: requestItemID,
 	}
 }
 
@@ -235,5 +256,152 @@ func TestPortalDraftOwnerCanDeleteRevokedDraftsWithinChannel(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("draft for request type %d still exists", requestTypeID)
 		}
+	}
+}
+
+// TestPortalMyRequestsRewritesPageLinks pins the list/detail parity contract:
+// GetRequestDetail rewrites description page links and strips embedded mention
+// ids, and GetMyRequests feeds the same detail view, so it must apply the same
+// rewriting.
+func TestPortalMyRequestsRewritesPageLinks(t *testing.T) {
+	fixture := newPortalVisibilityDraftFixture(t)
+	request := fixture.request(http.MethodGet, "/api/portal/visibility/my-requests", nil)
+	recorder := httptest.NewRecorder()
+
+	fixture.handler.GetMyRequests(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var requests []services.PortalRequestSummary
+	if err := json.NewDecoder(recorder.Body).Decode(&requests); err != nil {
+		t.Fatalf("decode requests: %v", err)
+	}
+	var found bool
+	for _, summary := range requests {
+		if summary.ID != fixture.requestItemID {
+			continue
+		}
+		found = true
+		if strings.Contains(summary.Description, "](page:") {
+			t.Fatalf("description leaked a page anchor: %q", summary.Description)
+		}
+		if strings.Contains(summary.Description, "#777}") {
+			t.Fatalf("description leaked a mention user id: %q", summary.Description)
+		}
+		if !strings.Contains(summary.Description, "secret") || !strings.Contains(summary.Description, "Agent Smith") {
+			t.Fatalf("description = %q, want link and mention text preserved", summary.Description)
+		}
+	}
+	if !found {
+		t.Fatalf("request %d missing from %+v", fixture.requestItemID, requests)
+	}
+}
+
+// TestPortalRequestAttachmentsUnavailableWithoutStorage pins the disabled
+// attachment surface: when no storage backend is configured the portal
+// attachment service is nil, and the list/download handlers must answer 503
+// instead of dereferencing it.
+func TestPortalRequestAttachmentsUnavailableWithoutStorage(t *testing.T) {
+	fixture := newPortalVisibilityDraftFixture(t)
+
+	listRequest := fixture.request(http.MethodGet, fmt.Sprintf("/api/portal/visibility/requests/%d/attachments", fixture.requestItemID), nil)
+	listRequest.SetPathValue("itemId", fmt.Sprintf("%d", fixture.requestItemID))
+	listRecorder := httptest.NewRecorder()
+	fixture.handler.GetRequestAttachments(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("list status = %d, want 503; body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	downloadRequest := fixture.request(http.MethodGet, fmt.Sprintf("/api/portal/visibility/requests/%d/attachments/1/download", fixture.requestItemID), nil)
+	downloadRequest.SetPathValue("itemId", fmt.Sprintf("%d", fixture.requestItemID))
+	downloadRequest.SetPathValue("attachmentId", "1")
+	downloadRecorder := httptest.NewRecorder()
+	fixture.handler.DownloadRequestAttachment(downloadRecorder, downloadRequest)
+	if downloadRecorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("download status = %d, want 503; body=%s", downloadRecorder.Code, downloadRecorder.Body.String())
+	}
+}
+
+// TestPortalRequestTypesDoNotExposeVisibilityPrincipals pins the public
+// contract for the request-type catalog: a portal customer (or any portal
+// caller) must not receive the internal group ids / customer-org ids that gate
+// visibility. Those are internal routing data, matching PublicAssetReport.
+func TestPortalRequestTypesDoNotExposeVisibilityPrincipals(t *testing.T) {
+	fixture := newPortalVisibilityDraftFixture(t)
+
+	var groupID int
+	if err := fixture.db.QueryRow(`INSERT INTO groups (name, is_active) VALUES ('Portal visibility group', true) RETURNING id`).Scan(&groupID); err != nil {
+		t.Fatalf("insert group: %v", err)
+	}
+	if _, err := fixture.db.ExecWrite(`INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`, groupID, fixture.userID); err != nil {
+		t.Fatalf("insert group member: %v", err)
+	}
+	var itemTypeID, workspaceID int
+	if err := fixture.db.QueryRow(`SELECT item_type_id, workspace_id FROM request_types WHERE id = ?`, fixture.visibleRequestTypeID).Scan(&itemTypeID, &workspaceID); err != nil {
+		t.Fatalf("load visible request type: %v", err)
+	}
+	var requestTypeID int
+	if err := fixture.db.QueryRow(`
+		INSERT INTO request_types (channel_id, name, item_type_id, workspace_id, is_active, visibility_group_ids)
+		VALUES (?, 'Group visible', ?, ?, true, ?) RETURNING id
+	`, fixture.channelID, itemTypeID, workspaceID, fmt.Sprintf("[%d]", groupID)).Scan(&requestTypeID); err != nil {
+		t.Fatalf("insert group-visible request type: %v", err)
+	}
+
+	request := fixture.request(http.MethodGet, "/api/portal/visibility/request-types", nil)
+	recorder := httptest.NewRecorder()
+	fixture.handler.GetRequestTypes(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var requestTypes []models.RequestType
+	if err := json.NewDecoder(recorder.Body).Decode(&requestTypes); err != nil {
+		t.Fatalf("decode request types: %v", err)
+	}
+	var found bool
+	for _, rt := range requestTypes {
+		if rt.ID != requestTypeID {
+			continue
+		}
+		found = true
+		if len(rt.VisibilityGroupIDs) != 0 || len(rt.VisibilityOrgIDs) != 0 {
+			t.Fatalf("request type exposed visibility principals: groups=%v orgs=%v", rt.VisibilityGroupIDs, rt.VisibilityOrgIDs)
+		}
+	}
+	if !found {
+		t.Fatalf("group-visible request type %d missing from %+v", requestTypeID, requestTypes)
+	}
+}
+
+// TestPortalRequestCommentsStripMentionIDs pins the comment-side external
+// divide: an agent's mention token carries the internal user id, which portal
+// customers must never receive in the raw markdown they render.
+func TestPortalRequestCommentsStripMentionIDs(t *testing.T) {
+	fixture := newPortalVisibilityDraftFixture(t)
+	request := fixture.request(http.MethodGet, fmt.Sprintf("/api/portal/visibility/requests/%d/comments", fixture.requestItemID), nil)
+	request.SetPathValue("itemId", fmt.Sprintf("%d", fixture.requestItemID))
+	recorder := httptest.NewRecorder()
+
+	fixture.handler.GetRequestComments(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var comments []services.PortalComment
+	if err := json.NewDecoder(recorder.Body).Decode(&comments); err != nil {
+		t.Fatalf("decode comments: %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("comments = %+v, want exactly one", comments)
+	}
+	if strings.Contains(comments[0].Content, "#777}") {
+		t.Fatalf("comment leaked a mention user id: %q", comments[0].Content)
+	}
+	if strings.Contains(comments[0].Content, "](page:") {
+		t.Fatalf("comment leaked a page anchor: %q", comments[0].Content)
+	}
+	if !strings.Contains(comments[0].Content, "Agent Smith") {
+		t.Fatalf("comment = %q, want the mention text preserved", comments[0].Content)
 	}
 }

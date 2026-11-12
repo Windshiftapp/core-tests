@@ -24,6 +24,7 @@ vi.mock('../../api/tests/index.js', () => ({
       },
 }));
 vi.mock('../../stores/toasts.svelte.js', () => ({
+  surfaceError: vi.fn(),
   errorToast: mocks.errorToast,
   warningToast: vi.fn(),
 }));
