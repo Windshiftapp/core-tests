@@ -191,6 +191,7 @@ describe('CollectionTree hierarchy loading', () => {
     collectionTreeStore.items = [
       item(1, 99, {
         has_children: false,
+        parent_key: 'WS-99',
         parent_title: 'Parent epic',
         parent_workspace_item_number: 99,
       }),
@@ -202,7 +203,7 @@ describe('CollectionTree hierarchy loading', () => {
     expect(screen.getByTestId('tree-parent-1')).toHaveTextContent('WS-99');
   });
 
-  it('prefers the permission-checked parent key over the derived one', async () => {
+  it('renders the permission-checked parent key', async () => {
     getHierarchy.mockResolvedValue([group(1, [])]);
     collectionTreeStore.items = [
       item(1, 99, {
@@ -271,6 +272,7 @@ describe('CollectionTree hierarchy loading', () => {
     collectionTreeStore.items = [
       item(1, 99, {
         item_type_id: 10,
+        parent_key: 'WS-99',
         parent_title: 'Parent epic',
         parent_workspace_item_number: 99,
       }),
@@ -346,7 +348,7 @@ describe('CollectionTree hierarchy loading', () => {
   it('widens the key column when a row shows a parent reference', async () => {
     getHierarchy.mockResolvedValue([group(1, [])]);
     collectionTreeStore.items = [
-      item(1, 99, { parent_title: 'Parent epic', parent_workspace_item_number: 99 }),
+      item(1, 99, { parent_key: 'WS-99', parent_title: 'Parent epic', parent_workspace_item_number: 99 }),
     ];
 
     render(CollectionTree, { workspaceId: 1 });

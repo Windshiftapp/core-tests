@@ -125,6 +125,7 @@ const baseItem = {
   workspace_id: 3,
   workspace_item_number: 1259,
   parent_id: 900,
+  parent_key: 'WIND-1100',
   parent_workspace_item_number: 1100,
   item_type_name: 'Task',
   status_id: 2,

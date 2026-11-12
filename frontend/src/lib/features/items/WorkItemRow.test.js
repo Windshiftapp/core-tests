@@ -128,17 +128,6 @@ describe('WorkItemRow configurable backlog metadata', () => {
     expect(screen.queryByTestId('work-item-parent-42')).not.toBeInTheDocument();
   });
 
-  test('falls back to the workspace-relative key when the summary omits parent_key', () => {
-    render(WorkItemRow, {
-      props: {
-        item: { ...childItem, parent_key: '', parent_workspace_item_number: 7 },
-        showParent: true,
-      },
-    });
-
-    expect(screen.getByTestId('work-item-parent-42')).toHaveTextContent('CHILD-7');
-  });
-
   test('does not expose a raw parent database id when summary data is unavailable', () => {
     render(WorkItemRow, {
       props: {

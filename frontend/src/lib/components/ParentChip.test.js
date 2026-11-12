@@ -28,22 +28,6 @@ describe('ParentChip', () => {
     expect(chip).not.toHaveTextContent('CHILD-7');
   });
 
-  test('derives the key when the summary omits parent_key', () => {
-    render(ParentChip, {
-      props: {
-        item: {
-          id: 42,
-          parent_id: 7,
-          parent_workspace_item_number: 7,
-          parent_title: 'Release the new workflow',
-          workspace_key: 'CHILD',
-        },
-      },
-    });
-
-    expect(screen.getByTestId('work-item-parent-42')).toHaveTextContent('CHILD-7');
-  });
-
   test('renders nothing for a masked parent', () => {
     render(ParentChip, {
       props: {
