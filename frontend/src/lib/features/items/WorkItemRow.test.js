@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 vi.mock('../../stores/i18n.svelte.js', () => ({
+  i18n: { locale: 'en' },
   t: (key, params = {}) => {
     const translations = {
       'items.storyPoints': 'Story Points',
@@ -93,5 +94,88 @@ describe('WorkItemRow story points', () => {
 
     expect(onStoryPointsChange).toHaveBeenCalledWith(3);
     expect(onOpenItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkItemRow configurable backlog metadata', () => {
+  const childItem = {
+    id: 42,
+    workspace_id: 7,
+    workspace_key: 'CHILD',
+    workspace_item_number: 12,
+    title: 'Implement the final step',
+    parent_id: 7,
+    parent_key: 'EPIC-7',
+    parent_title: 'Release the new workflow',
+  };
+
+  test('shows the permission-checked parent key and title when requested', () => {
+    render(WorkItemRow, { props: { item: childItem, showParent: true } });
+
+    const parent = screen.getByTestId('work-item-parent-42');
+    expect(screen.getByTestId('work-item-parent-container-42')).toHaveStyle({
+      maxWidth: 'clamp(6rem, 20%, 16rem)',
+    });
+    expect(parent).toHaveTextContent('EPIC-7');
+    expect(parent).toHaveTextContent('Release the new workflow');
+    // The row must not derive a key from the child's own workspace.
+    expect(parent).not.toHaveTextContent('CHILD-7');
+  });
+
+  test('keeps parent metadata hidden in rows that do not opt in', () => {
+    render(WorkItemRow, { props: { item: childItem } });
+
+    expect(screen.queryByTestId('work-item-parent-42')).not.toBeInTheDocument();
+  });
+
+  test('falls back to the workspace-relative key when the summary omits parent_key', () => {
+    render(WorkItemRow, {
+      props: {
+        item: { ...childItem, parent_key: '', parent_workspace_item_number: 7 },
+        showParent: true,
+      },
+    });
+
+    expect(screen.getByTestId('work-item-parent-42')).toHaveTextContent('CHILD-7');
+  });
+
+  test('does not expose a raw parent database id when summary data is unavailable', () => {
+    render(WorkItemRow, {
+      props: {
+        item: {
+          ...childItem,
+          parent_key: '',
+          parent_title: '',
+          parent_workspace_item_number: null,
+        },
+        showParent: true,
+      },
+    });
+
+    expect(screen.queryByTestId('work-item-parent-42')).not.toBeInTheDocument();
+  });
+
+  test('shows the selected backlog metadata', () => {
+    render(WorkItemRow, {
+      props: {
+        item: {
+          ...childItem,
+          priority_name: 'High',
+          priority_color: '#ef4444',
+          assignee_name: 'Ada Lovelace',
+          due_date: '2026-11-20',
+          milestones: [{ id: 3, name: 'Autumn release', category_color: '#8b5cf6' }],
+        },
+        showPriority: true,
+        showAssignee: true,
+        showDueDate: true,
+        showMilestones: true,
+      },
+    });
+
+    expect(screen.getByTestId('work-item-priority-42')).toHaveTextContent('High');
+    expect(screen.getByTestId('work-item-assignee-42')).toHaveTextContent('Ada Lovelace');
+    expect(screen.getByTestId('work-item-due-date-42')).toBeInTheDocument();
+    expect(screen.getByTestId('work-item-milestone-42')).toHaveTextContent('Autumn release');
   });
 });
