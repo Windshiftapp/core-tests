@@ -37,6 +37,7 @@ func TestJiraPortalCustomerClassification(t *testing.T) {
 		name        string
 		accountID   string
 		accountType string
+		customers   map[string]struct{}
 		want        bool
 	}{
 		{name: "explicit customer account type", accountID: "abc", accountType: "customer", want: true},
@@ -44,13 +45,15 @@ func TestJiraPortalCustomerClassification(t *testing.T) {
 		{name: "portal-only account ID ignores case", accountID: "QM:tenant:customer", want: true},
 		{name: "Atlassian user", accountID: "abc", accountType: "atlassian", want: false},
 		{name: "application user", accountID: "abc", accountType: "app", want: false},
+		{name: "Data Center customer role member", accountID: "portaluser", customers: map[string]struct{}{"portaluser": {}}, want: true},
+		{name: "Data Center nonmember stays internal", accountID: "agent", customers: map[string]struct{}{"portaluser": {}}, want: false},
 	}
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if got := jiraIsPortalCustomer(test.accountID, test.accountType); got != test.want {
-				t.Fatalf("jiraIsPortalCustomer(%q, %q) = %t, want %t", test.accountID, test.accountType, got, test.want)
+			if got := jiraIsPortalCustomer(test.accountID, test.accountType, test.customers); got != test.want {
+				t.Fatalf("jiraIsPortalCustomer(%q, %q, %v) = %t, want %t", test.accountID, test.accountType, test.customers, got, test.want)
 			}
 		})
 	}
@@ -88,7 +91,7 @@ func TestSplitJiraImportUsersKeepsAllObservedPortalCustomersOutOfInternalUsers(t
 		AccountType: "atlassian",
 	})
 
-	internalUsers, portalCustomers := splitJiraImportUsers(users)
+	internalUsers, portalCustomers := splitJiraImportUsers(users, nil)
 	if len(portalCustomers) != 246 {
 		t.Fatalf("portal customer count = %d, want 246", len(portalCustomers))
 	}
@@ -191,7 +194,7 @@ func TestEnsureJiraPortalCreatesRequestTypesBeforeCustomers(t *testing.T) {
 	requestTypeMap, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{
 		{ID: "1", Name: "Get help", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN"},
 		{ID: "2", Name: "Report a bug", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN"},
-	}, map[string]int{"10003": itemTypeID})
+	}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("ensure Jira request types: %v", err)
 	}
@@ -209,7 +212,7 @@ func TestEnsureJiraPortalCreatesRequestTypesBeforeCustomers(t *testing.T) {
 		"job-jsm", repeatedChannelID, workspaceID, []jira.JiraServiceDeskRequestType{
 			{ID: "1", Name: "Get help", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN"},
 			{ID: "2", Name: "Report a bug", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN"},
-		}, map[string]int{"10003": itemTypeID},
+		}, map[string]int{"10003": itemTypeID}, nil,
 	)
 	if err != nil {
 		t.Fatalf("repeat Jira request-type import: %v", err)
@@ -369,7 +372,7 @@ func TestImportJiraServiceManagementRequestUsesPortalCustomerAttribution(t *test
 	}
 	requestTypes, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{{
 		ID: "1", Name: "Get help", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN",
-	}}, map[string]int{"10003": itemTypeID})
+	}}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("ensure request type: %v", err)
 	}

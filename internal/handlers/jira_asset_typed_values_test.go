@@ -3,11 +3,63 @@
 package handlers
 
 import (
+	"reflect"
 	"testing"
 
 	"windshift/internal/jira"
 	"windshift/internal/models"
 )
+
+// TestJiraAssetAttributeProvenanceValueKeepsCanonicalTimestamp is the WI-2069
+// regression: a DateTime stored in a calendar-date field must keep the exact
+// source timestamp as provenance, not the importing user's localized rendering.
+func TestJiraAssetAttributeProvenanceValueKeepsCanonicalTimestamp(t *testing.T) {
+	t.Parallel()
+
+	attr := jira.AssetObjectAttributeValue{ObjectAttributeValues: []jira.AssetAttributeValue{
+		{Value: "2023-05-01T12:34:56.789Z", DisplayValue: "May 1, 2023 12:34 PM"},
+	}}
+	got, ok := jiraAssetAttributeProvenanceValue(attr)
+	if !ok {
+		t.Fatal("expected a provenance value")
+	}
+	if got != "2023-05-01T12:34:56.789Z" {
+		t.Fatalf("provenance = %#v, want the canonical timestamp", got)
+	}
+}
+
+// TestJiraAssetAttributeProvenanceValueKeepsMultipleValues proves multiple
+// source values stay a list rather than collapsing into ambiguous text.
+func TestJiraAssetAttributeProvenanceValueKeepsMultipleValues(t *testing.T) {
+	t.Parallel()
+
+	attr := jira.AssetObjectAttributeValue{ObjectAttributeValues: []jira.AssetAttributeValue{
+		{Value: "2023-05-01T12:34:56.789Z", DisplayValue: "May 1, 2023 12:34 PM"},
+		{Value: "2024-01-02T03:04:05.000Z", DisplayValue: "Jan 2, 2024 3:04 AM"},
+	}}
+	got, ok := jiraAssetAttributeProvenanceValue(attr)
+	if !ok {
+		t.Fatal("expected a provenance value")
+	}
+	want := []string{"2023-05-01T12:34:56.789Z", "2024-01-02T03:04:05.000Z"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("provenance = %#v, want %#v", got, want)
+	}
+}
+
+// TestJiraAssetAttributeProvenanceValueFallsBackToDisplayText keeps the
+// lossless path usable when the source only supplies display text.
+func TestJiraAssetAttributeProvenanceValueFallsBackToDisplayText(t *testing.T) {
+	t.Parallel()
+
+	attr := jira.AssetObjectAttributeValue{ObjectAttributeValues: []jira.AssetAttributeValue{
+		{DisplayValue: "no raw value"},
+	}}
+	got, ok := jiraAssetAttributeProvenanceValue(attr)
+	if !ok || got != "no raw value" {
+		t.Fatalf("provenance = %#v (ok=%t), want the display-text fallback", got, ok)
+	}
+}
 
 // TestJiraAssetAttributeNativeValueUsesCanonicalValues is the WI-2069
 // regression: native asset fields must use the canonical raw value instead of

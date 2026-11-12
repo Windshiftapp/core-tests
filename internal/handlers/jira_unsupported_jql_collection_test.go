@@ -41,7 +41,7 @@ func TestImportJiraSavedFilterWithUnsupportedPredicateIsNonExecutable(t *testing
 		Name: "My filter",
 		JQL:  `project = FLT AND assignee = currentUser()`,
 	}}}}
-	h.importJiraSavedFilters(context.Background(), "job-jsm", "FLT", workspaceID, client, 0)
+	h.importJiraSavedFilters(context.Background(), "job-jsm", "FLT", workspaceID, []string{"FLT"}, client, 0)
 
 	var qlQuery string
 	if err := db.QueryRow(`SELECT ql_query FROM collections WHERE workspace_id = ?`, workspaceID).Scan(&qlQuery); err != nil {
@@ -57,8 +57,8 @@ func TestImportJiraSavedFilterWithUnsupportedPredicateIsNonExecutable(t *testing
 	var metadataJSON string
 	if err := db.QueryRow(`
 		SELECT metadata_json FROM jira_import_id_mappings
-		WHERE job_id = 'job-jsm' AND entity_type = 'collection' AND jira_id = 'filter:1'
-	`).Scan(&metadataJSON); err != nil {
+		WHERE job_id = 'job-jsm' AND entity_type = 'collection' AND jira_id = ?
+	`, jiraFilterCollectionID("1", workspaceID)).Scan(&metadataJSON); err != nil {
 		t.Fatalf("load collection mapping: %v", err)
 	}
 	var metadata map[string]any
@@ -91,7 +91,7 @@ func TestImportJiraSavedFilterWithOnlyUnsupportedOrderingStaysExecutable(t *test
 		Name: "Ordered filter",
 		JQL:  `project = ORD AND status = Open ORDER BY created DESC`,
 	}}}}
-	h.importJiraSavedFilters(context.Background(), "job-jsm", "ORD", workspaceID, client, 0)
+	h.importJiraSavedFilters(context.Background(), "job-jsm", "ORD", workspaceID, []string{"ORD"}, client, 0)
 
 	var qlQuery string
 	if err := db.QueryRow(`SELECT ql_query FROM collections WHERE workspace_id = ?`, workspaceID).Scan(&qlQuery); err != nil {

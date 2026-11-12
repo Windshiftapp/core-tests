@@ -19,6 +19,38 @@ func (c *unavailableAssetsClient) ListObjectSchemas(context.Context) ([]jira.Ass
 	return nil, jira.ErrAssetsNotAvailable
 }
 
+// TestImportJiraAssetsRequiresExplicitSelection is the WI-262 regression: a
+// project-scoped import must not read every schema the Jira token can see.
+func TestImportJiraAssetsRequiresExplicitSelection(t *testing.T) {
+	db := newJiraServiceManagementTestDB(t)
+	h := NewJiraImportHandler(db, "jira-assets-selection-secret", "", blobstore.Disabled())
+
+	h.importJiraAssets(context.Background(), "job-jsm", &unavailableAssetsClient{}, 0, nil)
+
+	var setCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM asset_management_sets`).Scan(&setCount); err != nil {
+		t.Fatalf("count asset sets: %v", err)
+	}
+	if setCount != 0 {
+		t.Fatalf("asset set count = %d, want 0 without an explicit selection", setCount)
+	}
+
+	var metadataJSON string
+	if err := db.QueryRow(`
+		SELECT metadata_json FROM jira_import_id_mappings
+		WHERE job_id = 'job-jsm' AND entity_type = 'fidelity_finding' AND jira_id = 'assets-capability'
+	`).Scan(&metadataJSON); err != nil {
+		t.Fatalf("load Assets fidelity finding: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		t.Fatalf("decode Assets fidelity finding: %v", err)
+	}
+	if metadata["code"] != "jira_assets_not_selected" || metadata["disposition"] != "skipped" {
+		t.Fatalf("Assets finding metadata = %#v, want jira_assets_not_selected/skipped", metadata)
+	}
+}
+
 // TestImportJiraAssetsUnavailableRecordsFindingWithoutCreatingSets is the
 // WI-2078 regression: an unsupported Assets capability must not create empty
 // native asset sets, and must record a durable finding.
@@ -26,7 +58,7 @@ func TestImportJiraAssetsUnavailableRecordsFindingWithoutCreatingSets(t *testing
 	db := newJiraServiceManagementTestDB(t)
 	h := NewJiraImportHandler(db, "jira-assets-unavailable-secret", "", blobstore.Disabled())
 
-	h.importJiraAssets(context.Background(), "job-jsm", &unavailableAssetsClient{}, 0)
+	h.importJiraAssets(context.Background(), "job-jsm", &unavailableAssetsClient{}, 0, []string{"1"})
 
 	var setCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM asset_management_sets`).Scan(&setCount); err != nil {

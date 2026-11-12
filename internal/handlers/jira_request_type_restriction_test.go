@@ -97,7 +97,7 @@ func TestEnsureJiraRequestTypesFailsClosedForRestrictedAndUnknownStatuses(t *tes
 		{ID: "1", Name: "Open form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN"},
 		{ID: "2", Name: "Restricted form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "RESTRICTED"},
 		{ID: "3", Name: "Unknown form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "CLOSED"},
-	}, map[string]int{"10003": itemTypeID})
+	}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("ensure Jira request types: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestReimportRestrictedJiraRequestTypeDisablesPreviouslyActiveType(t *testin
 
 	firstMap, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{{
 		ID: "2", Name: "Restricted form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN",
-	}}, map[string]int{"10003": itemTypeID})
+	}}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("initial Jira request type import: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestReimportRestrictedJiraRequestTypeDisablesPreviouslyActiveType(t *testin
 
 	reimportMap, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{{
 		ID: "2", Name: "Restricted form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "RESTRICTED",
-	}}, map[string]int{"10003": itemTypeID})
+	}}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("reimport Jira request type: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestReimportRestrictedJiraRequestTypePreservesConfiguredAudience(t *testing
 
 	firstMap, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{{
 		ID: "2", Name: "Restricted form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "RESTRICTED",
-	}}, map[string]int{"10003": itemTypeID})
+	}}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("initial Jira request type import: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestReimportRestrictedJiraRequestTypePreservesConfiguredAudience(t *testing
 
 	if _, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{{
 		ID: "2", Name: "Restricted form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "RESTRICTED",
-	}}, map[string]int{"10003": itemTypeID}); err != nil {
+	}}, map[string]int{"10003": itemTypeID}, nil); err != nil {
 		t.Fatalf("reimport Jira request type: %v", err)
 	}
 	active, metadata := importedRequestTypeState(t, db, requestTypeID)
@@ -220,7 +220,7 @@ func TestImportedRestrictedJiraRequestTypeDeniedToUnrelatedPortalUser(t *testing
 	requestTypeMap, err := h.ensureJiraRequestTypes("job-jsm", channelID, workspaceID, []jira.JiraServiceDeskRequestType{
 		{ID: "1", Name: "Open form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "OPEN"},
 		{ID: "2", Name: "Restricted form", IssueTypeID: "10003", ServiceDeskID: "1", RestrictionStatus: "RESTRICTED"},
-	}, map[string]int{"10003": itemTypeID})
+	}, map[string]int{"10003": itemTypeID}, nil)
 	if err != nil {
 		t.Fatalf("ensure Jira request types: %v", err)
 	}

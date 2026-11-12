@@ -100,3 +100,55 @@ func TestJiraReadinessReportsUnknownWorkflowRulesAsLossy(t *testing.T) {
 	}
 	t.Fatalf("workflow rule visibility finding missing from %#v", findings)
 }
+
+// TestJiraReadinessDescribesGuardedTransitionsAsSourceVisibility is the WI-1943
+// regression: the blocked finding must blame Jira's incomplete rule read, not
+// claim the Windshift condition model cannot express Jira rules. Mappable guards
+// are recreated, so the reason must say so.
+func TestJiraReadinessDescribesGuardedTransitionsAsSourceVisibility(t *testing.T) {
+	client := &fakeJiraReadinessConfigurationClient{
+		issueTypes: []jira.JiraIssueType{{ID: "bug", Name: "Bug"}},
+		workflow: &jira.JiraProjectWorkflowConfiguration{
+			IssueTypeWorkflowIDs: map[string]string{"bug": "workflow-1"},
+			Workflows: []jira.JiraWorkflowConfiguration{{
+				ID:        "workflow-1",
+				StatusIDs: []string{"open", "done"},
+				Transitions: []jira.JiraConfiguredWorkflowTransition{
+					{Type: jira.JiraWorkflowTransitionInitial, ToStatusID: "open"},
+					{
+						Type:           jira.JiraWorkflowTransitionDirected,
+						FromStatusIDs:  []string{"open"},
+						ToStatusID:     "done",
+						ConditionCount: 1,
+					},
+				},
+			}},
+		},
+		screen: &jira.JiraProjectScreenConfiguration{},
+	}
+
+	findings := (&JiraImportHandler{}).jiraConfigurationReadinessFindings(
+		context.Background(),
+		client,
+		&jira.JiraProject{ID: "project-1", Name: "APP"},
+		"APP",
+		map[string]jira.FieldMappingSuggestion{},
+	)
+
+	for _, finding := range findings {
+		if finding.Entity != "Workflow conditions and validators" {
+			continue
+		}
+		if strings.Contains(finding.Reason, "do not safely map") {
+			t.Fatalf("finding still claims the target model cannot express Jira rules: %#v", finding)
+		}
+		if !strings.Contains(finding.Reason, "does not return the full rule tree") {
+			t.Fatalf("finding = %#v, want the incomplete-source reason", finding)
+		}
+		if !strings.Contains(finding.Reason, "recreated") {
+			t.Fatalf("finding = %#v, want it to state that mappable guards are recreated", finding)
+		}
+		return
+	}
+	t.Fatalf("workflow conditions/validators finding missing from %#v", findings)
+}

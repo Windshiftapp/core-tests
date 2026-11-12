@@ -119,7 +119,7 @@ func TestAuthoritativeJiraWorkflowEdgesPreserveTopologyAndOnlyLockKnownRules(t *
 	}
 	statusMap := map[string]int{"open": 11, "doing": 22, "done": 33}
 
-	edges := authoritativeJiraWorkflowEdges(&group, statusMap)
+	edges := authoritativeJiraWorkflowEdges(&group, statusMap, jiraGuardPrincipals{})
 	got := make(map[[2]int]bool)
 	initialTargets := make(map[int]bool)
 	for _, edge := range edges {
@@ -384,7 +384,7 @@ func TestJiraWorkflowReviewLockBlocksImportedTransition(t *testing.T) {
 	if allowed {
 		t.Fatal("imported transition review lock allowed the transition")
 	}
-	if message != "Imported Jira transition is locked pending review of source conditions and validators." {
+	if message != "Imported Jira transition is locked pending review of source conditions and validators that Windshift cannot map." {
 		t.Fatalf("failure message = %q", message)
 	}
 }
