@@ -17,7 +17,6 @@ workspace/
 You will need:
 
 - the Go version declared in `core/go.mod`;
-- Bun 1.4 or later;
 - the Node.js version declared in `core/.nvmrc`; and
 - Chromium for browser tests. The browser runner installs the matching
   Playwright browser when needed.

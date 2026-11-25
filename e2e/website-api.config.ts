@@ -10,7 +10,7 @@ export default defineConfig({
 	},
 	outputDir: "/private/tmp/windshift-api-browser-results",
 	webServer: {
-		command: "bun ../frontend/website/serve.mjs",
+		command: "node ../frontend/website/serve.mjs",
 		url: "http://127.0.0.1:4199/rest-api",
 		reuseExistingServer: false,
 	},

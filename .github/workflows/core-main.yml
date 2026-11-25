@@ -47,16 +47,11 @@ jobs:
         with:
           node-version-file: core/.nvmrc
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.0
-
       - name: Install Chromium
         working-directory: core-tests/e2e
         run: |
           npm ci
-          bun --bun playwright install --with-deps chromium
+          npm exec -- playwright install --with-deps chromium
 
       - name: Install pinned Mailpit
         run: ./core-tests/scripts/install-mailpit.sh ./core-tests/.bin/mailpit

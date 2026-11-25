@@ -34,9 +34,11 @@ Use `./test`; the other runner scripts are implementation details.
 ./test policy                               # repository quality checks
 ```
 
-Pass `--core PATH` before the command when Core is not at `../core`. Use Bun
-1.4 or later for JavaScript, Vitest, Playwright, and one-off scripts. Preserve
-committed lockfiles and do not migrate package managers as a side effect.
+Pass `--core PATH` before the command when Core is not at `../core`. Use the
+Node.js version declared in `core/.nvmrc` for JavaScript, Vitest, Playwright,
+and one-off scripts; launch package scripts with `npm run` and installed tools
+with `npm exec --`. Preserve committed lockfiles and do not migrate package
+managers as a side effect.
 
 ## Test quality
 

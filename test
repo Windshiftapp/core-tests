@@ -64,15 +64,16 @@ run_policy() {
   (
     cd "$repo_root/e2e"
     npm ci --ignore-scripts
-    bun --bun run test:result-policy
-    bun --bun run test:suite-boundaries
-    bun --bun run test:selector-policy
+    npm run test:result-policy
+    npm run test:suite-boundaries
+    npm run test:selector-policy
   )
 }
 
 manifest_list() {
-  bun -e '
-    const manifest = await Bun.file(process.argv[1]).json();
+  node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    const manifest = JSON.parse(readFileSync(process.argv[1], "utf8"));
     for (const value of manifest[process.argv[2]][process.argv[3]]) console.log(value);
   ' "$repo_root/suite-manifest.json" "$1" "$2"
 }

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // Per-run path overrides let `run-e2e.sh` isolate concurrent invocations.
-// Defaults preserve the old behavior for ad-hoc `bun --bun playwright test` runs.
+// Defaults preserve the old behavior for ad-hoc `npm exec -- playwright test` runs.
 const AUTH_FILE = process.env.E2E_AUTH_FILE ?? ".auth/user.json";
 const OUTPUT_DIR = process.env.E2E_OUTPUT_DIR ?? "test-results";
 const REPORT_DIR = process.env.E2E_REPORT_DIR ?? "playwright-report";

@@ -12,7 +12,7 @@ low-level root runners are internal implementation details.
 - Create isolated temporary directories, resolve the Core path explicitly, and
   clean up every generated binary, database, process, and report on exit.
 - Never mutate the source Core checkout as part of an overlay run.
-- Preserve the committed npm lockfile and use Bun to launch Vitest and
-  Playwright.
+- Preserve the committed npm lockfile and use Node.js and npm to launch Vitest
+  and Playwright.
 - Validate shell changes with `bash -n`, run `./test policy`, and exercise the
   affected public command through `./test`.

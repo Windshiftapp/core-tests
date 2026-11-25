@@ -23,7 +23,7 @@ export default defineConfig({
     reporters: ['verbose'],
     // Coverage configuration
     coverage: {
-      // Bun 1.4 can emit zero-width V8 ranges that break suite-wide merging.
+      // Keep the installed Istanbul provider and existing coverage baselines.
       provider: 'istanbul',
       reporter: ['text', 'html'],
       exclude: ['node_modules/', 'src/setupTests.js', '**/*.test.{js,ts}', '**/*.spec.{js,ts}'],

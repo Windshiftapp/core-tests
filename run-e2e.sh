@@ -327,7 +327,7 @@ else
 fi
 
 info "Checking E2E suite ownership boundaries..."
-(cd "$E2E_DIR" && bun --bun run test:suite-boundaries)
+(cd "$E2E_DIR" && npm run test:suite-boundaries)
 ok "E2E suite ownership boundaries verified"
 
 # Browser binaries live outside node_modules in Playwright's cache, so they can
@@ -347,10 +347,10 @@ elif [[ "$BROWSER" == "chromium" && -n "${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-}
 else
   if [[ "$NEEDS_HEADED_BROWSER" == true || "$BROWSER" != "chromium" ]]; then
     info "Ensuring Playwright $BROWSER browser is installed..."
-    (cd "$E2E_DIR" && bun --bun playwright install "$BROWSER")
+    (cd "$E2E_DIR" && npm exec -- playwright install "$BROWSER")
   else
     info "Ensuring Playwright Chromium headless shell is installed..."
-    (cd "$E2E_DIR" && bun --bun playwright install --only-shell chromium)
+    (cd "$E2E_DIR" && npm exec -- playwright install --only-shell chromium)
   fi
 fi
 ok "Playwright browser dependencies ready"
@@ -446,7 +446,7 @@ run_playwright_project() {
        E2E_FAIL_ON_RETRY="${E2E_FAIL_ON_RETRY:-0}" \
        MAILPIT_SMTP_PORT="${MAILPIT_SMTP_PORT:-}" \
        MAILPIT_HTTP_PORT="${MAILPIT_HTTP_PORT:-}" \
-       bun --bun playwright test --project="$project" "${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"}")
+       npm exec -- playwright test --project="$project" "${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"}")
 }
 
 : > "$LOG_FILE"
