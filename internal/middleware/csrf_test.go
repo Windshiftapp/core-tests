@@ -218,3 +218,40 @@ func TestDisabledCSRFValidatorAllowsUnsafeRequestWithoutOriginHeaders(t *testing
 		t.Fatal("disabled validator rejected request")
 	}
 }
+
+func TestCSRFProtectionExemptsOAuthProtocolEndpoints(t *testing.T) {
+	t.Parallel()
+
+	handler := CSRFProtection(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for _, path := range []string{"/api/oauth/register", "/api/oauth/token"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, req)
+
+			if recorder.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+			}
+		})
+	}
+}
+
+func TestCSRFProtectionStillProtectsOAuthConsentMutation(t *testing.T) {
+	t.Parallel()
+
+	handler := CSRFProtection(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/oauth/authorize/approve", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+}
